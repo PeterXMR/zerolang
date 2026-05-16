@@ -1,0 +1,9 @@
+fun id<T>(value: T) -> T {
+    return value
+}
+
+pub fun main() -> Void {
+    let mut x = 1
+    let r: ref<i32> = id(&x)
+    x = 2
+}

@@ -1,0 +1,10 @@
+pub fun main() -> Void {
+    let mut x = 1
+    let z = 2
+    let mut r = &x
+    if true {
+        let x = 3
+        r = &z
+    }
+    x = 4
+}

@@ -1,0 +1,7 @@
+shape S {
+    x: i32,
+}
+
+pub fun main() -> Void {
+    let x: i32 = S { x: 1 }
+}

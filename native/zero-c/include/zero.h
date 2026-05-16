@@ -519,6 +519,7 @@ typedef struct {
 typedef struct {
   char *name;
   char *stable_id;
+  char *world_param_name;
   IrTypeKind return_type;
   IrTypeKind value_return_type;
   IrLocal *locals;

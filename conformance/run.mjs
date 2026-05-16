@@ -247,6 +247,9 @@ for (const fixture of [
   "conformance/native/pass/checked-bounds-get.0",
   "conformance/native/pass/check-maybe-fallibility.0",
   "conformance/native/pass/fallibility-error-sets.0",
+  "conformance/native/pass/checked-fallible-wrapper.0",
+  "conformance/native/pass/checked-fallible-static-method.0",
+  "conformance/native/pass/checked-fallible-interface-method.0",
   "conformance/native/pass/fallibility-check-value.0",
   "conformance/native/pass/rescue-check.0",
   "conformance/native/pass/std-fs-fallible.0",
@@ -293,6 +296,11 @@ for (const fixture of [
   "conformance/native/pass/owned-drop-cleanup.0",
   "conformance/native/pass/owned-drop-move-suppressed.0",
   "conformance/native/pass/borrow-primitives.0",
+  "conformance/native/pass/borrow-return-param-ref.0",
+  "conformance/native/pass/borrow-assignment-same-origin.0",
+  "conformance/native/pass/borrow-shadowed-root-reassignment.0",
+  "conformance/native/pass/borrow-branch-reassignment.0",
+  "conformance/native/pass/shape-field-reference-reassignment-clears-origin.0",
   "conformance/native/pass/allocator-primitives.0",
   "conformance/native/pass/std-mem-arena.0",
   "conformance/native/pass/std-mem-collections.0",
@@ -2559,5 +2567,56 @@ assert.match(sliceNonIntegerBound.stderr, /TYP022/);
 const sliceNonSliceable = await execFileAsync(zero, ["check", "conformance/native/fail/slice-non-sliceable.0"]).catch((error) => error);
 assert.notEqual(sliceNonSliceable.code, 0);
 assert.match(sliceNonSliceable.stderr, /TYP021/);
+
+for (const [fixture, code] of [
+  ["missing-return-path.0", /TYP003/],
+  ["check-non-fallible-value.0", /ERR001/],
+  ["unchecked-fallible-wrapper.0", /ERR003/],
+  ["unchecked-fallible-wrapper-declared-later.0", /ERR003/],
+  ["unchecked-fallible-receiver-wrapper.0", /ERR003/],
+  ["unchecked-fallible-generic-call.0", /ERR003/],
+  ["unchecked-fallible-static-method.0", /ERR003/],
+  ["unchecked-fallible-interface-method.0", /ERR003/],
+  ["unchecked-fallible-interface-wrapper.0", /ERR003/],
+  ["error-set-wrapper-mismatch.0", /ERR002/],
+  ["error-set-wrapper-nested-check-mismatch.0", /ERR002/],
+  ["error-set-interface-wrapper-mismatch.0", /ERR002/],
+  ["unknown-member-on-non-shape.0", /TYP021/],
+  ["function-used-as-value.0", /TYP001/],
+  ["call-local-value.0", /TYP001/],
+  ["call-shadowed-function-value.0", /TYP001/],
+  ["shape-literal-expected-type.0", /TYP002/],
+  ["heterogeneous-array-literal.0", /TYP002/],
+  ["unknown-function-parameter-type.0", /NAM003/],
+  ["unknown-local-generic-type.0", /NAM003/],
+  ["duplicate-shape-field.0", /NAM004/],
+  ["duplicate-enum-case.0", /NAM004/],
+  ["duplicate-shape-literal-field.0", /NAM004/],
+  ["type-name-used-as-value.0", /TYP001/],
+  ["read-while-mutably-borrowed.0", /BOR001/],
+  ["local-reference-escape-call.0", /BOR002/],
+  ["local-reference-escape-binding.0", /BOR002/],
+  ["local-reference-escape-method.0", /BOR002/],
+  ["local-reference-escape-param.0", /BOR002/],
+  ["local-reference-escape-param-call.0", /BOR002/],
+  ["borrow-assignment-origin-tracking.0", /BOR001/],
+  ["borrow-assignment-shorter-lived-root.0", /BOR002/],
+  ["borrow-branch-origin-merge.0", /BOR001/],
+  ["borrow-call-result-multiple-origins.0", /BOR001/],
+  ["borrow-self-assignment-origin-tracking.0", /BOR001/],
+  ["generic-reference-borrow-origin.0", /BOR001/],
+  ["generic-reference-return-escape.0", /BOR002/],
+  ["shape-field-reference-escape.0", /BOR002/],
+  ["shape-field-reference-borrow-origin.0", /BOR001/],
+  ["return-shape-reference-escape.0", /BOR002/],
+  ["shape-field-reference-call-return-escape.0", /BOR002/],
+  ["shape-field-reference-assignment-origin.0", /BOR001/],
+  ["shape-field-reference-assignment-preserves-other-origin.0", /BOR001/],
+  ["world-stream-used-as-value.0", /TYP001/],
+]) {
+  const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, code);
+}
 
 console.log("conformance ok");

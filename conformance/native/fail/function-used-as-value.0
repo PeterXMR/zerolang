@@ -1,0 +1,7 @@
+fun f() -> i32 {
+    return 1
+}
+
+pub fun main() -> i32 {
+    return f
+}

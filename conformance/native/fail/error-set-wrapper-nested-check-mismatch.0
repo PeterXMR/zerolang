@@ -1,0 +1,16 @@
+fun read() -> u8 raises { Bad } {
+    raise Bad
+}
+
+fun consume(value: u8) -> u8 raises { Other } {
+    return value
+}
+
+fun wrapper() -> u8 raises {
+    let value = check consume(check read())
+    return value
+}
+
+pub fun main() -> Void raises { Other } {
+    let value = check wrapper()
+}

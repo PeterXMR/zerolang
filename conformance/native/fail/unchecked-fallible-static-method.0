@@ -1,0 +1,11 @@
+shape S {
+    value: i32,
+
+    fun risky() -> Void raises { Bad } {
+        raise Bad
+    }
+}
+
+pub fun main() -> Void raises { Bad } {
+    S.risky()
+}

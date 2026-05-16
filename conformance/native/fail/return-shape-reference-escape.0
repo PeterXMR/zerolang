@@ -1,0 +1,11 @@
+shape Box {
+    value: ref<i32>,
+}
+
+pub fun make() -> Box {
+    let value = 1
+    return Box { value: &value }
+}
+
+pub fun main() -> Void {
+}

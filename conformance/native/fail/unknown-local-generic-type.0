@@ -1,0 +1,3 @@
+pub fun main() -> Void {
+    let x: Maybe<Nope> = null
+}

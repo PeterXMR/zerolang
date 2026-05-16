@@ -8,20 +8,38 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct Scope {
+typedef struct Scope Scope;
+
+typedef struct {
+  char **roots;
+  Scope **root_scopes;
+  char **paths;
+  bool *mutable_borrow;
+  bool *local_storage;
+  size_t len;
+  size_t cap;
+} BorrowOrigins;
+
+typedef struct BorrowScopeSnapshot {
+  Scope *scope;
+  BorrowOrigins *origins;
+  size_t len;
+  struct BorrowScopeSnapshot *next;
+} BorrowScopeSnapshot;
+
+struct Scope {
   char **names;
   char **types;
   bool *mutable;
   bool *moved;
   bool *is_param;
-  char **borrow_root;
-  bool *borrow_mut;
+  BorrowOrigins *borrow_origins;
   size_t *shared_borrows;
   size_t *mut_borrows;
   size_t len;
   size_t cap;
-  struct Scope *parent;
-} Scope;
+  Scope *parent;
+};
 
 typedef enum {
   META_VALUE_NUMBER,
@@ -61,6 +79,135 @@ static const ZTargetInfo *current_check_target = NULL;
 static MetaCacheEntry *meta_cache = NULL;
 static ZMetaCacheStats meta_stats = {0};
 
+static const char *origin_path_text(const char *path) {
+  return path ? path : "";
+}
+
+static bool origin_path_equal(const char *left, const char *right) {
+  return strcmp(origin_path_text(left), origin_path_text(right)) == 0;
+}
+
+static bool origin_path_is_within(const char *path, const char *parent) {
+  const char *actual = origin_path_text(path);
+  const char *prefix = origin_path_text(parent);
+  if (!prefix[0]) return true;
+  size_t prefix_len = strlen(prefix);
+  return strcmp(actual, prefix) == 0 ||
+    (strncmp(actual, prefix, prefix_len) == 0 && actual[prefix_len] == '.');
+}
+
+static const char *origin_path_after_prefix(const char *path, const char *prefix) {
+  const char *actual = origin_path_text(path);
+  const char *parent = origin_path_text(prefix);
+  if (!parent[0]) return actual;
+  size_t parent_len = strlen(parent);
+  if (strcmp(actual, parent) == 0) return "";
+  if (strncmp(actual, parent, parent_len) == 0 && actual[parent_len] == '.') return actual + parent_len + 1;
+  return actual;
+}
+
+static char *origin_path_join(const char *prefix, const char *suffix) {
+  const char *left = origin_path_text(prefix);
+  const char *right = origin_path_text(suffix);
+  if (!left[0]) return right[0] ? z_strdup(right) : NULL;
+  if (!right[0]) return z_strdup(left);
+  size_t left_len = strlen(left);
+  size_t right_len = strlen(right);
+  char *joined = malloc(left_len + right_len + 2);
+  snprintf(joined, left_len + right_len + 2, "%s.%s", left, right);
+  return joined;
+}
+
+static bool borrow_origins_add_path(BorrowOrigins *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage, const char *path) {
+  if (!origins || !root || !root[0]) return false;
+  for (size_t i = 0; i < origins->len; i++) {
+    if (strcmp(origins->roots[i], root) == 0 && origins->root_scopes[i] == root_scope && origin_path_equal(origins->paths[i], path)) {
+      origins->mutable_borrow[i] = origins->mutable_borrow[i] || mut_borrow;
+      origins->local_storage[i] = origins->local_storage[i] || local_storage;
+      return true;
+    }
+  }
+  if (origins->len + 1 > origins->cap) {
+    origins->cap = origins->cap == 0 ? 4 : origins->cap * 2;
+    origins->roots = realloc(origins->roots, origins->cap * sizeof(char *));
+    origins->root_scopes = realloc(origins->root_scopes, origins->cap * sizeof(Scope *));
+    origins->paths = realloc(origins->paths, origins->cap * sizeof(char *));
+    origins->mutable_borrow = realloc(origins->mutable_borrow, origins->cap * sizeof(bool));
+    origins->local_storage = realloc(origins->local_storage, origins->cap * sizeof(bool));
+  }
+  origins->roots[origins->len] = z_strdup(root);
+  origins->root_scopes[origins->len] = root_scope;
+  origins->paths[origins->len] = path && path[0] ? z_strdup(path) : NULL;
+  origins->mutable_borrow[origins->len] = mut_borrow;
+  origins->local_storage[origins->len] = local_storage;
+  origins->len++;
+  return true;
+}
+
+static bool borrow_origins_add(BorrowOrigins *origins, const char *root, Scope *root_scope, bool mut_borrow, bool local_storage) {
+  return borrow_origins_add_path(origins, root, root_scope, mut_borrow, local_storage, NULL);
+}
+
+static bool borrow_origins_add_all_as(BorrowOrigins *out, const BorrowOrigins *source, bool mut_borrow) {
+  bool added = false;
+  if (!out || !source) return false;
+  for (size_t i = 0; i < source->len; i++) {
+    if (borrow_origins_add_path(out, source->roots[i], source->root_scopes[i], mut_borrow, source->local_storage[i], source->paths[i])) added = true;
+  }
+  return added;
+}
+
+static bool borrow_origins_add_all(BorrowOrigins *out, const BorrowOrigins *source) {
+  bool added = false;
+  if (!out || !source) return false;
+  for (size_t i = 0; i < source->len; i++) {
+    if (borrow_origins_add_path(out, source->roots[i], source->root_scopes[i], source->mutable_borrow[i], source->local_storage[i], source->paths[i])) added = true;
+  }
+  return added;
+}
+
+static bool borrow_origins_add_all_with_prefix(BorrowOrigins *out, const BorrowOrigins *source, const char *path_prefix) {
+  bool added = false;
+  if (!out || !source) return false;
+  for (size_t i = 0; i < source->len; i++) {
+    char *path = origin_path_join(path_prefix, source->paths[i]);
+    if (borrow_origins_add_path(out, source->roots[i], source->root_scopes[i], source->mutable_borrow[i], source->local_storage[i], path)) added = true;
+    free(path);
+  }
+  return added;
+}
+
+static bool borrow_origins_add_all_under_path(BorrowOrigins *out, const BorrowOrigins *source, const char *path_prefix) {
+  bool added = false;
+  if (!out || !source) return false;
+  for (size_t i = 0; i < source->len; i++) {
+    if (!origin_path_is_within(source->paths[i], path_prefix)) continue;
+    const char *relative_path = origin_path_after_prefix(source->paths[i], path_prefix);
+    if (borrow_origins_add_path(out, source->roots[i], source->root_scopes[i], source->mutable_borrow[i], source->local_storage[i], relative_path)) added = true;
+  }
+  return added;
+}
+
+static void borrow_origins_free(BorrowOrigins *origins) {
+  if (!origins) return;
+  for (size_t i = 0; i < origins->len; i++) {
+    free(origins->roots[i]);
+    free(origins->paths[i]);
+  }
+  free(origins->roots);
+  free(origins->root_scopes);
+  free(origins->paths);
+  free(origins->mutable_borrow);
+  free(origins->local_storage);
+  origins->roots = NULL;
+  origins->root_scopes = NULL;
+  origins->paths = NULL;
+  origins->mutable_borrow = NULL;
+  origins->local_storage = NULL;
+  origins->len = 0;
+  origins->cap = 0;
+}
+
 void z_set_check_target(const ZTargetInfo *target) {
   current_check_target = target;
 }
@@ -77,8 +224,7 @@ static void scope_add_ex(Scope *scope, const char *name, const char *type, bool 
     scope->mutable = realloc(scope->mutable, scope->cap * sizeof(bool));
     scope->moved = realloc(scope->moved, scope->cap * sizeof(bool));
     scope->is_param = realloc(scope->is_param, scope->cap * sizeof(bool));
-    scope->borrow_root = realloc(scope->borrow_root, scope->cap * sizeof(char *));
-    scope->borrow_mut = realloc(scope->borrow_mut, scope->cap * sizeof(bool));
+    scope->borrow_origins = realloc(scope->borrow_origins, scope->cap * sizeof(BorrowOrigins));
     scope->shared_borrows = realloc(scope->shared_borrows, scope->cap * sizeof(size_t));
     scope->mut_borrows = realloc(scope->mut_borrows, scope->cap * sizeof(size_t));
   }
@@ -87,8 +233,7 @@ static void scope_add_ex(Scope *scope, const char *name, const char *type, bool 
   scope->mutable[scope->len - 1] = mutable;
   scope->moved[scope->len - 1] = false;
   scope->is_param[scope->len - 1] = is_param;
-  scope->borrow_root[scope->len - 1] = NULL;
-  scope->borrow_mut[scope->len - 1] = false;
+  scope->borrow_origins[scope->len - 1] = (BorrowOrigins){0};
   scope->shared_borrows[scope->len - 1] = 0;
   scope->mut_borrows[scope->len - 1] = 0;
 }
@@ -106,6 +251,22 @@ static bool scope_has(Scope *scope, const char *name) {
     for (size_t i = 0; i < cursor->len; i++) {
       if (strcmp(cursor->names[i], name) == 0) return true;
     }
+  }
+  return false;
+}
+
+static Scope *scope_binding_scope(Scope *scope, const char *name) {
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->len; i++) {
+      if (strcmp(cursor->names[i], name) == 0) return cursor;
+    }
+  }
+  return NULL;
+}
+
+static bool scope_is_ancestor_or_self(const Scope *candidate, const Scope *scope) {
+  for (const Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    if (cursor == candidate) return true;
   }
   return false;
 }
@@ -171,65 +332,218 @@ static bool scope_borrow_counts(Scope *scope, const char *name, size_t *shared, 
   return false;
 }
 
+static bool scope_adjust_borrow_count_in_scope(Scope *binding_scope, const char *name, bool mut_borrow, int delta) {
+  if (!binding_scope || !name) return false;
+  for (size_t i = 0; i < binding_scope->len; i++) {
+    if (strcmp(binding_scope->names[i], name) == 0) {
+      size_t *count = mut_borrow ? &binding_scope->mut_borrows[i] : &binding_scope->shared_borrows[i];
+      if (delta < 0) {
+        size_t amount = (size_t)(-delta);
+        *count = amount > *count ? 0 : *count - amount;
+      } else {
+        *count += (size_t)delta;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool scope_adjust_borrow_count(Scope *scope, const char *name, bool mut_borrow, int delta) {
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    if (scope_adjust_borrow_count_in_scope(cursor, name, mut_borrow, delta)) return true;
+  }
+  return false;
+}
+
+static bool scope_adjust_origin_borrow_count(Scope *lookup_scope, const char *name, Scope *root_scope, bool mut_borrow, int delta) {
+  if (root_scope && scope_adjust_borrow_count_in_scope(root_scope, name, mut_borrow, delta)) return true;
+  return scope_adjust_borrow_count(lookup_scope, name, mut_borrow, delta);
+}
+
+static void scope_clear_borrow_origins_at(Scope *lookup_scope, BorrowOrigins *origins) {
+  if (!lookup_scope || !origins) return;
+  for (size_t i = 0; i < origins->len; i++) {
+    scope_adjust_origin_borrow_count(lookup_scope, origins->roots[i], origins->root_scopes[i], origins->mutable_borrow[i], -1);
+  }
+  borrow_origins_free(origins);
+}
+
+static void scope_replace_borrow_origins_at(Scope *lookup_scope, Scope *binding_scope, size_t index, const BorrowOrigins *origins) {
+  if (!binding_scope || index >= binding_scope->len) return;
+  Scope *count_lookup = lookup_scope ? lookup_scope : binding_scope;
+  scope_clear_borrow_origins_at(count_lookup, &binding_scope->borrow_origins[index]);
+  if (!origins) return;
+  for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
+    borrow_origins_add_path(&binding_scope->borrow_origins[index], origins->roots[origin_index], origins->root_scopes[origin_index], origins->mutable_borrow[origin_index], origins->local_storage[origin_index], origins->paths[origin_index]);
+    scope_adjust_origin_borrow_count(count_lookup, origins->roots[origin_index], origins->root_scopes[origin_index], origins->mutable_borrow[origin_index], 1);
+  }
+}
+
+static void scope_replace_borrow_origins_path_at(Scope *lookup_scope, Scope *binding_scope, size_t index, const char *path, const BorrowOrigins *origins) {
+  if (!binding_scope || index >= binding_scope->len) return;
+  BorrowOrigins merged = {0};
+  BorrowOrigins *existing = &binding_scope->borrow_origins[index];
+  for (size_t i = 0; i < existing->len; i++) {
+    if (origin_path_is_within(existing->paths[i], path)) continue;
+    borrow_origins_add_path(&merged, existing->roots[i], existing->root_scopes[i], existing->mutable_borrow[i], existing->local_storage[i], existing->paths[i]);
+  }
+  borrow_origins_add_all_with_prefix(&merged, origins, path);
+  scope_replace_borrow_origins_at(lookup_scope, binding_scope, index, &merged);
+  borrow_origins_free(&merged);
+}
+
+static void scope_set_borrow_origins(Scope *scope, const char *name, const BorrowOrigins *origins) {
+  if (!scope || !name || !origins) return;
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->len; i++) {
       if (strcmp(cursor->names[i], name) == 0) {
-        size_t *count = mut_borrow ? &cursor->mut_borrows[i] : &cursor->shared_borrows[i];
-        if (delta < 0) {
-          size_t amount = (size_t)(-delta);
-          *count = amount > *count ? 0 : *count - amount;
-        } else {
-          *count += (size_t)delta;
+        scope_replace_borrow_origins_at(scope, cursor, i, origins);
+        return;
+      }
+    }
+  }
+}
+
+static void scope_set_borrow_origins_path(Scope *scope, const char *name, const char *path, const BorrowOrigins *origins) {
+  if (!scope || !name || !origins) return;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->len; i++) {
+      if (strcmp(cursor->names[i], name) == 0) {
+        scope_replace_borrow_origins_path_at(scope, cursor, i, path, origins);
+        return;
+      }
+    }
+  }
+}
+
+static void scope_clear_borrow_origin(Scope *scope, const char *name) {
+  if (!scope || !name) return;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->len; i++) {
+      if (strcmp(cursor->names[i], name) == 0) {
+        scope_clear_borrow_origins_at(scope, &cursor->borrow_origins[i]);
+        return;
+      }
+    }
+  }
+}
+
+static void scope_clear_borrow_origin_path(Scope *scope, const char *name, const char *path) {
+  BorrowOrigins empty = {0};
+  scope_set_borrow_origins_path(scope, name, path, &empty);
+}
+
+static bool scope_copy_borrow_origins(Scope *scope, const char *name, BorrowOrigins *out) {
+  bool added = false;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->len; i++) {
+      if (strcmp(cursor->names[i], name) == 0) {
+        for (size_t origin_index = 0; origin_index < cursor->borrow_origins[i].len; origin_index++) {
+          if (borrow_origins_add_path(out, cursor->borrow_origins[i].roots[origin_index], cursor->borrow_origins[i].root_scopes[origin_index], cursor->borrow_origins[i].mutable_borrow[origin_index], cursor->borrow_origins[i].local_storage[origin_index], cursor->borrow_origins[i].paths[origin_index])) added = true;
         }
-        return true;
+        return added;
       }
     }
   }
   return false;
 }
 
-static void scope_set_borrow_origin(Scope *scope, const char *name, const char *root, bool mut_borrow) {
-  if (!scope || !name || !root) return;
-  for (size_t i = 0; i < scope->len; i++) {
-    if (strcmp(scope->names[i], name) == 0) {
-      free(scope->borrow_root[i]);
-      scope->borrow_root[i] = z_strdup(root);
-      scope->borrow_mut[i] = mut_borrow;
-      scope_adjust_borrow_count(scope, root, mut_borrow, 1);
-      return;
+static BorrowScopeSnapshot *borrow_scope_snapshot_capture(Scope *scope) {
+  BorrowScopeSnapshot *head = NULL;
+  BorrowScopeSnapshot *tail = NULL;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    BorrowScopeSnapshot *frame = calloc(1, sizeof(BorrowScopeSnapshot));
+    frame->scope = cursor;
+    frame->len = cursor->len;
+    frame->origins = calloc(frame->len, sizeof(BorrowOrigins));
+    for (size_t i = 0; i < frame->len; i++) {
+      borrow_origins_add_all(&frame->origins[i], &cursor->borrow_origins[i]);
     }
+    if (!head) {
+      head = frame;
+    } else {
+      tail->next = frame;
+    }
+    tail = frame;
   }
+  return head;
 }
 
-static const char *scope_borrow_root(Scope *scope, const char *name, bool *mut_borrow) {
-  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    for (size_t i = 0; i < cursor->len; i++) {
-      if (strcmp(cursor->names[i], name) == 0) {
-        if (mut_borrow) *mut_borrow = cursor->borrow_mut[i];
-        return cursor->borrow_root[i];
-      }
-    }
+static const BorrowScopeSnapshot *borrow_scope_snapshot_find(const BorrowScopeSnapshot *snapshot, const Scope *scope) {
+  for (const BorrowScopeSnapshot *frame = snapshot; frame; frame = frame->next) {
+    if (frame->scope == scope) return frame;
   }
   return NULL;
 }
 
+static void borrow_scope_snapshot_restore(const BorrowScopeSnapshot *snapshot) {
+  for (const BorrowScopeSnapshot *frame = snapshot; frame; frame = frame->next) {
+    if (!frame->scope) continue;
+    size_t len = frame->len < frame->scope->len ? frame->len : frame->scope->len;
+    for (size_t i = 0; i < len; i++) {
+      scope_replace_borrow_origins_at(frame->scope, frame->scope, i, &frame->origins[i]);
+    }
+  }
+}
+
+static void borrow_scope_snapshot_restore_union(const BorrowScopeSnapshot *base, BorrowScopeSnapshot *const *states, const bool *include, size_t state_len) {
+  bool any_included = false;
+  for (size_t state_index = 0; include && state_index < state_len; state_index++) {
+    if (include[state_index]) any_included = true;
+  }
+  if (!any_included) {
+    borrow_scope_snapshot_restore(base);
+    return;
+  }
+  for (const BorrowScopeSnapshot *base_frame = base; base_frame; base_frame = base_frame->next) {
+    if (!base_frame->scope) continue;
+    size_t len = base_frame->len < base_frame->scope->len ? base_frame->len : base_frame->scope->len;
+    for (size_t binding_index = 0; binding_index < len; binding_index++) {
+      BorrowOrigins merged = {0};
+      for (size_t state_index = 0; state_index < state_len; state_index++) {
+        if (!include[state_index]) continue;
+        const BorrowScopeSnapshot *state_frame = borrow_scope_snapshot_find(states[state_index], base_frame->scope);
+        if (state_frame && binding_index < state_frame->len) {
+          borrow_origins_add_all(&merged, &state_frame->origins[binding_index]);
+        } else {
+          borrow_origins_add_all(&merged, &base_frame->origins[binding_index]);
+        }
+      }
+      scope_replace_borrow_origins_at(base_frame->scope, base_frame->scope, binding_index, &merged);
+      borrow_origins_free(&merged);
+    }
+  }
+}
+
+static void borrow_scope_snapshot_free(BorrowScopeSnapshot *snapshot) {
+  while (snapshot) {
+    BorrowScopeSnapshot *next = snapshot->next;
+    for (size_t i = 0; i < snapshot->len; i++) borrow_origins_free(&snapshot->origins[i]);
+    free(snapshot->origins);
+    free(snapshot);
+    snapshot = next;
+  }
+}
+
 static void scope_free(Scope *scope) {
   for (size_t i = 0; i < scope->len; i++) {
-    if (scope->borrow_root[i] && scope->parent) scope_adjust_borrow_count(scope->parent, scope->borrow_root[i], scope->borrow_mut[i], -1);
+    Scope *lookup_scope = scope->parent ? scope->parent : scope;
+    for (size_t origin_index = 0; origin_index < scope->borrow_origins[i].len; origin_index++) {
+      scope_adjust_origin_borrow_count(lookup_scope, scope->borrow_origins[i].roots[origin_index], scope->borrow_origins[i].root_scopes[origin_index], scope->borrow_origins[i].mutable_borrow[origin_index], -1);
+    }
   }
   for (size_t i = 0; i < scope->len; i++) {
     free(scope->names[i]);
     free(scope->types[i]);
-    free(scope->borrow_root[i]);
+    borrow_origins_free(&scope->borrow_origins[i]);
   }
   free(scope->names);
   free(scope->types);
   free(scope->mutable);
   free(scope->moved);
   free(scope->is_param);
-  free(scope->borrow_root);
-  free(scope->borrow_mut);
+  free(scope->borrow_origins);
   free(scope->shared_borrows);
   free(scope->mut_borrows);
 }
@@ -273,6 +587,21 @@ static void member_name_buf(const Expr *expr, ZBuf *buf) {
     zbuf_append_char(buf, '.');
     zbuf_append(buf, expr->text);
   }
+}
+
+static bool is_world_stream_write_callee(const Expr *callee, Scope *scope) {
+  if (!callee || callee->kind != EXPR_MEMBER || !callee->text || strcmp(callee->text, "write") != 0) return false;
+  const Expr *stream = callee->left;
+  if (!stream || stream->kind != EXPR_MEMBER || !stream->text) return false;
+  if (strcmp(stream->text, "out") != 0 && strcmp(stream->text, "err") != 0) return false;
+  const Expr *root = stream->left;
+  if (!root || root->kind != EXPR_IDENT || !root->text) return false;
+  const char *root_type = scope_type(scope, root->text);
+  return root_type && strcmp(root_type, "World") == 0;
+}
+
+static bool is_world_stream_write_call(const Expr *expr, Scope *scope) {
+  return expr && expr->kind == EXPR_CALL && is_world_stream_write_callee(expr->left, scope);
 }
 
 static const char *std_call_return_type(const Expr *callee) {
@@ -405,6 +734,7 @@ static const char *std_call_return_type(const Expr *callee) {
   else if (strcmp(name.data, "std.fs.atomicWrite") == 0) result = "Bool";
   else if (strcmp(name.data, "std.fs.fileLen") == 0) result = "Maybe<usize>";
   else if (strcmp(name.data, "std.fs.fileLenOrRaise") == 0) result = "usize";
+  else if (strcmp(name.data, "Response.text") == 0) result = "Response";
   zbuf_free(&name);
   return result;
 }
@@ -535,6 +865,7 @@ static int std_call_arg_count(const char *name) {
   if (strcmp(name, "std.fs.atomicWrite") == 0) return 3;
   if (strcmp(name, "std.fs.fileLen") == 0) return 1;
   if (strcmp(name, "std.fs.fileLenOrRaise") == 0) return 1;
+  if (strcmp(name, "Response.text") == 0) return 1;
   return -1;
 }
 
@@ -658,6 +989,7 @@ static const char *std_call_arg_type(const char *name, size_t index) {
   if (strcmp(name, "std.fs.atomicWrite") == 0) return index == 2 ? "Span<u8>" : "String";
   if (strcmp(name, "std.fs.fileLen") == 0) return "mutref<File>";
   if (strcmp(name, "std.fs.fileLenOrRaise") == 0) return "mutref<File>";
+  if (strcmp(name, "Response.text") == 0) return "String";
   return NULL;
 }
 
@@ -791,25 +1123,69 @@ static bool expr_root_ident(const Expr *expr, char *out, size_t out_len) {
   }
 }
 
+static bool expr_binding_path(const Expr *expr, char *root, size_t root_len, char *path, size_t path_len) {
+  if (!expr || !root || root_len == 0 || !path || path_len == 0) return false;
+  if (expr->kind == EXPR_IDENT) {
+    snprintf(root, root_len, "%s", expr->text ? expr->text : "");
+    path[0] = '\0';
+    return root[0] != '\0';
+  }
+  if (expr->kind == EXPR_MEMBER) {
+    if (!expr_binding_path(expr->left, root, root_len, path, path_len)) return false;
+    if (!expr->text || !expr->text[0]) return false;
+    size_t current_len = strlen(path);
+    size_t field_len = strlen(expr->text);
+    size_t needed = current_len ? current_len + 1 + field_len : field_len;
+    if (needed + 1 > path_len) return false;
+    if (path[0]) {
+      snprintf(path + current_len, path_len - current_len, ".%s", expr->text);
+    } else {
+      snprintf(path, path_len, "%s", expr->text);
+    }
+    return true;
+  }
+  return false;
+}
+
 static bool expr_is_addressable(const Expr *expr) {
   return expr && (expr->kind == EXPR_IDENT || expr->kind == EXPR_MEMBER || expr->kind == EXPR_INDEX);
 }
 
-static bool expr_borrow_origin(const Expr *expr, Scope *scope, char *out, size_t out_len, bool *mut_borrow) {
-  if (!expr || !out || out_len == 0) return false;
+static bool type_is_named_generic(const char *type, const char *name);
+static bool expr_reference_origins(const Program *program, const Expr *expr, Scope *scope, BorrowOrigins *origins);
+
+static bool borrow_expr_origin_is_local_storage(const Expr *borrowed, Scope *scope, const char *root) {
+  if (!scope_is_param(scope, root)) return true;
+  const char *root_type = scope_type(scope, root);
+  if (!type_is_named_generic(root_type, "ref") && !type_is_named_generic(root_type, "mutref")) return true;
+  return borrowed && borrowed->kind == EXPR_IDENT;
+}
+
+static bool reference_source_origin_is_local_storage(Scope *scope, const char *root) {
+  if (!scope_is_param(scope, root)) return true;
+  const char *root_type = scope_type(scope, root);
+  return !type_is_named_generic(root_type, "ref") && !type_is_named_generic(root_type, "mutref");
+}
+
+static bool expr_borrow_origins(const Expr *expr, Scope *scope, BorrowOrigins *origins) {
+  if (!expr || !origins) return false;
   if (expr->kind == EXPR_BORROW) {
-    if (mut_borrow) *mut_borrow = expr->mutable_borrow;
-    return expr_root_ident(expr->left, out, out_len);
+    char root[128];
+    if (!expr_root_ident(expr->left, root, sizeof(root))) return false;
+    return borrow_origins_add(origins, root, scope_binding_scope(scope, root), expr->mutable_borrow, borrow_expr_origin_is_local_storage(expr->left, scope, root));
   }
   if (expr->kind == EXPR_IDENT) {
-    bool origin_mut = false;
-    const char *root = scope_borrow_root(scope, expr->text, &origin_mut);
-    if (!root) return false;
-    snprintf(out, out_len, "%s", root);
-    if (mut_borrow) *mut_borrow = origin_mut;
-    return true;
+    return scope_copy_borrow_origins(scope, expr->text, origins);
   }
   return false;
+}
+
+static bool expr_reference_origins_as(const Program *program, const Expr *expr, Scope *scope, BorrowOrigins *origins, bool mut_borrow) {
+  BorrowOrigins collected = {0};
+  bool ok = expr_reference_origins(program, expr, scope, &collected);
+  if (ok) ok = borrow_origins_add_all_as(origins, &collected, mut_borrow);
+  borrow_origins_free(&collected);
+  return ok;
 }
 
 static bool check_borrow_conflict(Scope *scope, const char *root, bool mut_borrow, ZDiag *diag, const Expr *expr) {
@@ -915,13 +1291,19 @@ static const char *resolve_alias_type(const char *type) {
 static bool check_expr(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag);
 static bool check_expr_expected(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected);
 static bool check_stmt_vec_with_loop(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag, int loop_depth);
+static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
 static bool check_lvalue_target(const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len);
 static const char *expr_type(const Program *program, const Expr *expr, Scope *scope);
 static bool types_compatible(const char *expected, const char *actual);
+static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
+static const Choice *find_choice(const Program *program, const char *name);
+static const Param *find_case(const ParamVec *cases, const char *name);
 static const Function *find_shape_method_decl(const Shape *shape, const char *name);
 static void set_expr_resolved_type(const Expr *expr, const char *type);
 static const Function *find_namespace_shape_method(const Program *program, const Expr *callee, const Shape **out_shape);
+static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface);
+static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface);
 static void strip_ref_like_type(const char *type, char *out, size_t out_len);
 static bool interface_constraint_parts(const Program *program, const char *constraint, const InterfaceDecl **out_interface, char ***out_args, size_t *out_arg_len);
 static void mark_owned_move_if_needed(const Expr *expr, Scope *scope, const char *destination_type);
@@ -1424,39 +1806,134 @@ static bool function_error_contains(const Function *fun, const char *name) {
   return false;
 }
 
-static bool stmt_vec_raise_errors_covered(const StmtVec *body, const Function *caller, const Expr *call, ZDiag *diag);
+static const Function *fallible_callee(const Program *program, const Expr *expr);
+static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr);
+static bool is_builtin_fallible_call(const Expr *expr);
+static bool function_error_sets_include_builtin(const Function *caller, ZDiag *diag, const Expr *call);
+static bool function_error_sets_compatible_inner(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth);
+static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth);
 
-static bool stmt_raise_errors_covered(const Stmt *stmt, const Function *caller, const Expr *call, ZDiag *diag) {
+static bool expr_raise_errors_covered(const Program *program, const Expr *expr, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
+  if (!expr || depth > 64) return true;
+  if (expr->kind == EXPR_CHECK) {
+    if (is_builtin_fallible_call(expr->left) && !function_error_sets_include_builtin(caller, diag, call)) return false;
+    const Function *callee = fallible_callee_in_context(program, context_fun, scope, expr->left);
+    if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
+    return expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth);
+  }
+  if (expr->kind == EXPR_RESCUE) return expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth);
+  if (!expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth)) return false;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (!expr_raise_errors_covered(program, expr->args.items[i], caller, context_fun, scope, call, diag, depth)) return false;
+  }
+  for (size_t i = 0; i < expr->fields.len; i++) {
+    if (!expr_raise_errors_covered(program, expr->fields.items[i].value, caller, context_fun, scope, call, diag, depth)) return false;
+  }
+  return true;
+}
+
+static void flow_scope_add_stmt_binding(const Program *program, const Stmt *stmt, Scope *scope) {
+  if (!stmt || stmt->kind != STMT_LET || !stmt->name || !scope) return;
+  const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
+  if (!binding_type && stmt->expr) binding_type = expr_type(program, stmt->expr, scope);
+  scope_add(scope, stmt->name, binding_type ? binding_type : "Unknown", stmt->mutable_binding);
+}
+
+static void flow_scope_add_function_bindings(const Function *fun, Scope *scope) {
+  if (!fun || !scope) return;
+  for (size_t type_param_index = 0; type_param_index < fun->type_params.len; type_param_index++) {
+    const Param *type_param = &fun->type_params.items[type_param_index];
+    scope_add(scope, type_param->name, type_param->is_static ? (type_param->type ? type_param->type : "usize") : "Type", false);
+  }
+  for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
+    const Param *param = &fun->params.items[param_index];
+    scope_add_param(scope, param->name, param->type);
+  }
+}
+
+static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!stmt) return true;
+  if (depth > 64) return true;
   if (stmt->kind == STMT_RAISE && stmt->name && !function_error_contains(caller, stmt->name)) {
     char actual[160];
     snprintf(actual, sizeof(actual), "callee may raise %s", stmt->name);
     return set_diag_detail(diag, 1002, "caller error set does not include inferred callee error", call->line, call->column, "caller raises set containing every checked callee error", actual, "add the missing error to the caller's raises { ... } set");
   }
-  if (!stmt_vec_raise_errors_covered(&stmt->then_body, caller, call, diag)) return false;
-  if (!stmt_vec_raise_errors_covered(&stmt->else_body, caller, call, diag)) return false;
+  if (stmt->kind == STMT_CHECK) {
+    if (is_builtin_fallible_call(stmt->expr) && !function_error_sets_include_builtin(caller, diag, call)) return false;
+    const Function *callee = fallible_callee_in_context(program, context_fun, scope, stmt->expr);
+    if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
+  }
+  if (!expr_raise_errors_covered(program, stmt->target, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, stmt->expr, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(program, stmt->range_end, caller, context_fun, scope, call, diag, depth)) return false;
+  if (stmt->kind == STMT_IF) {
+    Scope then_scope = {.parent = scope};
+    Scope else_scope = {.parent = scope};
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth) &&
+              stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, &else_scope, call, diag, depth);
+    scope_free(&then_scope);
+    scope_free(&else_scope);
+    if (!ok) return false;
+    return true;
+  }
+  if (stmt->kind == STMT_WHILE) {
+    Scope then_scope = {.parent = scope};
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth);
+    scope_free(&then_scope);
+    if (!ok) return false;
+  } else if (stmt->kind == STMT_FOR) {
+    Scope body_scope = {.parent = scope};
+    const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+    if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
+    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &body_scope, call, diag, depth);
+    scope_free(&body_scope);
+    if (!ok) return false;
+  } else if (!stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, scope, call, diag, depth)) {
+    return false;
+  }
+  if (!stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, scope, call, diag, depth)) return false;
   for (size_t i = 0; i < stmt->match_arms.len; i++) {
-    if (!stmt_vec_raise_errors_covered(&stmt->match_arms.items[i].body, caller, call, diag)) return false;
+    const MatchArm *arm = &stmt->match_arms.items[i];
+    if (!expr_raise_errors_covered(program, arm->guard, caller, context_fun, scope, call, diag, depth)) return false;
+    Scope arm_scope = {.parent = scope};
+    if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
+      const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+      const Choice *item_choice = find_choice(program, match_type);
+      const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
+      if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
+    }
+    bool ok = stmt_vec_raise_errors_covered(program, &arm->body, caller, context_fun, &arm_scope, call, diag, depth);
+    scope_free(&arm_scope);
+    if (!ok) return false;
   }
   return true;
 }
 
-static bool stmt_vec_raise_errors_covered(const StmtVec *body, const Function *caller, const Expr *call, ZDiag *diag) {
+static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!body) return true;
   for (size_t i = 0; i < body->len; i++) {
-    if (!stmt_raise_errors_covered(body->items[i], caller, call, diag)) return false;
+    const Stmt *stmt = body->items[i];
+    if (!stmt_raise_errors_covered(program, stmt, caller, context_fun, scope, call, diag, depth)) return false;
+    flow_scope_add_stmt_binding(program, stmt, scope);
   }
   return true;
 }
 
-static bool function_error_sets_compatible(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call) {
+static bool function_error_sets_compatible_inner(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth) {
   if (!caller || !callee || !callee->raises) return true;
+  if (depth > 64) return true;
   if (!caller->raises) {
     return set_diag_detail(diag, 1001, "fallible call requires function to be marked raises", call->line, call->column, "function signature marked raises", "function is not marked raises", "add raises to the function signature or handle the error locally");
   }
   if (!caller->has_error_set) return true;
   if (!callee->has_error_set) {
-    return stmt_vec_raise_errors_covered(&callee->body, caller, call, diag);
+    Scope flow_scope = {0};
+    flow_scope_add_function_bindings(callee, &flow_scope);
+    bool ok = stmt_vec_raise_errors_covered(current_type_program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
+    scope_free(&flow_scope);
+    return ok;
   }
   for (size_t i = 0; i < callee->errors.len; i++) {
     const char *error_name = callee->errors.items[i].name;
@@ -1469,39 +1946,145 @@ static bool function_error_sets_compatible(const Function *caller, const Functio
   return true;
 }
 
-static bool stmt_vec_has_raise(const StmtVec *body) {
-  for (size_t i = 0; i < body->len; i++) {
-    const Stmt *stmt = body->items[i];
-    if (stmt->kind == STMT_RAISE) return true;
-    if (stmt_vec_has_raise(&stmt->then_body) || stmt_vec_has_raise(&stmt->else_body)) return true;
-    for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
-      if (stmt_vec_has_raise(&stmt->match_arms.items[arm_index].body)) return true;
-    }
-  }
-  return false;
+static bool function_error_sets_compatible(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call) {
+  return function_error_sets_compatible_inner(caller, callee, diag, call, 0);
 }
 
-static bool function_has_error_flow(const Function *fun) {
-  return fun && fun->raises && (fun->has_error_set || stmt_vec_has_raise(&fun->body));
+static bool function_has_error_flow_inner(const Program *program, const Function *fun, size_t depth);
+
+static bool expr_is_world_stream_write_shape(const Expr *expr) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER) return false;
+  const Expr *write = expr->left;
+  if (!write->text || strcmp(write->text, "write") != 0) return false;
+  const Expr *stream = write->left;
+  return stream && stream->kind == EXPR_MEMBER && stream->text &&
+         (strcmp(stream->text, "out") == 0 || strcmp(stream->text, "err") == 0);
 }
 
-static const Function *fallible_callee(const Program *program, const Expr *expr) {
+static const Function *resolve_call_function_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return NULL;
   const Function *fun = NULL;
   if (expr->left->kind == EXPR_IDENT) {
     fun = find_function(program, expr->left->text);
   } else if (expr->left->kind == EXPR_MEMBER) {
-    const Shape *shape = NULL;
-    fun = find_namespace_shape_method(program, expr->left, &shape);
+    fun = find_namespace_shape_method(program, expr->left, NULL);
+    if (!fun) fun = find_constrained_interface_method_in_function(program, context_fun, expr->left, NULL);
     if (!fun && expr->left->left) {
       const char *receiver_type = expr->left->left->resolved_type;
+      if ((!receiver_type || strcmp(receiver_type, "Unknown") == 0) && scope) receiver_type = expr_type(program, expr->left->left, scope);
       char owner_type[192];
       strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
-      shape = find_shape_for_type(program, owner_type);
+      const Shape *shape = find_shape_for_type(program, owner_type);
       fun = find_shape_method_decl(shape, expr->left->text);
     }
   }
-  return function_has_error_flow(fun) ? fun : NULL;
+  return fun;
+}
+
+static bool expr_call_has_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left) return false;
+  if (is_builtin_fallible_call(expr) || expr_is_world_stream_write_shape(expr)) return true;
+  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
+  return function_has_error_flow_inner(program, fun, depth + 1);
+}
+
+static bool expr_has_checked_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
+  if (!expr) return false;
+  if (expr->kind == EXPR_CHECK && expr_call_has_error_flow(program, context_fun, scope, expr->left, depth)) return true;
+  if (expr->kind == EXPR_RESCUE) return expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth);
+  if (expr_has_checked_error_flow(program, context_fun, scope, expr->left, depth) || expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth)) return true;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (expr_has_checked_error_flow(program, context_fun, scope, expr->args.items[i], depth)) return true;
+  }
+  for (size_t i = 0; i < expr->fields.len; i++) {
+    if (expr_has_checked_error_flow(program, context_fun, scope, expr->fields.items[i].value, depth)) return true;
+  }
+  return false;
+}
+
+static bool stmt_vec_has_checked_error_flow(const Program *program, const Function *context_fun, const StmtVec *body, Scope *scope, size_t depth) {
+  if (!body || depth > 64) return false;
+  for (size_t i = 0; i < body->len; i++) {
+    const Stmt *stmt = body->items[i];
+    if (!stmt) continue;
+    if (stmt->kind == STMT_RAISE) return true;
+    if (stmt->kind == STMT_CHECK && expr_call_has_error_flow(program, context_fun, scope, stmt->expr, depth)) return true;
+    if (expr_has_checked_error_flow(program, context_fun, scope, stmt->target, depth) ||
+        expr_has_checked_error_flow(program, context_fun, scope, stmt->expr, depth) ||
+        expr_has_checked_error_flow(program, context_fun, scope, stmt->range_end, depth)) return true;
+    if (stmt->kind == STMT_IF) {
+      Scope then_scope = {.parent = scope};
+      Scope else_scope = {.parent = scope};
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      scope_free(&then_scope);
+      if (found) return true;
+      found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, &else_scope, depth);
+      scope_free(&else_scope);
+      if (found) return true;
+    } else if (stmt->kind == STMT_WHILE) {
+      Scope then_scope = {.parent = scope};
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      scope_free(&then_scope);
+      if (found) return true;
+    } else if (stmt->kind == STMT_FOR) {
+      Scope body_scope = {.parent = scope};
+      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &body_scope, depth);
+      scope_free(&body_scope);
+      if (found) return true;
+    } else if (stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, scope, depth)) {
+      return true;
+    }
+    if (stmt->kind != STMT_IF && stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, scope, depth)) return true;
+    for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
+      const MatchArm *arm = &stmt->match_arms.items[arm_index];
+      if (expr_has_checked_error_flow(program, context_fun, scope, arm->guard, depth)) return true;
+      Scope arm_scope = {.parent = scope};
+      if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
+        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+        const Choice *item_choice = find_choice(program, match_type);
+        const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
+        if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
+      }
+      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &arm->body, &arm_scope, depth);
+      scope_free(&arm_scope);
+      if (found) return true;
+    }
+    flow_scope_add_stmt_binding(program, stmt, scope);
+  }
+  return false;
+}
+
+static bool function_has_error_flow_inner(const Program *program, const Function *fun, size_t depth) {
+  if (!fun || !fun->raises) return false;
+  if (fun->has_error_set) return true;
+  Scope flow_scope = {0};
+  flow_scope_add_function_bindings(fun, &flow_scope);
+  bool result = stmt_vec_has_checked_error_flow(program, fun, &fun->body, &flow_scope, depth);
+  scope_free(&flow_scope);
+  return result;
+}
+
+static bool function_has_error_flow(const Program *program, const Function *fun) {
+  return function_has_error_flow_inner(program, fun, 0);
+}
+
+static bool check_fallible_call_is_checked(const Program *program, const Function *callee, const Expr *call, ZDiag *diag, const char *message, const char *expected, const char *actual, const char *help) {
+  if (!function_has_error_flow(program, callee)) return true;
+  if (allow_fallible_call == 0) {
+    return set_diag_detail(diag, 1003, message, call->line, call->column, expected, actual, help);
+  }
+  return true;
+}
+
+static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
+  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
+  return function_has_error_flow(program, fun) ? fun : NULL;
+}
+
+static const Function *fallible_callee(const Program *program, const Expr *expr) {
+  return fallible_callee_in_context(program, checking_function, NULL, expr);
 }
 
 static bool is_builtin_fallible_call(const Expr *expr) {
@@ -2286,16 +2869,20 @@ static const InterfaceDecl *constrained_interface_for_type_param(const Program *
   return NULL;
 }
 
-static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
+static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface) {
   if (!callee || callee->kind != EXPR_MEMBER || !callee->left || callee->left->kind != EXPR_IDENT) return NULL;
   char **args = NULL;
   size_t arg_len = 0;
-  const InterfaceDecl *interface = constrained_interface_for_type_param(program, checking_function, callee->left->text, &args, &arg_len);
+  const InterfaceDecl *interface = constrained_interface_for_type_param(program, fun, callee->left->text, &args, &arg_len);
   free_type_arg_list(args, arg_len);
   if (!interface) return NULL;
   const Function *method = find_interface_method_decl(interface, callee->text);
   if (method && out_interface) *out_interface = interface;
   return method;
+}
+
+static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
+  return find_constrained_interface_method_in_function(program, checking_function, callee, out_interface);
 }
 
 static void set_expr_resolved_type(const Expr *expr, const char *type) {
@@ -2599,6 +3186,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
         return fun->return_type;
       }
       if (expr->left && expr->left->kind == EXPR_MEMBER) {
+        if (is_world_stream_write_callee(expr->left, scope)) return "Void";
         const Shape *shape = NULL;
         const Function *method = find_namespace_shape_method(program, expr->left, &shape);
         if (method) {
@@ -2708,6 +3296,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
         char ref_shape_type[128];
         if (owned_inner_text(left_type, owned_shape_type, sizeof(owned_shape_type))) left_type = owned_shape_type;
         if (ref_inner_text(left_type, ref_shape_type, sizeof(ref_shape_type))) left_type = ref_shape_type;
+        if (strcmp(left_type, "World") == 0 && (strcmp(expr->text, "out") == 0 || strcmp(expr->text, "err") == 0)) return "WorldStream";
         const Shape *shape = find_shape_for_type(program, left_type);
         if (shape) {
           const Param *field = find_shape_field(shape, expr->text);
@@ -2935,13 +3524,26 @@ static bool type_static_value_mismatch(const Program *program, const char *expec
 
 static bool check_call_callee(const Program *program, const Expr *callee, Scope *scope, ZDiag *diag) {
   if (callee->kind == EXPR_IDENT) {
+    if (scope_has(scope, callee->text)) {
+      const char *actual = expr_type(program, callee, scope);
+      return set_diag_detail(diag, 3005, "call target is not a function", callee->line, callee->column, "function name", actual, "call a declared function instead of a local value");
+    }
     const Function *fun = find_function(program, callee->text);
     if (fun) return true;
     return check_expr(program, callee, scope, diag);
   }
   if (callee->kind == EXPR_MEMBER && find_namespace_shape_method(program, callee, NULL)) return true;
   if (callee->kind == EXPR_MEMBER && find_constrained_interface_method(program, callee, NULL)) return true;
-  if (callee->kind == EXPR_MEMBER) return check_expr(program, callee, scope, diag);
+  if (callee->kind == EXPR_MEMBER) {
+    ZBuf name;
+    zbuf_init(&name);
+    member_name_buf(callee, &name);
+    bool known_builtin_call = std_call_arg_count(name.data) >= 0;
+    bool std_namespace = strncmp(name.data, "std.", strlen("std.")) == 0;
+    zbuf_free(&name);
+    if (known_builtin_call || std_namespace || is_world_stream_write_callee(callee, scope)) return true;
+    return check_expr(program, callee, scope, diag);
+  }
   return check_expr(program, callee, scope, diag);
 }
 
@@ -2965,12 +3567,35 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         snprintf(message, sizeof(message), "unknown identifier '%s'", expr->text);
         return set_diag_detail(diag, 3003, message, expr->line, expr->column, "visible local, parameter, function, or builtin", "no matching visible symbol", "declare the name before using it");
       }
+      if (function_exists(program, expr->text) && !scope_has(scope, expr->text)) {
+        char message[256];
+        snprintf(message, sizeof(message), "function '%s' cannot be used as a runtime value", expr->text);
+        return set_diag_detail(diag, 3005, message, expr->line, expr->column, "function call expression", "function name", "call the function with parentheses");
+      }
+      if (is_builtin_value(expr->text) && !scope_has(scope, expr->text)) {
+        char message[256];
+        snprintf(message, sizeof(message), "builtin namespace '%s' cannot be used as a runtime value", expr->text);
+        return set_diag_detail(diag, 3005, message, expr->line, expr->column, "runtime value", "builtin namespace", "use a supported member call such as Response.text(...) or std.fs.host()");
+      }
       {
         const char *actual = scope_type(scope, expr->text);
+        if (actual && strcmp(actual, "Type") == 0) {
+          char message[256];
+          snprintf(message, sizeof(message), "type name '%s' cannot be used as a runtime value", expr->text);
+          return set_diag_detail(diag, 3005, message, expr->line, expr->column, "runtime value", "type name", "use the type name in an annotation or constructor context");
+        }
         if (actual && type_is_owned(actual) && scope_is_moved(scope, expr->text)) {
           char actual_detail[160];
           snprintf(actual_detail, sizeof(actual_detail), "%s was moved", expr->text);
           return set_diag_detail(diag, 3013, "owned value was already moved", expr->line, expr->column, "live owned binding", actual_detail, "stop using the old binding after transferring ownership");
+        }
+        size_t shared = 0;
+        size_t mut = 0;
+        scope_borrow_counts(scope, expr->text, &shared, &mut);
+        if (mut > 0) {
+          char actual_detail[160];
+          snprintf(actual_detail, sizeof(actual_detail), "%s has an active mutable borrow", expr->text);
+          return set_diag_detail(diag, 3029, "cannot read a value while it is mutably borrowed", expr->line, expr->column, "unborrowed value or shared borrow only", actual_detail, "end the mutable borrow's lexical scope before reading the value");
         }
       }
       if (expected && type_is_named_generic(expected, "MutSpan")) {
@@ -3011,15 +3636,32 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         char ref_shape_type[128];
         if (owned_inner_text(left_type, owned_shape_type, sizeof(owned_shape_type))) left_type = owned_shape_type;
         if (ref_inner_text(left_type, ref_shape_type, sizeof(ref_shape_type))) left_type = ref_shape_type;
-        const Shape *shape = find_shape_for_type(program, left_type);
-        if (shape && !find_shape_field(shape, expr->text)) {
-          char message[256];
-          snprintf(message, sizeof(message), "shape '%s' has no field '%s'", shape->name, expr->text);
-          return set_diag_detail(diag, 3101, message, expr->line, expr->column, "declared shape field", expr->text, "rename the field or update the shape");
+        if (strcmp(left_type, "World") == 0 && (strcmp(expr->text, "out") == 0 || strcmp(expr->text, "err") == 0)) {
+          return set_diag_detail(diag, 3005, "World stream member cannot be used as a runtime value", expr->line, expr->column, "world.out.write(...) or world.err.write(...)", expr->text, "call write directly on the stream capability");
         }
+        const Shape *shape = find_shape_for_type(program, left_type);
+        if (shape) {
+          if (!find_shape_field(shape, expr->text)) {
+            char message[256];
+            snprintf(message, sizeof(message), "shape '%s' has no field '%s'", shape->name, expr->text);
+            return set_diag_detail(diag, 3101, message, expr->line, expr->column, "declared shape field", expr->text, "rename the field or update the shape");
+          }
+          if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+          return true;
+        }
+        {
+          const char *inner = NULL;
+          size_t inner_len = 0;
+          if (type_has_generic_arg(left_type, "Maybe", &inner, &inner_len)) {
+            if (strcmp(expr->text, "has") == 0 || strcmp(expr->text, "value") == 0) {
+              if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+              return true;
+            }
+            return set_diag_detail(diag, 3101, "unknown Maybe member", expr->line, expr->column, "has or value", expr->text, "use .has to test a Maybe or .value after proving it is present");
+          }
+        }
+        return set_diag_detail(diag, 3027, "member access requires a shape, Maybe value, enum case, or choice case", expr->line, expr->column, "declared field or variant case", left_type, "remove the member access or use a value with declared members");
       }
-      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
-      return true;
     case EXPR_INDEX: {
       if (!check_expr(program, expr->left, scope, diag)) return false;
       const char *base_type = expr_type(program, expr->left, scope);
@@ -3077,6 +3719,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       const char *builtin_type = builtin_fallible_return_type(expr->left);
       if (builtin_type) {
         set_expr_resolved_type(expr, builtin_type);
+        return true;
+      }
+      if (is_world_stream_write_call(expr->left, scope)) {
+        set_expr_resolved_type(expr, "Void");
         return true;
       }
       const char *inner = NULL;
@@ -3207,6 +3853,15 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
+          if (function_has_error_flow(program, method)) {
+            char actual[160];
+            snprintf(actual, sizeof(actual), "call to '%s.%s'", shape->name, method->name);
+            if (!check_fallible_call_is_checked(program, method, expr, diag, "fallible static method call must be checked", "check Shape.method(...)", actual, "prefix the call with check in a function marked raises")) {
+              generic_bindings_free(method_bindings, method_binding_len);
+              free(method_bindings);
+              return false;
+            }
+          }
           char *return_type = type_substitute_generic(method->return_type, method_bindings, method_binding_len);
           set_expr_resolved_type(expr, return_type);
           free(return_type);
@@ -3215,13 +3870,20 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           return true;
         }
         const Expr *receiver = expr->left->left;
+        ZBuf callee_name;
+        zbuf_init(&callee_name);
+        member_name_buf(expr->left, &callee_name);
+        bool builtin_member_callee = strncmp(callee_name.data, "std.", strlen("std.")) == 0 ||
+          std_call_arg_count(callee_name.data) >= 0 ||
+          is_world_stream_write_callee(expr->left, scope);
+        zbuf_free(&callee_name);
         bool namespace_owner = receiver && receiver->kind == EXPR_IDENT && find_shape(program, receiver->text);
         char **receiver_constraint_args = NULL;
         size_t receiver_constraint_arg_len = 0;
         bool constrained_owner = receiver && receiver->kind == EXPR_IDENT &&
           constrained_interface_for_type_param(program, checking_function, receiver->text, &receiver_constraint_args, &receiver_constraint_arg_len);
         free_type_arg_list(receiver_constraint_args, receiver_constraint_arg_len);
-        if (receiver && !namespace_owner && !constrained_owner) {
+        if (receiver && !namespace_owner && !constrained_owner && !builtin_member_callee) {
           if (!check_expr(program, receiver, scope, diag)) return false;
           const char *receiver_type_raw = expr_type(program, receiver, scope);
           char receiver_type_buf[192];
@@ -3312,7 +3974,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
               free(expected_type);
             }
-            if (function_has_error_flow(receiver_method)) {
+            if (function_has_error_flow(program, receiver_method)) {
               if (allow_fallible_call == 0) {
                 generic_bindings_free(receiver_bindings, receiver_binding_len);
                 free(receiver_bindings);
@@ -3371,6 +4033,16 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
+          if (function_has_error_flow(program, required)) {
+            char actual[160];
+            snprintf(actual, sizeof(actual), "call to '%s.%s'", interface->name, required->name);
+            if (!check_fallible_call_is_checked(program, required, expr, diag, "fallible constrained interface method call must be checked", "check Interface.method(...)", actual, "prefix the call with check in a function marked raises")) {
+              generic_bindings_free(interface_bindings, interface->type_params.len);
+              free(interface_bindings);
+              free_type_arg_list(constraint_args, constraint_arg_len);
+              return false;
+            }
+          }
           char *return_type = type_substitute_generic(required->return_type, interface_bindings, interface->type_params.len);
           set_expr_resolved_type(expr, return_type);
           free(return_type);
@@ -3428,6 +4100,15 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
+          if (function_has_error_flow(program, fun)) {
+            char actual[160];
+            snprintf(actual, sizeof(actual), "call to '%s'", fun->name);
+            if (!check_fallible_call_is_checked(program, fun, expr, diag, "fallible generic function call must be checked", "check fallible_call(...)", actual, "prefix the call with check in a function marked raises")) {
+              generic_bindings_free(bindings, fun->type_params.len);
+              free(bindings);
+              return false;
+            }
+          }
           char *return_type = type_substitute_generic(fun->return_type, bindings, fun->type_params.len);
           set_expr_resolved_type(expr, return_type);
           free(return_type);
@@ -3449,6 +4130,19 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         } else {
           if (!check_expr(program, expr->args.items[i], scope, diag)) return false;
         }
+      }
+      if (is_world_stream_write_call(expr, scope)) {
+        if (expr->args.len != 1) return set_diag_detail(diag, 3004, "World stream write expects one argument", expr->line, expr->column, "world.out.write(text)", "wrong argument count", "pass exactly one String or byte span argument");
+        if (!check_expr_expected(program, expr->args.items[0], scope, diag, "String")) return false;
+        const char *actual = expr_type(program, expr->args.items[0], scope);
+        if (!types_compatible("String", actual) && !types_compatible("Span<u8>", actual)) {
+          return set_diag_detail(diag, 3005, "World stream write argument has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "String or Span<u8>", actual, "pass text or a byte span to the stream writer");
+        }
+        if (allow_fallible_call == 0) {
+          return set_diag_detail(diag, 1003, "fallible World stream write must be checked", expr->line, expr->column, "check world.out.write(...)", "unchecked World stream write", "prefix the write with check in a function marked raises");
+        }
+        set_expr_resolved_type(expr, "Void");
+        return true;
       }
       {
         const Function *fun = fallible_callee(program, expr);
@@ -3739,12 +4433,21 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
     case EXPR_SHAPE_LITERAL: {
       const Shape *shape = find_shape(program, expr->text);
       if (!shape) return set_diag_detail(diag, 3009, "unknown shape literal", expr->line, expr->column, "declared shape", expr->text, "declare the shape before constructing it");
+      const char *expected_shape_type = expected;
+      char expected_owned_inner[160];
+      if (owned_inner_text(expected_shape_type, expected_owned_inner, sizeof(expected_owned_inner))) expected_shape_type = expected_owned_inner;
+      if (expected_shape_type && strcmp(expected_shape_type, "Unknown") != 0) {
+        const Shape *expected_shape = find_shape_for_type(program, type_strip_const(expected_shape_type));
+        if (!expected_shape || strcmp(expected_shape->name, shape->name) != 0) {
+          return set_diag_detail(diag, 3006, "shape literal type does not match expected type", expr->line, expr->column, shape->name, expected, "assign the shape literal to the matching shape type");
+        }
+      }
       GenericBinding *shape_bindings = NULL;
       size_t shape_binding_len = 0;
       if (shape->type_params.len > 0) {
         char **args = NULL;
         size_t arg_len = 0;
-        if (!expected || !type_generic_arg_list(resolve_alias_type(expected), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
+        if (!expected_shape_type || !type_generic_arg_list(resolve_alias_type(expected_shape_type), shape->name, &args, &arg_len) || arg_len != shape->type_params.len) {
           free_type_arg_list(args, arg_len);
           return set_diag_detail(diag, 3034, "generic shape literal requires an explicit annotated type", expr->line, expr->column, "let value: Shape<T> = Shape { ... }", expected ? expected : "untyped shape literal", "add an explicit generic shape type annotation");
         }
@@ -3778,6 +4481,14 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       }
       for (size_t i = 0; i < expr->fields.len; i++) {
         FieldInit *field = &expr->fields.items[i];
+        for (size_t previous = 0; previous < i; previous++) {
+          if (strcmp(expr->fields.items[previous].name, field->name) == 0) {
+            bool ok = set_diag_detail(diag, 3008, "duplicate shape literal field", field->line, field->column, "one initializer per field", field->name, "remove the duplicate field initializer");
+            generic_bindings_free(shape_bindings, shape_binding_len);
+            free(shape_bindings);
+            return ok;
+          }
+        }
         const Param *shape_field = find_shape_field(shape, field->name);
         if (!shape_field) {
           char message[256];
@@ -3846,7 +4557,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         zbuf_append_char(&type_buf, '>');
         normalized_shape_type = type_buf.data;
       }
-      const char *literal_resolved_type = normalized_shape_type ? normalized_shape_type : (expected ? expected : shape->name);
+      const char *literal_resolved_type = normalized_shape_type ? normalized_shape_type : shape->name;
       char owned_literal_inner[160];
       if (owned_inner_text(literal_resolved_type, owned_literal_inner, sizeof(owned_literal_inner))) literal_resolved_type = owned_literal_inner;
       set_expr_resolved_type(expr, literal_resolved_type);
@@ -3859,6 +4570,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       const char *element_expected = NULL;
       char expected_len_text[64] = {0};
       char inferred_type[160];
+      char inferred_element_type[160] = {0};
       if (expected && expected[0] == '[') {
         const char *close = strchr(expected, ']');
         if (close && close[1]) {
@@ -3888,6 +4600,15 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, element_expected, actual, "use elements whose types match the fixed-array element type");
+          }
+        } else {
+          const char *actual = expr_type(program, expr->args.items[i], scope);
+          if (i == 0) {
+            snprintf(inferred_element_type, sizeof(inferred_element_type), "%s", actual ? actual : "Unknown");
+          } else if (!types_compatible(inferred_element_type, actual)) {
+            char message[256];
+            snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
+            return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, inferred_element_type, actual, "annotate the array or use elements with one inferred element type");
           }
         }
       }
@@ -4023,14 +4744,192 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
   }
 }
 
-static bool register_borrow_binding(const Stmt *stmt, Scope *scope) {
+static bool generic_call_bindings_from_checked_call(const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, GenericBinding **out_bindings, size_t *out_len) {
+  if (out_bindings) *out_bindings = NULL;
+  if (out_len) *out_len = 0;
+  if (!callee || !function_is_generic(callee) || !call || !out_bindings || !out_len) return false;
+
+  size_t binding_len = callee->type_params.len;
+  GenericBinding *bindings = calloc(binding_len, sizeof(GenericBinding));
+  for (size_t i = 0; i < binding_len; i++) bindings[i].name = callee->type_params.items[i].name;
+
+  const TypeArgVec *type_args = call_type_args(call);
+  if (type_args && type_args->len > 0) {
+    if (type_args->len != binding_len) {
+      free(bindings);
+      return false;
+    }
+    for (size_t i = 0; i < binding_len; i++) bindings[i].type = z_strdup(type_args->items[i].type);
+    *out_bindings = bindings;
+    *out_len = binding_len;
+    return true;
+  }
+
+  bool ok = true;
+  if (return_type && callee->return_type) {
+    ok = infer_generic_type_from_pattern(callee, callee->return_type, return_type, bindings, binding_len);
+  }
+  for (size_t i = 0; ok && i < callee->params.len && i < call->args.len; i++) {
+    ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, expr_type(program, call->args.items[i], scope), bindings, binding_len);
+  }
+  if (!ok) {
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+    return false;
+  }
+  *out_bindings = bindings;
+  *out_len = binding_len;
+  return true;
+}
+
+static char *checked_call_param_type(const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, size_t param_index) {
+  if (!callee || param_index >= callee->params.len) return z_strdup("Unknown");
+  const char *param_type = callee->params.items[param_index].type;
+  GenericBinding *bindings = NULL;
+  size_t binding_len = 0;
+  if (generic_call_bindings_from_checked_call(program, callee, call, scope, return_type, &bindings, &binding_len)) {
+    char *substituted = type_substitute_generic(param_type, bindings, binding_len);
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+    return substituted;
+  }
+  return z_strdup(param_type ? param_type : "Unknown");
+}
+
+static bool call_result_borrow_origins(const Program *program, const Expr *expr, Scope *scope, BorrowOrigins *origins) {
+  if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || !origins) return false;
+  const char *return_type = expr_type(program, expr, scope);
+  bool return_mut = type_is_named_generic(return_type, "mutref");
+  if (!return_mut && !type_is_named_generic(return_type, "ref")) return false;
+
+  const Function *callee = NULL;
+  const Expr *receiver = NULL;
+  size_t param_offset = 0;
+  if (expr->left->kind == EXPR_IDENT) {
+    callee = find_function(program, expr->left->text);
+  } else if (expr->left->kind == EXPR_MEMBER) {
+    callee = find_namespace_shape_method(program, expr->left, NULL);
+    if (!callee) callee = find_constrained_interface_method(program, expr->left, NULL);
+    if (!callee && expr->left->left) {
+      receiver = expr->left->left;
+      const char *receiver_type_raw = expr_type(program, receiver, scope);
+      char receiver_type[192];
+      strip_ref_like_type(receiver_type_raw, receiver_type, sizeof(receiver_type));
+      const Shape *receiver_shape = find_shape_for_type(program, receiver_type);
+      callee = find_shape_method_decl(receiver_shape, expr->left->text);
+      if (callee && shape_method_receiver_info(callee, NULL)) {
+        param_offset = 1;
+      } else {
+        receiver = NULL;
+        callee = NULL;
+      }
+    }
+  }
+  if (!callee) return false;
+
+  bool added = false;
+  if (receiver && callee->params.len > 0) {
+    char *param_type = checked_call_param_type(program, callee, expr, scope, return_type, 0);
+    if (type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref")) {
+      if (expr_reference_origins_as(program, receiver, scope, origins, return_mut)) {
+        added = true;
+      } else {
+        char root[128];
+        if (expr_root_ident(receiver, root, sizeof(root)) && scope_has(scope, root)) {
+          if (borrow_origins_add(origins, root, scope_binding_scope(scope, root), return_mut, reference_source_origin_is_local_storage(scope, root))) added = true;
+        }
+      }
+    }
+    free(param_type);
+  }
+
+  for (size_t i = 0; i < expr->args.len && i + param_offset < callee->params.len; i++) {
+    char *param_type = checked_call_param_type(program, callee, expr, scope, return_type, i + param_offset);
+    bool reference_param = type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref");
+    free(param_type);
+    if (!reference_param) continue;
+    if (expr_reference_origins_as(program, expr->args.items[i], scope, origins, return_mut)) added = true;
+  }
+  return added;
+}
+
+static bool expr_reference_origins(const Program *program, const Expr *expr, Scope *scope, BorrowOrigins *origins) {
+  if (!expr || !origins) return false;
+  if (expr_borrow_origins(expr, scope, origins) ||
+      call_result_borrow_origins(program, expr, scope, origins)) return true;
+  if (expr->kind == EXPR_MEMBER) {
+    char root[128];
+    char path[256];
+    if (expr_binding_path(expr, root, sizeof(root), path, sizeof(path))) {
+      BorrowOrigins binding_origins = {0};
+      bool has_binding_origins = scope_copy_borrow_origins(scope, root, &binding_origins);
+      bool added = borrow_origins_add_all_under_path(origins, &binding_origins, path);
+      borrow_origins_free(&binding_origins);
+      if (added) return true;
+      if (has_binding_origins) return false;
+    }
+    const char *member_type = expr_type(program, expr, scope);
+    if (type_is_named_generic(member_type, "ref") || type_is_named_generic(member_type, "mutref")) {
+      return expr_reference_origins(program, expr->left, scope, origins);
+    }
+  }
+  if (expr->kind == EXPR_SHAPE_LITERAL) {
+    bool added = false;
+    for (size_t i = 0; i < expr->fields.len; i++) {
+      BorrowOrigins field_origins = {0};
+      if (expr_reference_origins(program, expr->fields.items[i].value, scope, &field_origins)) {
+        if (borrow_origins_add_all_with_prefix(origins, &field_origins, expr->fields.items[i].name)) added = true;
+      }
+      borrow_origins_free(&field_origins);
+    }
+    return added;
+  }
+  return false;
+}
+
+static bool register_borrow_binding(const Program *program, const Stmt *stmt, Scope *scope) {
   if (!stmt || !stmt->name || !stmt->expr) return false;
-  char root[128];
-  bool mut_borrow = false;
-  if (!expr_borrow_origin(stmt->expr, scope, root, sizeof(root), &mut_borrow)) return false;
+  BorrowOrigins origins = {0};
+  if (!expr_reference_origins(program, stmt->expr, scope, &origins)) {
+    borrow_origins_free(&origins);
+    return false;
+  }
   const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-  if (binding_type) mut_borrow = type_is_named_generic(binding_type, "mutref");
-  scope_set_borrow_origin(scope, stmt->name, root, mut_borrow);
+  if (binding_type && (type_is_named_generic(binding_type, "ref") || type_is_named_generic(binding_type, "mutref"))) {
+    bool mut_borrow = type_is_named_generic(binding_type, "mutref");
+    for (size_t i = 0; i < origins.len; i++) origins.mutable_borrow[i] = mut_borrow;
+  }
+  scope_set_borrow_origins(scope, stmt->name, &origins);
+  borrow_origins_free(&origins);
+  return true;
+}
+
+static bool update_borrow_assignment(const Program *program, const Expr *target, const Expr *value, Scope *scope, ZDiag *diag) {
+  char target_root[128];
+  char target_path[256];
+  if (!target || !expr_binding_path(target, target_root, sizeof(target_root), target_path, sizeof(target_path)) || !scope_has(scope, target_root)) return true;
+  const char *target_type = target->resolved_type ? target->resolved_type : scope_type(scope, target_root);
+  BorrowOrigins origins = {0};
+  if (expr_reference_origins(program, value, scope, &origins)) {
+    Scope *target_scope = scope_binding_scope(scope, target_root);
+    for (size_t i = 0; i < origins.len; i++) {
+      Scope *root_scope = origins.root_scopes[i] ? origins.root_scopes[i] : scope_binding_scope(scope, origins.roots[i]);
+      if (target_scope && root_scope && !scope_is_ancestor_or_self(root_scope, target_scope)) {
+        char actual[256];
+        snprintf(actual, sizeof(actual), "reference to shorter-lived local '%s'", origins.roots[i]);
+        borrow_origins_free(&origins);
+        return set_diag_detail(diag, 3030, "cannot assign a reference to a shorter-lived binding", value ? value->line : target->line, value ? value->column : target->column, "borrow source that outlives the reference binding", actual, "keep the reference binding in the same lexical scope as the borrowed value");
+      }
+    }
+    if (type_is_named_generic(target_type, "ref") || type_is_named_generic(target_type, "mutref")) {
+      bool mut_borrow = type_is_named_generic(target_type, "mutref");
+      for (size_t i = 0; i < origins.len; i++) origins.mutable_borrow[i] = mut_borrow;
+    }
+    scope_set_borrow_origins_path(scope, target_root, target_path, &origins);
+  } else {
+    scope_clear_borrow_origin_path(scope, target_root, target_path);
+  }
+  borrow_origins_free(&origins);
   return true;
 }
 
@@ -4041,21 +4940,87 @@ static bool check_assignment_not_borrowed(const Expr *target, Scope *scope, ZDia
   size_t mut = 0;
   scope_borrow_counts(scope, root, &shared, &mut);
   if (shared == 0 && mut == 0) return true;
-  char actual[160];
+  char actual[256];
   snprintf(actual, sizeof(actual), "%s has %zu shared and %zu mutable borrow(s)", root, shared, mut);
   return set_diag_detail(diag, 3029, "cannot assign to a value while it is borrowed", target->line, target->column, "unborrowed assignment target", actual, "end the borrow's lexical scope before assigning to this value");
 }
 
-static bool check_return_borrow_escape(const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool check_return_borrow_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!expr) return true;
-  char root[128];
-  bool mut_borrow = false;
-  if (!expr_borrow_origin(expr, scope, root, sizeof(root), &mut_borrow)) return true;
-  (void)mut_borrow;
-  if (scope_is_param(scope, root)) return true;
-  char actual[160];
-  snprintf(actual, sizeof(actual), "reference to local '%s'", root);
-  return set_diag_detail(diag, 3030, "cannot return a reference to a local binding", expr->line, expr->column, "reference derived from a parameter or longer-lived value", actual, "return an owned value or keep the borrow inside the current function");
+  BorrowOrigins origins = {0};
+  if (!expr_reference_origins(program, expr, scope, &origins)) {
+    borrow_origins_free(&origins);
+    return true;
+  }
+  for (size_t i = 0; i < origins.len; i++) {
+    if (origins.local_storage[i]) {
+      char actual[256];
+      snprintf(actual, sizeof(actual), "reference to local '%s'", origins.roots[i]);
+      borrow_origins_free(&origins);
+      return set_diag_detail(diag, 3030, "cannot return a reference to a local binding", expr->line, expr->column, "reference derived from a parameter or longer-lived value", actual, "return an owned value or keep the borrow inside the current function");
+    }
+  }
+  borrow_origins_free(&origins);
+  return true;
+}
+
+static bool check_return_call_borrow_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left) return true;
+  BorrowOrigins origins = {0};
+  if (!call_result_borrow_origins(program, expr, scope, &origins)) {
+    borrow_origins_free(&origins);
+    return true;
+  }
+  for (size_t i = 0; i < origins.len; i++) {
+    if (origins.local_storage[i]) {
+      char actual[256];
+      snprintf(actual, sizeof(actual), "call may return reference derived from local '%s'", origins.roots[i]);
+      borrow_origins_free(&origins);
+      return set_diag_detail(diag, 3030, "cannot return a reference derived from a local call argument", expr->line, expr->column, "reference derived from a parameter or longer-lived value", actual, "keep local borrows inside the current function or return an owned value");
+    }
+  }
+  borrow_origins_free(&origins);
+  return true;
+}
+
+static bool check_return_reference_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  if (!check_return_call_borrow_escape(program, expr, scope, diag)) return false;
+  return check_return_borrow_escape(program, expr, scope, diag);
+}
+
+static bool param_vec_contains_name(const ParamVec *params, const char *name) {
+  if (!params || !name) return false;
+  for (size_t i = 0; i < params->len; i++) {
+    if (params->items[i].name && strcmp(params->items[i].name, name) == 0) return true;
+  }
+  return false;
+}
+
+static void collect_visible_type_names(Scope *scope, ParamVec *out) {
+  if (!out) return;
+  for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
+    for (size_t i = 0; i < cursor->len; i++) {
+      if (!cursor->names[i] || !cursor->types[i] || strcmp(cursor->types[i], "Type") != 0) continue;
+      if (param_vec_contains_name(out, cursor->names[i])) continue;
+      if (out->len == out->cap) {
+        out->cap = out->cap ? out->cap * 2 : 8;
+        out->items = realloc(out->items, out->cap * sizeof(Param));
+      }
+      out->items[out->len++] = (Param){
+        .name = cursor->names[i],
+        .type = "Type",
+      };
+    }
+  }
+}
+
+static bool validate_local_type_names(const Program *program, const Function *fun, Scope *scope, const char *type, ZDiag *diag, int line, int column) {
+  if (!type) return true;
+  ParamVec visible = {0};
+  collect_visible_type_names(scope, &visible);
+  bool ok = validate_type_names(program, type, &visible, fun ? &fun->type_params : NULL, false, diag, line, column);
+  free(visible.items);
+  return ok;
 }
 
 static bool parse_match_int_literal(const char *text, unsigned long long *out) {
@@ -4133,12 +5098,30 @@ static bool check_scalar_match(const Program *program, const Function *fun, cons
       return set_diag_detail(diag, 3106, "non-exhaustive integer match", stmt->line, stmt->column, "fallback `_` arm", "open integer domain", "add a fallback `_` arm for integer matches outside finite u8 coverage");
     }
   }
+  BorrowScopeSnapshot *before = borrow_scope_snapshot_capture(scope);
+  BorrowScopeSnapshot **arm_states = calloc(stmt->match_arms.len, sizeof(BorrowScopeSnapshot *));
+  bool *arm_continues = calloc(stmt->match_arms.len, sizeof(bool));
   for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
+    borrow_scope_snapshot_restore(before);
     Scope arm_scope = {.parent = scope};
     bool ok = check_stmt_vec_with_loop(program, fun, &stmt->match_arms.items[arm_index].body, &arm_scope, diag, loop_depth);
     scope_free(&arm_scope);
-    if (!ok) return false;
+    if (!ok) {
+      borrow_scope_snapshot_restore(before);
+      for (size_t i = 0; i < stmt->match_arms.len; i++) borrow_scope_snapshot_free(arm_states[i]);
+      free(arm_states);
+      free(arm_continues);
+      borrow_scope_snapshot_free(before);
+      return false;
+    }
+    arm_states[arm_index] = borrow_scope_snapshot_capture(scope);
+    arm_continues[arm_index] = !stmt_vec_guarantees_exit(&stmt->match_arms.items[arm_index].body, fun->raises);
   }
+  borrow_scope_snapshot_restore_union(before, arm_states, arm_continues, stmt->match_arms.len);
+  for (size_t i = 0; i < stmt->match_arms.len; i++) borrow_scope_snapshot_free(arm_states[i]);
+  free(arm_states);
+  free(arm_continues);
+  borrow_scope_snapshot_free(before);
   return true;
 }
 
@@ -4150,6 +5133,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
       }
     }
     if (!validate_type_form(stmt->type, diag, stmt->line, stmt->column)) return false;
+    if (!validate_local_type_names(program, fun, scope, stmt->type, diag, stmt->line, stmt->column)) return false;
     if (!check_expr_expected(program, stmt->expr, scope, diag, stmt->type)) return false;
     const char *actual = expr_type(program, stmt->expr, scope);
     if (stmt->type && !types_compatible(stmt->type, actual)) {
@@ -4159,7 +5143,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     mark_owned_move_if_needed(stmt->expr, scope, binding_type);
     set_stmt_resolved_type(stmt, binding_type);
     scope_add(scope, stmt->name, binding_type, stmt->mutable_binding);
-    register_borrow_binding(stmt, scope);
+    register_borrow_binding(program, stmt, scope);
     return true;
   }
   if (stmt->kind == STMT_ASSIGN) {
@@ -4167,13 +5151,31 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     char expected[128];
     if (!check_lvalue_target(program, target, scope, diag, expected, sizeof(expected))) return false;
     if (!check_assignment_not_borrowed(target, scope, diag)) return false;
-    if (!check_expr_expected(program, stmt->expr, scope, diag, expected)) return false;
+    BorrowOrigins previous_origins = {0};
+    bool restore_reference_origins = target && target->kind == EXPR_IDENT &&
+      (type_is_named_generic(expected, "ref") || type_is_named_generic(expected, "mutref"));
+    if (restore_reference_origins) {
+      scope_copy_borrow_origins(scope, target->text, &previous_origins);
+      scope_clear_borrow_origin(scope, target->text);
+    }
+    if (!check_expr_expected(program, stmt->expr, scope, diag, expected)) {
+      if (restore_reference_origins) {
+        scope_set_borrow_origins(scope, target->text, &previous_origins);
+        borrow_origins_free(&previous_origins);
+      }
+      return false;
+    }
+    if (restore_reference_origins) {
+      scope_set_borrow_origins(scope, target->text, &previous_origins);
+      borrow_origins_free(&previous_origins);
+    }
     const char *actual = expr_type(program, stmt->expr, scope);
     if (!types_compatible(expected, actual)) {
       return set_diag_detail(diag, 3006, "assignment type does not match binding", stmt->line, stmt->column, expected, actual, "assign a compatible value");
     }
     mark_owned_move_if_needed(stmt->expr, scope, expected);
     mark_owned_target_live_if_needed(target, scope, expected);
+    if (!update_borrow_assignment(program, target, stmt->expr, scope, diag)) return false;
     return true;
   }
   if (stmt->kind == STMT_CHECK) {
@@ -4184,7 +5186,16 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     if (!checked_ok) return false;
     const Function *callee = fallible_callee(program, stmt->expr);
     if (callee && !function_error_sets_compatible(fun, callee, diag, stmt->expr)) return false;
+    const char *builtin_type = builtin_fallible_return_type(stmt->expr);
+    if (builtin_type && !function_error_sets_include_builtin(fun, diag, stmt->expr)) return false;
     const char *checked_type = expr_type(program, stmt->expr, scope);
+    bool world_stream_write = is_world_stream_write_call(stmt->expr, scope);
+    const char *inner = NULL;
+    size_t inner_len = 0;
+    bool maybe_value = type_has_generic_arg(checked_type, "Maybe", &inner, &inner_len);
+    if (!callee && !builtin_type && !world_stream_write && !maybe_value) {
+      return set_diag_detail(diag, 1001, "`check` expects Maybe<T> or a fallible function call", stmt->line, stmt->column, "Maybe<T> or raises { ... } call", checked_type, "check a Maybe value or a named-error fallible function");
+    }
     if (type_is_named_generic(checked_type, "Maybe") && !type_is_named_generic(fun->return_type, "Maybe")) {
       return set_diag_detail(diag, 1001, "`check` on Maybe<T> requires a Maybe return type", stmt->line, stmt->column, "function returning Maybe<T>", fun->return_type ? fun->return_type : "Void", "return Maybe<T> from this function or handle the Maybe value explicitly");
     }
@@ -4207,8 +5218,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     if (!types_compatible(fun->return_type, actual)) {
       return set_diag_detail(diag, 3007, "return type does not match function return type", stmt->line, stmt->column, fun->return_type, actual, "return a value compatible with the function signature");
     }
-    if ((type_is_named_generic(fun->return_type, "ref") || type_is_named_generic(fun->return_type, "mutref")) &&
-        !check_return_borrow_escape(stmt->expr, scope, diag)) return false;
+    if (!check_return_reference_escape(program, stmt->expr, scope, diag)) return false;
     mark_owned_move_if_needed(stmt->expr, scope, fun->return_type);
     return true;
   }
@@ -4217,22 +5227,65 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     if (!check_expr_expected(program, stmt->expr, scope, diag, "Bool")) return false;
     const char *condition_type = expr_type(program, stmt->expr, scope);
     if (!is_bool_type(condition_type)) return set_diag_detail(diag, 3016, "condition must be Bool", stmt->expr->line, stmt->expr->column, "Bool", condition_type, "compare explicitly or produce a Bool value");
+    bool then_possible = true;
+    bool else_possible = true;
+    if (stmt->expr && stmt->expr->kind == EXPR_BOOL) {
+      then_possible = stmt->expr->bool_value;
+      else_possible = !stmt->expr->bool_value;
+    }
+    BorrowScopeSnapshot *before = borrow_scope_snapshot_capture(scope);
     Scope then_scope = {.parent = scope};
-    Scope else_scope = {.parent = scope};
-    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &then_scope, diag, loop_depth) &&
-              check_stmt_vec_with_loop(program, fun, &stmt->else_body, &else_scope, diag, loop_depth);
+    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &then_scope, diag, loop_depth);
     scope_free(&then_scope);
+    if (!ok) {
+      borrow_scope_snapshot_restore(before);
+      borrow_scope_snapshot_free(before);
+      return false;
+    }
+    BorrowScopeSnapshot *then_after = borrow_scope_snapshot_capture(scope);
+    borrow_scope_snapshot_restore(before);
+    Scope else_scope = {.parent = scope};
+    ok = check_stmt_vec_with_loop(program, fun, &stmt->else_body, &else_scope, diag, loop_depth);
     scope_free(&else_scope);
-    return ok;
+    if (!ok) {
+      borrow_scope_snapshot_restore(before);
+      borrow_scope_snapshot_free(then_after);
+      borrow_scope_snapshot_free(before);
+      return false;
+    }
+    BorrowScopeSnapshot *else_after = borrow_scope_snapshot_capture(scope);
+    BorrowScopeSnapshot *states[] = {then_after, else_after};
+    bool continues[] = {
+      then_possible && !stmt_vec_guarantees_exit(&stmt->then_body, fun->raises),
+      else_possible && !stmt_vec_guarantees_exit(&stmt->else_body, fun->raises),
+    };
+    borrow_scope_snapshot_restore_union(before, states, continues, 2);
+    borrow_scope_snapshot_free(then_after);
+    borrow_scope_snapshot_free(else_after);
+    borrow_scope_snapshot_free(before);
+    return true;
   }
   if (stmt->kind == STMT_WHILE) {
     if (!check_expr_expected(program, stmt->expr, scope, diag, "Bool")) return false;
     const char *condition_type = expr_type(program, stmt->expr, scope);
     if (!is_bool_type(condition_type)) return set_diag_detail(diag, 3016, "condition must be Bool", stmt->expr->line, stmt->expr->column, "Bool", condition_type, "compare explicitly or produce a Bool value");
+    BorrowScopeSnapshot *before = borrow_scope_snapshot_capture(scope);
     Scope body_scope = {.parent = scope};
     bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
     scope_free(&body_scope);
-    return ok;
+    if (!ok) {
+      borrow_scope_snapshot_restore(before);
+      borrow_scope_snapshot_free(before);
+      return false;
+    }
+    BorrowScopeSnapshot *body_after = borrow_scope_snapshot_capture(scope);
+    bool body_possible = !(stmt->expr && stmt->expr->kind == EXPR_BOOL && !stmt->expr->bool_value);
+    BorrowScopeSnapshot *states[] = {before, body_after};
+    bool continues[] = {true, body_possible && !stmt_vec_guarantees_exit(&stmt->then_body, fun->raises)};
+    borrow_scope_snapshot_restore_union(before, states, continues, 2);
+    borrow_scope_snapshot_free(body_after);
+    borrow_scope_snapshot_free(before);
+    return true;
   }
   if (stmt->kind == STMT_FOR) {
     if (!check_expr(program, stmt->expr, scope, diag)) return false;
@@ -4242,11 +5295,23 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     if (!is_int_type(start_type) || !is_int_type(end_type)) return set_diag_detail(diag, 3020, "range loop bounds must be integers", stmt->line, stmt->column, "integer-compatible range bounds", "non-integer bound", "use integer start and end expressions");
     if (!types_compatible(start_type, end_type)) return set_diag_detail(diag, 3020, "range loop bounds must have matching integer types", stmt->line, stmt->column, start_type, end_type, "use matching integer bounds until explicit casts are supported");
     set_stmt_resolved_type(stmt, start_type);
+    BorrowScopeSnapshot *before = borrow_scope_snapshot_capture(scope);
     Scope body_scope = {.parent = scope};
     scope_add(&body_scope, stmt->name, start_type, false);
     bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
     scope_free(&body_scope);
-    return ok;
+    if (!ok) {
+      borrow_scope_snapshot_restore(before);
+      borrow_scope_snapshot_free(before);
+      return false;
+    }
+    BorrowScopeSnapshot *body_after = borrow_scope_snapshot_capture(scope);
+    BorrowScopeSnapshot *states[] = {before, body_after};
+    bool continues[] = {true, !stmt_vec_guarantees_exit(&stmt->then_body, fun->raises)};
+    borrow_scope_snapshot_restore_union(before, states, continues, 2);
+    borrow_scope_snapshot_free(body_after);
+    borrow_scope_snapshot_free(before);
+    return true;
   }
   if (stmt->kind == STMT_BREAK) {
     if (loop_depth <= 0) return set_diag_detail(diag, 3018, "break is only valid inside a loop", stmt->line, stmt->column, "enclosing while or for loop", "no enclosing loop", "move this break inside a loop or use return");
@@ -4293,7 +5358,11 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
       }
       if (!seen && !has_fallback) return set_diag_detail(diag, 3106, "non-exhaustive match", stmt->line, stmt->column, "one arm for every variant case", cases->items[case_index].name, "add the missing match arm or a fallback `._` arm");
     }
+    BorrowScopeSnapshot *before = borrow_scope_snapshot_capture(scope);
+    BorrowScopeSnapshot **arm_states = calloc(stmt->match_arms.len, sizeof(BorrowScopeSnapshot *));
+    bool *arm_continues = calloc(stmt->match_arms.len, sizeof(bool));
     for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
+      borrow_scope_snapshot_restore(before);
       Scope arm_scope = {.parent = scope};
       MatchArm *arm = &stmt->match_arms.items[arm_index];
       if (strcmp(arm->case_name, "_") != 0 && arm->payload_name && item_choice) {
@@ -4302,8 +5371,22 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
       }
       bool ok = check_stmt_vec_with_loop(program, fun, &arm->body, &arm_scope, diag, loop_depth);
       scope_free(&arm_scope);
-      if (!ok) return false;
+      if (!ok) {
+        borrow_scope_snapshot_restore(before);
+        for (size_t i = 0; i < stmt->match_arms.len; i++) borrow_scope_snapshot_free(arm_states[i]);
+        free(arm_states);
+        free(arm_continues);
+        borrow_scope_snapshot_free(before);
+        return false;
+      }
+      arm_states[arm_index] = borrow_scope_snapshot_capture(scope);
+      arm_continues[arm_index] = !stmt_vec_guarantees_exit(&arm->body, fun->raises);
     }
+    borrow_scope_snapshot_restore_union(before, arm_states, arm_continues, stmt->match_arms.len);
+    for (size_t i = 0; i < stmt->match_arms.len; i++) borrow_scope_snapshot_free(arm_states[i]);
+    free(arm_states);
+    free(arm_continues);
+    borrow_scope_snapshot_free(before);
     return true;
   }
   return true;
@@ -4318,6 +5401,40 @@ static bool check_stmt_vec_with_loop(const Program *program, const Function *fun
 
 static bool check_stmt_vec(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag) {
   return check_stmt_vec_with_loop(program, fun, body, scope, diag, 0);
+}
+
+static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
+
+static bool stmt_guarantees_exit(const Stmt *stmt, bool function_raises) {
+  if (!stmt) return false;
+  if (stmt->kind == STMT_RETURN) return true;
+  if (stmt->kind == STMT_RAISE) return function_raises;
+  if (stmt->kind == STMT_IF) {
+    return stmt_vec_guarantees_exit(&stmt->then_body, function_raises) &&
+           stmt_vec_guarantees_exit(&stmt->else_body, function_raises);
+  }
+  if (stmt->kind == STMT_MATCH) {
+    if (stmt->match_arms.len == 0) return false;
+    for (size_t i = 0; i < stmt->match_arms.len; i++) {
+      if (!stmt_vec_guarantees_exit(&stmt->match_arms.items[i].body, function_raises)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises) {
+  if (!body) return false;
+  for (size_t i = 0; i < body->len; i++) {
+    if (stmt_guarantees_exit(body->items[i], function_raises)) return true;
+  }
+  return false;
+}
+
+static bool check_function_has_required_return(const Function *fun, ZDiag *diag) {
+  if (!fun || !fun->return_type || strcmp(fun->return_type, "Void") == 0) return true;
+  if (stmt_vec_guarantees_exit(&fun->body, fun->raises)) return true;
+  return set_diag_detail(diag, 3007, "non-void function must return a value on every path", fun->line, fun->column, fun->return_type, "function body may fall through", "add an explicit return or raise on every path");
 }
 
 static bool validate_drop_method(const Shape *shape, const Function *method, ZDiag *diag) {
@@ -4367,6 +5484,7 @@ static bool check_shape_method_body(const Program *program, const Shape *shape, 
   Function checking_method = *method;
   checking_method.return_type = type_substitute_generic(method->return_type, bindings, binding_len);
   bool ok = check_stmt_vec(program, &checking_method, &method->body, &scope, diag);
+  if (ok) ok = check_function_has_required_return(&checking_method, diag);
   free(checking_method.return_type);
   generic_bindings_free(bindings, binding_len);
   free(bindings);
@@ -4477,6 +5595,106 @@ static bool validate_type_param_constraints(const Program *program, const Functi
   return true;
 }
 
+static bool is_builtin_type_name(const char *name) {
+  if (!name) return false;
+  const char *names[] = {
+    "Void", "Bool", "bool", "String", "char", "Type",
+    "World", "WorldStream", "Fs", "File", "ByteBuf", "NullAlloc", "FixedBufAlloc", "PageAlloc", "GeneralAlloc",
+    "Vec", "Map", "Set", "Duration", "RandSource", "ProcStatus", "Address", "Net", "Conn", "Listener",
+    "HttpMethod", "HttpClient", "HttpServer", "JsonDoc", "BufferedReader", "BufferedWriter",
+    "Request", "Response", "Env", "Args", "Clock", "Rand", "Proc", "Alloc",
+    "Maybe", "Span", "MutSpan", "ref", "mutref", "owned",
+    NULL
+  };
+  for (size_t i = 0; names[i]; i++) {
+    if (strcmp(name, names[i]) == 0) return true;
+  }
+  return is_int_type(name) || is_float_type(name);
+}
+
+static bool type_param_name_known(const ParamVec *primary, const ParamVec *secondary, const char *name) {
+  const ParamVec *sets[] = {primary, secondary, NULL};
+  for (size_t set_index = 0; sets[set_index]; set_index++) {
+    const ParamVec *params = sets[set_index];
+    for (size_t i = 0; i < params->len; i++) {
+      if (!params->items[i].is_static && params->items[i].name && strcmp(params->items[i].name, name) == 0) return true;
+    }
+  }
+  return false;
+}
+
+static bool program_type_name_known(const Program *program, const ParamVec *primary, const ParamVec *secondary, const char *name, bool allow_self) {
+  if (!name || !name[0]) return false;
+  if (allow_self && strcmp(name, "Self") == 0) return true;
+  if (is_builtin_type_name(name) || type_param_name_known(primary, secondary, name)) return true;
+  if (find_shape(program, name) || find_enum(program, name) || find_choice(program, name) || find_alias(program, name)) return true;
+  for (size_t i = 0; program && i < program->interfaces.len; i++) {
+    if (strcmp(program->interfaces.items[i].name, name) == 0) return true;
+  }
+  return false;
+}
+
+static bool validate_type_names_inner(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column) {
+  if (!type) return true;
+  type = type_strip_const(type);
+  if (strcmp(type, "Self") == 0 && allow_self) return true;
+  if (type[0] == '[') {
+    const char *close = strchr(type, ']');
+    if (!close || !close[1]) return true;
+    return validate_type_names_inner(program, close + 1, primary, secondary, allow_self, diag, line, column);
+  }
+  const char *open = strchr(type, '<');
+  if (open && open > type) {
+    char *name = z_strndup(type, (size_t)(open - type));
+    if (!program_type_name_known(program, primary, secondary, name, allow_self)) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "unknown type '%s'", name);
+      free(name);
+      return set_diag_detail(diag, 3003, "unknown type name", line, column, "declared type name", actual, "declare the type or correct the annotation");
+    }
+    char **args = NULL;
+    size_t arg_len = 0;
+    bool parsed = type_generic_arg_list(type, name, &args, &arg_len);
+    const Shape *shape = find_shape(program, name);
+    if (parsed && shape) {
+      if (arg_len != shape->type_params.len) {
+        char actual[160];
+        snprintf(actual, sizeof(actual), "%zu type argument(s)", arg_len);
+        free_type_arg_list(args, arg_len);
+        free(name);
+        return set_diag_detail(diag, 3032, "shape type argument count mismatch", line, column, "one argument per shape type parameter", actual, "match the shape declaration's type parameter list");
+      }
+      for (size_t i = 0; i < arg_len; i++) {
+        if (shape->type_params.items[i].is_static) continue;
+        if (!validate_type_names_inner(program, args[i], primary, secondary, allow_self, diag, line, column)) {
+          free_type_arg_list(args, arg_len);
+          free(name);
+          return false;
+        }
+      }
+    } else if (parsed) {
+      for (size_t i = 0; i < arg_len; i++) {
+        if (!validate_type_names_inner(program, args[i], primary, secondary, allow_self, diag, line, column)) {
+          free_type_arg_list(args, arg_len);
+          free(name);
+          return false;
+        }
+      }
+    }
+    free_type_arg_list(args, arg_len);
+    free(name);
+    return true;
+  }
+  if (program_type_name_known(program, primary, secondary, type, allow_self)) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "unknown type '%s'", type);
+  return set_diag_detail(diag, 3003, "unknown type name", line, column, "declared type name", actual, "declare the type or correct the annotation");
+}
+
+static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column) {
+  return validate_type_names_inner(program, type, primary, secondary, allow_self, diag, line, column);
+}
+
 static bool validate_interface_decl(const Program *program, const InterfaceDecl *interface, ZDiag *diag) {
   if (!interface) return true;
   for (size_t previous = 0; previous < program->interfaces.len; previous++) {
@@ -4491,10 +5709,12 @@ static bool validate_interface_decl(const Program *program, const InterfaceDecl 
       return set_diag_detail(diag, 3038, "interface methods cannot have bodies", method->line, method->column, "method signature only", "method body", "move implementation to a concrete shape static method");
     }
     if (!validate_type_form(method->return_type, diag, method->line, method->column)) return false;
+    if (!validate_type_names(program, method->return_type, &interface->type_params, &method->type_params, true, diag, method->line, method->column)) return false;
     if (!validate_function_error_set(method, diag)) return false;
     for (size_t param_index = 0; param_index < method->params.len; param_index++) {
       const Param *param = &method->params.items[param_index];
       if (!validate_type_form(param->type, diag, param->line, param->column)) return false;
+      if (!validate_type_names(program, param->type, &interface->type_params, &method->type_params, true, diag, param->line, param->column)) return false;
     }
     for (size_t previous = 0; previous < method_index; previous++) {
       if (strcmp(interface->methods.items[previous].name, method->name) == 0) {
@@ -4557,6 +5777,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
   for (size_t i = 0; i < program->aliases.len; i++) {
     const TypeAlias *alias = &program->aliases.items[i];
     if (!validate_type_form(alias->target, diag, alias->line, alias->column)) return false;
+    if (!validate_type_names(program, alias->target, NULL, NULL, false, diag, alias->line, alias->column)) return false;
     for (size_t previous = 0; previous < i; previous++) {
       if (strcmp(program->aliases.items[previous].name, alias->name) == 0) {
         return set_diag_detail(diag, 3036, "duplicate type alias declaration", alias->line, alias->column, "unique type alias name", "type alias already declared", "rename one alias");
@@ -4587,6 +5808,10 @@ bool z_check_program(const Program *program, ZDiag *diag) {
       scope_free(&const_scope);
       return false;
     }
+    if (declared_type && !validate_type_names(program, declared_type, NULL, NULL, false, diag, item->line, item->column)) {
+      scope_free(&const_scope);
+      return false;
+    }
     if (!check_expr_expected(program, item->expr, &const_scope, diag, declared_type)) {
       scope_free(&const_scope);
       return false;
@@ -4610,6 +5835,12 @@ bool z_check_program(const Program *program, ZDiag *diag) {
   for (size_t i = 0; i < program->shapes.len; i++) {
     for (size_t type_param_index = 0; type_param_index < program->shapes.items[i].type_params.len; type_param_index++) {
       Param *type_param = &program->shapes.items[i].type_params.items[type_param_index];
+      for (size_t previous = 0; previous < type_param_index; previous++) {
+        if (strcmp(program->shapes.items[i].type_params.items[previous].name, type_param->name) == 0) {
+          return set_diag_detail(diag, 3008, "duplicate shape type parameter", type_param->line, type_param->column, "unique type parameter name", type_param->name, "rename one type parameter");
+        }
+      }
+      if (type_param->is_static && !validate_type_names(program, type_param->type, NULL, NULL, false, diag, type_param->line, type_param->column)) return false;
       if (type_param->is_static && !is_static_value_param_type(program, type_param->type)) {
         return set_diag_detail(diag, 3043, "static value parameter type is not supported", type_param->line, type_param->column, "integer, Bool, or enum static parameter", type_param->type ? type_param->type : "Unknown", "use a concrete integer, Bool, or enum type for this static parameter");
       }
@@ -4617,15 +5848,23 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     for (size_t field_index = 0; field_index < program->shapes.items[i].fields.len; field_index++) {
       Param *field = &program->shapes.items[i].fields.items[field_index];
       if (!validate_type_form(field->type, diag, field->line, field->column)) return false;
+      if (!validate_type_names(program, field->type, &program->shapes.items[i].type_params, NULL, false, diag, field->line, field->column)) return false;
+      for (size_t previous = 0; previous < field_index; previous++) {
+        if (strcmp(program->shapes.items[i].fields.items[previous].name, field->name) == 0) {
+          return set_diag_detail(diag, 3008, "duplicate shape field", field->line, field->column, "unique field name", field->name, "rename or remove one field");
+        }
+      }
     }
     if (!validate_generic_owned_fields(&program->shapes.items[i], diag)) return false;
     if (!validate_shape_layout(&program->shapes.items[i], diag)) return false;
     for (size_t method_index = 0; method_index < program->shapes.items[i].methods.len; method_index++) {
       Function *method = &program->shapes.items[i].methods.items[method_index];
       if (!validate_shape_method_type_form(method->return_type, diag, method->line, method->column)) return false;
+      if (!validate_type_names(program, method->return_type, &program->shapes.items[i].type_params, &method->type_params, true, diag, method->line, method->column)) return false;
       for (size_t param_index = 0; param_index < method->params.len; param_index++) {
         Param *param = &method->params.items[param_index];
         if (!validate_shape_method_type_form(param->type, diag, param->line, param->column)) return false;
+        if (!validate_type_names(program, param->type, &program->shapes.items[i].type_params, &method->type_params, true, diag, param->line, param->column)) return false;
       }
       if (!validate_drop_method(&program->shapes.items[i], method, diag)) return false;
       if (!check_shape_method_body(program, &program->shapes.items[i], method, diag)) return false;
@@ -4640,6 +5879,12 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     for (size_t case_index = 0; case_index < program->enums.items[i].cases.len; case_index++) {
       Param *item_case = &program->enums.items[i].cases.items[case_index];
       if (!validate_type_form(item_case->type, diag, item_case->line, item_case->column)) return false;
+      if (!validate_type_names(program, item_case->type, NULL, NULL, false, diag, item_case->line, item_case->column)) return false;
+      for (size_t previous = 0; previous < case_index; previous++) {
+        if (strcmp(program->enums.items[i].cases.items[previous].name, item_case->name) == 0) {
+          return set_diag_detail(diag, 3008, "duplicate enum case", item_case->line, item_case->column, "unique enum case name", item_case->name, "rename or remove one case");
+        }
+      }
     }
     for (size_t other = i + 1; other < program->enums.len; other++) {
       if (strcmp(program->enums.items[i].name, program->enums.items[other].name) == 0) {
@@ -4651,6 +5896,12 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     for (size_t case_index = 0; case_index < program->choices.items[i].cases.len; case_index++) {
       Param *item_case = &program->choices.items[i].cases.items[case_index];
       if (!validate_type_form(item_case->type, diag, item_case->line, item_case->column)) return false;
+      if (!validate_type_names(program, item_case->type, NULL, NULL, false, diag, item_case->line, item_case->column)) return false;
+      for (size_t previous = 0; previous < case_index; previous++) {
+        if (strcmp(program->choices.items[i].cases.items[previous].name, item_case->name) == 0) {
+          return set_diag_detail(diag, 3008, "duplicate choice case", item_case->line, item_case->column, "unique choice case name", item_case->name, "rename or remove one case");
+        }
+      }
     }
     for (size_t other = i + 1; other < program->choices.len; other++) {
       if (strcmp(program->choices.items[i].name, program->choices.items[other].name) == 0) {
@@ -4668,6 +5919,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     if (strcmp(fun->name, "main") == 0) main_fun = fun;
     if (fun->is_test) has_test = true;
     if (!validate_type_form(fun->return_type, diag, fun->line, fun->column)) return false;
+    if (!validate_type_names(program, fun->return_type, &fun->type_params, NULL, false, diag, fun->line, fun->column)) return false;
     if (!validate_type_param_constraints(program, fun, diag)) return false;
     if (!validate_function_error_set(fun, diag)) return false;
     if (!validate_export_c_function(fun, diag)) return false;
@@ -4690,6 +5942,10 @@ bool z_check_program(const Program *program, ZDiag *diag) {
         scope_free(&scope);
         return false;
       }
+      if (!validate_type_names(program, param->type, &fun->type_params, NULL, false, diag, param->line, param->column)) {
+        scope_free(&scope);
+        return false;
+      }
       for (size_t previous = 0; previous < param_index; previous++) {
         if (strcmp(fun->params.items[previous].name, param->name) == 0) {
           scope_free(&scope);
@@ -4705,6 +5961,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     for (size_t alias_index = 0; alias_index < program->aliases.len; alias_index++) scope_add(&scope, program->aliases.items[alias_index].name, "Type", false);
     checking_function = fun;
     bool ok = check_stmt_vec(program, fun, &fun->body, &scope, diag);
+    if (ok) ok = check_function_has_required_return(fun, diag);
     checking_function = NULL;
     scope_free(&scope);
     if (!ok) return false;

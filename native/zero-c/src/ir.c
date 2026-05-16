@@ -818,14 +818,14 @@ static bool ir_is_hosted_world_main(const Function *source) {
          source->return_type && strcmp(source->return_type, "Void") == 0;
 }
 
-static bool ir_is_world_stream_write(const Expr *expr, const char *stream) {
+static bool ir_is_world_stream_write(const IrFunction *fun, const Expr *expr, const char *stream) {
   if (!expr || expr->kind != EXPR_CALL || expr->args.len != 1) return false;
   const Expr *write = expr->left;
   if (!write || write->kind != EXPR_MEMBER || strcmp(write->text ? write->text : "", "write") != 0) return false;
   const Expr *stream_expr = write->left;
   if (!stream_expr || stream_expr->kind != EXPR_MEMBER || strcmp(stream_expr->text ? stream_expr->text : "", stream) != 0) return false;
   const Expr *world = stream_expr->left;
-  return world && world->kind == EXPR_IDENT && strcmp(world->text ? world->text : "", "world") == 0;
+  return fun && fun->world_param_name && world && world->kind == EXPR_IDENT && strcmp(world->text ? world->text : "", fun->world_param_name) == 0;
 }
 
 static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out);
@@ -2632,13 +2632,13 @@ static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFuncti
     ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_RAISE, .field_offset = 1, .error_code = ir_error_code_for_name(stmt->name), .line = stmt->line, .column = stmt->column});
     return true;
   }
-  if (stmt->kind == STMT_CHECK && (ir_is_world_stream_write(stmt->expr, "out") || ir_is_world_stream_write(stmt->expr, "err"))) {
+  if (stmt->kind == STMT_CHECK && (ir_is_world_stream_write(mir_fun, stmt->expr, "out") || ir_is_world_stream_write(mir_fun, stmt->expr, "err"))) {
     IrValue *bytes = NULL;
     if (!ir_lower_byte_view(program, ir, mir_fun, stmt->expr->args.items[0], &bytes)) return false;
     if (ir->direct_runtime_helper_count < 1) ir->direct_runtime_helper_count = 1;
     ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){
       .kind = IR_INSTR_WORLD_WRITE,
-      .field_offset = ir_is_world_stream_write(stmt->expr, "err") ? 2 : 1,
+      .field_offset = ir_is_world_stream_write(mir_fun, stmt->expr, "err") ? 2 : 1,
       .value = bytes,
       .line = stmt->line,
       .column = stmt->column
@@ -2740,6 +2740,7 @@ static IrFunction *ir_program_push_function(IrProgram *ir, const Function *sourc
   *fun = (IrFunction){
     .name = z_strdup(source->name),
     .stable_id = stable_id.data,
+    .world_param_name = ir_is_hosted_world_main(source) && source->params.items[0].name ? z_strdup(source->params.items[0].name) : NULL,
     .return_type = ir_is_hosted_world_main(source) ? IR_TYPE_I32 : (source->raises ? IR_TYPE_I64 : ir_type_kind(source->return_type)),
     .value_return_type = ir_type_kind(source->return_type),
     .is_exported = source->export_c || ir_is_hosted_world_main(source),
@@ -3182,6 +3183,7 @@ void z_free_ir_program(IrProgram *program) {
     IrFunction *fun = &program->functions[i];
     free(fun->name);
     free(fun->stable_id);
+    free(fun->world_param_name);
     for (size_t local_index = 0; local_index < fun->local_len; local_index++) {
       free(fun->locals[local_index].name);
       free(fun->locals[local_index].shape_name);

@@ -1,0 +1,7 @@
+shape S {
+    x: i32,
+    x: Bool,
+}
+
+pub fun main() -> Void {
+}

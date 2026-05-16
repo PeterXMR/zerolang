@@ -1,0 +1,11 @@
+fun inner() -> Void raises { Bad } {
+    raise Bad
+}
+
+fun wrapper() -> Void raises {
+    check inner()
+}
+
+pub fun main() -> Void {
+    wrapper()
+}

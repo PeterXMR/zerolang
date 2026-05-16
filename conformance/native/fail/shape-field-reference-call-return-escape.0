@@ -1,0 +1,13 @@
+shape Box {
+    value: ref<i32>,
+}
+
+fun id(value: ref<i32>) -> ref<i32> {
+    return value
+}
+
+pub fun main() -> ref<i32> {
+    let value = 1
+    let box: Box = Box { value: &value }
+    return id(box.value)
+}

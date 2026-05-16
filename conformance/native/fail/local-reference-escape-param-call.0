@@ -1,0 +1,10 @@
+fun id(r: ref<i32>) -> ref<i32> {
+    return r
+}
+
+pub fun leak(x: i32) -> ref<i32> {
+    return id(&x)
+}
+
+pub fun main() -> Void {
+}

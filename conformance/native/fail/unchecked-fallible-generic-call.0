@@ -1,0 +1,7 @@
+fun risky<T>(value: T) -> Void raises { Bad } {
+    raise Bad
+}
+
+pub fun main() -> Void raises { Bad } {
+    risky<i32>(1)
+}

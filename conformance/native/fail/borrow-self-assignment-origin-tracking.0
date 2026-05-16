@@ -1,0 +1,6 @@
+pub fun main() -> Void {
+    let mut y = 1
+    let mut r = &mut y
+    r = r
+    y = 2
+}

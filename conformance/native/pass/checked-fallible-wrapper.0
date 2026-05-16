@@ -1,0 +1,14 @@
+fun inner(flag: Bool) -> Void raises { Bad } {
+    if flag {
+        raise Bad
+    }
+}
+
+fun wrapper() -> Void raises {
+    check inner(false)
+}
+
+pub fun main(world: World) -> Void raises {
+    check wrapper()
+    check world.out.write("checked fallible wrapper ok\n")
+}

@@ -1,0 +1,18 @@
+interface Risky<T> {
+    fun risky(self: ref<T>) -> Void raises { Bad }
+}
+
+shape S {
+    value: i32,
+
+    fun risky(self: ref<Self>) -> Void raises { Bad } {
+        raise Bad
+    }
+}
+
+fun run<T: Risky<T>>(value: ref<T>) -> Void raises { Bad } {
+    T.risky(value)
+}
+
+pub fun main() -> Void {
+}

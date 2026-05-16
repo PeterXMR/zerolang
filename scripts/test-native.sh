@@ -125,6 +125,7 @@ pub fun main(world: World) -> Void raises {
 SOURCE
 
 run_native_or_gap "$project" .zero/native-test/project-exe "native project"
+run_native_or_gap conformance/native/pass/world-stream-renamed-param.0 .zero/native-test/world-stream-renamed-param "renamed world"
 
 run_native_or_gap conformance/native/pass/params.0 .zero/native-test/params "params work"
 run_native_or_gap conformance/native/pass/shape.0 .zero/native-test/shape "native shape"

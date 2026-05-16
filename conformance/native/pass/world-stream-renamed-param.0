@@ -1,0 +1,3 @@
+pub fun main(w: World) -> Void raises {
+    check w.out.write("renamed world\n")
+}

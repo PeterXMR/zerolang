@@ -1,0 +1,11 @@
+shape Box {
+    value: ref<i32>,
+}
+
+pub fun main() -> Void {
+    let mut x = 1
+    let mut y = 2
+    let mut box: Box = Box { value: &x }
+    box.value = &y
+    y = 3
+}

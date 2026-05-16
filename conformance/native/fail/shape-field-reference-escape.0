@@ -1,0 +1,9 @@
+shape Box {
+    value: ref<i32>,
+}
+
+pub fun main() -> ref<i32> {
+    let x = 1
+    let box: Box = Box { value: &x }
+    return box.value
+}
