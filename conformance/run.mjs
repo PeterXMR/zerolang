@@ -2627,6 +2627,7 @@ for (const [fixture, code] of [
   ["aggregate-param-reference-return-origin.0", /BOR001/],
   ["call-branch-reference-origin.0", /BOR001/],
   ["generic-aggregate-reference-origin.0", /BOR001/],
+  ["generic-receiver-method-reference-origin.0", /BOR001/],
   ["shape-field-reference-escape.0", /BOR002/],
   ["shape-field-reference-borrow-origin.0", /BOR001/],
   ["return-shape-reference-escape.0", /BOR002/],

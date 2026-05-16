@@ -1762,6 +1762,21 @@ static char *type_substitute_generic(const char *type, GenericBinding *bindings,
   return z_strdup(type);
 }
 
+static GenericBinding *return_provenance_expr_bindings = NULL;
+static size_t return_provenance_expr_binding_len = 0;
+
+static const char *expr_resolved_type_for_current_context(const Expr *expr) {
+  if (!expr || !expr->resolved_type) return NULL;
+  if (return_provenance_expr_bindings && return_provenance_expr_binding_len > 0) {
+    static char substituted_type[256];
+    char *substituted = type_substitute_generic(expr->resolved_type, return_provenance_expr_bindings, return_provenance_expr_binding_len);
+    snprintf(substituted_type, sizeof(substituted_type), "%s", substituted ? substituted : "Unknown");
+    free(substituted);
+    return substituted_type;
+  }
+  return expr->resolved_type;
+}
+
 static bool infer_generic_type_from_pattern(const Function *fun, const char *pattern, const char *actual, GenericBinding *bindings, size_t binding_len) {
   if (!pattern || !actual) return true;
   if (type_is_generic_param(fun, pattern)) return generic_binding_set(bindings, binding_len, pattern, actual);
@@ -3270,7 +3285,8 @@ static bool index_element_type(const char *base_type, char *out, size_t out_len)
 
 static const char *expr_type(const Program *program, const Expr *expr, Scope *scope) {
   if (!expr) return "Void";
-  if (expr->resolved_type) return expr->resolved_type;
+  const char *resolved_type = expr_resolved_type_for_current_context(expr);
+  if (resolved_type) return resolved_type;
   switch (expr->kind) {
     case EXPR_STRING: return "String";
     case EXPR_CHAR: return "char";
@@ -5071,23 +5087,27 @@ static bool call_result_value_provenance(const Program *program, const Expr *exp
 
   const Function *callee = NULL;
   const Expr *receiver = NULL;
+  const Shape *namespace_shape = NULL;
+  const Shape *receiver_shape = NULL;
+  bool receiver_requires_mut = false;
   size_t param_offset = 0;
   if (expr->left->kind == EXPR_IDENT) {
     callee = find_function(program, expr->left->text);
   } else if (expr->left->kind == EXPR_MEMBER) {
-    callee = find_namespace_shape_method(program, expr->left, NULL);
+    callee = find_namespace_shape_method(program, expr->left, &namespace_shape);
     if (!callee) callee = find_constrained_interface_method(program, expr->left, NULL);
     if (!callee && expr->left->left) {
       receiver = expr->left->left;
       const char *receiver_type_raw = expr_type(program, receiver, scope);
       char receiver_type[192];
       strip_ref_like_type(receiver_type_raw, receiver_type, sizeof(receiver_type));
-      const Shape *receiver_shape = find_shape_for_type(program, receiver_type);
+      receiver_shape = find_shape_for_type(program, receiver_type);
       callee = find_shape_method_decl(receiver_shape, expr->left->text);
-      if (callee && shape_method_receiver_info(callee, NULL)) {
+      if (callee && shape_method_receiver_info(callee, &receiver_requires_mut)) {
         param_offset = 1;
       } else {
         receiver = NULL;
+        receiver_shape = NULL;
         callee = NULL;
       }
     }
@@ -5098,7 +5118,15 @@ static bool call_result_value_provenance(const Program *program, const Expr *exp
   GenericBinding *summary_bindings = NULL;
   size_t summary_binding_len = 0;
   bool has_summary_bindings = false;
-  if (function_is_generic(callee) && !receiver) {
+  if (namespace_shape) {
+    ZDiag ignored = {0};
+    has_summary_bindings = build_shape_method_bindings(program, namespace_shape, callee, expr, scope, return_type, &ignored, &summary_bindings, &summary_binding_len);
+  } else if (receiver && receiver_shape) {
+    ZDiag ignored = {0};
+    char *self_arg_type = receiver_self_arg_type(expr_type(program, receiver, scope), receiver_requires_mut);
+    has_summary_bindings = build_receiver_shape_method_bindings(program, receiver_shape, callee, expr, self_arg_type, scope, &ignored, &summary_bindings, &summary_binding_len);
+    free(self_arg_type);
+  } else if (function_is_generic(callee)) {
     has_summary_bindings = generic_call_bindings_from_checked_call(program, callee, expr, scope, return_type, &summary_bindings, &summary_binding_len);
   }
   ValueProvenance summary = {0};
@@ -5510,6 +5538,10 @@ static bool function_return_value_provenance(const Program *program, const Funct
   if (!program || !fun || !origins) return false;
   if (function_return_provenance_depth > 16) return false;
   function_return_provenance_depth++;
+  GenericBinding *previous_expr_bindings = return_provenance_expr_bindings;
+  size_t previous_expr_binding_len = return_provenance_expr_binding_len;
+  return_provenance_expr_bindings = bindings;
+  return_provenance_expr_binding_len = binding_len;
   Scope scope = {0};
   for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
     const Param *param = &fun->params.items[param_index];
@@ -5521,6 +5553,8 @@ static bool function_return_value_provenance(const Program *program, const Funct
   }
   bool added = collect_return_value_provenance_from_stmt_vec(program, fun, &fun->body, &scope, bindings, binding_len, origins);
   scope_free(&scope);
+  return_provenance_expr_bindings = previous_expr_bindings;
+  return_provenance_expr_binding_len = previous_expr_binding_len;
   function_return_provenance_depth--;
   return added;
 }
