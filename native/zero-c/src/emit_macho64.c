@@ -26,6 +26,11 @@ static void append_u64le(ZBuf *buf, uint64_t value) {
   append_u32le(buf, (uint32_t)(value >> 32));
 }
 
+static void patch_bytes(ZBuf *buf, size_t offset, const unsigned char *bytes, size_t len) {
+  if (!buf || !bytes || offset + len > buf->len) return;
+  for (size_t i = 0; i < len; i++) buf->data[offset + i] = (char)bytes[i];
+}
+
 static void patch_u64le(ZBuf *buf, size_t offset, uint64_t value) {
   for (unsigned i = 0; i < 8; i++) buf->data[offset + i] = (char)((value >> (i * 8)) & 0xffu);
 }
@@ -1533,12 +1538,13 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
   const uint32_t text_segment_cmd_size = 72 + section_count * 80;
   const uint32_t linkedit_cmd_size = 72;
   const uint32_t dyld_info_cmd_size = 48;
+  const uint32_t uuid_cmd_size = 24;
   const uint32_t dylinker_cmd_size = 32;
   const uint32_t libsystem_cmd_size = 56;
   const uint32_t main_cmd_size = 24;
   const uint32_t build_version_cmd_size = 24;
   const uint32_t code_signature_cmd_size = 16;
-  const uint32_t sizeofcmds = pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + dylinker_cmd_size + libsystem_cmd_size + main_cmd_size + build_version_cmd_size + code_signature_cmd_size;
+  const uint32_t sizeofcmds = pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + uuid_cmd_size + dylinker_cmd_size + libsystem_cmd_size + main_cmd_size + build_version_cmd_size + code_signature_cmd_size;
   const uint32_t text_offset = (uint32_t)macho_align(header_size + sizeofcmds, 16);
   const uint32_t rodata_offset = has_rodata ? (uint32_t)macho_align(text_offset + text.len, 8) : 0;
   for (size_t i = 0; i < ctx.data_patch_len; i++) {
@@ -1576,7 +1582,7 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
   append_u32le(out, 0x0100000cu);      // CPU_TYPE_ARM64
   append_u32le(out, 0);                // CPU_SUBTYPE_ARM64_ALL
   append_u32le(out, 2);                // MH_EXECUTE
-  append_u32le(out, 9);                // ncmds
+  append_u32le(out, 10);               // ncmds
   append_u32le(out, sizeofcmds);
   append_u32le(out, 0x200085);         // MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
   append_u32le(out, 0);
@@ -1651,11 +1657,16 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
   append_u32le(out, rebase_size);
   for (unsigned i = 0; i < 8; i++) append_u32le(out, 0);
 
+  append_u32le(out, 0x1b);             // LC_UUID
+  append_u32le(out, uuid_cmd_size);
+  const size_t uuid_offset = out->len;
+  for (unsigned i = 0; i < 16; i++) append_u8(out, 0);
+
   append_u32le(out, 0xe);              // LC_LOAD_DYLINKER
   append_u32le(out, dylinker_cmd_size);
   append_u32le(out, 12);
   append_bytes(out, "/usr/lib/dyld", strlen("/usr/lib/dyld") + 1);
-  macho_pad_to(out, header_size + pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + dylinker_cmd_size);
+  macho_pad_to(out, header_size + pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + uuid_cmd_size + dylinker_cmd_size);
 
   append_u32le(out, 0xc);              // LC_LOAD_DYLIB
   append_u32le(out, libsystem_cmd_size);
@@ -1664,7 +1675,7 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
   append_u32le(out, 0x054c0000);
   append_u32le(out, 0x00010000);
   append_bytes(out, "/usr/lib/libSystem.B.dylib", strlen("/usr/lib/libSystem.B.dylib") + 1);
-  macho_pad_to(out, header_size + pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + dylinker_cmd_size + libsystem_cmd_size);
+  macho_pad_to(out, header_size + pagezero_cmd_size + text_segment_cmd_size + linkedit_cmd_size + dyld_info_cmd_size + uuid_cmd_size + dylinker_cmd_size + libsystem_cmd_size);
 
   append_u32le(out, 0x80000028u);      // LC_MAIN
   append_u32le(out, main_cmd_size);
@@ -1692,6 +1703,11 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
   macho_pad_to(out, (size_t)segment_file_size);
   if (rebase.data) append_bytes(out, rebase.data, rebase.len);
   macho_pad_to(out, code_signature_offset);
+  unsigned char uuid_hash[32];
+  macho_sha256_hash((const unsigned char *)out->data, out->len, uuid_hash);
+  uuid_hash[6] = (unsigned char)((uuid_hash[6] & 0x0fu) | 0x50u);
+  uuid_hash[8] = (unsigned char)((uuid_hash[8] & 0x3fu) | 0x80u);
+  patch_bytes(out, uuid_offset, uuid_hash, 16);
   ZBuf signature;
   macho_append_code_signature(&signature, (const unsigned char *)out->data, out->len, code_signature_id);
   if (signature.data) append_bytes(out, signature.data, signature.len);

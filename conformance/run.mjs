@@ -175,6 +175,21 @@ async function assertMachOArm64Executable(path) {
   assert.equal(bytes.readUInt32LE(0), 0xfeedfacf);
   assert.equal(bytes.readUInt32LE(4), 0x0100000c);
   assert.equal(bytes.readUInt32LE(12), 2);
+  const ncmds = bytes.readUInt32LE(16);
+  let sawUuid = false;
+  for (let offset = 32, i = 0; i < ncmds; i++) {
+    const cmd = bytes.readUInt32LE(offset);
+    const cmdsize = bytes.readUInt32LE(offset + 4);
+    assert(cmdsize >= 8);
+    assert(offset + cmdsize <= bytes.length);
+    if (cmd === 0x1b) {
+      assert.equal(cmdsize, 24);
+      assert(!bytes.subarray(offset + 8, offset + 24).every((byte) => byte === 0));
+      sawUuid = true;
+    }
+    offset += cmdsize;
+  }
+  assert(sawUuid);
   assert(bytes.includes(Buffer.from("/usr/lib/dyld")));
   assert(bytes.includes(Buffer.from("/usr/lib/libSystem.B.dylib")));
   assert(bytes.includes(Buffer.from("zero-direct")));

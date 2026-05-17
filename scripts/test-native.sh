@@ -2010,7 +2010,7 @@ fi
 grep -q "must not take parameters" .zero/native-test/direct-exe-with-params.err
 rm -f .zero/native-test/direct-exe-darwin .zero/native-test/direct-exe-darwin.c .zero/native-test/direct-exe-darwin.json .zero/native-test/direct-hello-darwin .zero/native-test/direct-hello-darwin.c
 bin/zero build --json --emit exe --backend zero-macho64 --target darwin-arm64 examples/direct-exe-return.0 --out .zero/native-test/direct-exe-darwin > .zero/native-test/direct-exe-darwin.json
-node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-exe-darwin"); if (b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(12)!==2 || !b.includes(Buffer.from("/usr/lib/dyld")) || !b.includes(Buffer.from("zero-direct"))) process.exit(1);'
+node -e 'const fs=require("fs"); const b=fs.readFileSync(".zero/native-test/direct-exe-darwin"); let sawUuid=false; for (let o=32,i=0,n=b.readUInt32LE(16); i<n; i++){ const cmd=b.readUInt32LE(o); const size=b.readUInt32LE(o+4); if (size<8 || o+size>b.length) process.exit(1); if (cmd===0x1b){ if (size!==24 || b.subarray(o+8,o+24).every((byte)=>byte===0)) process.exit(1); sawUuid=true; } o+=size; } if (b.readUInt32LE(0)!==0xfeedfacf || b.readUInt32LE(12)!==2 || !sawUuid || !b.includes(Buffer.from("/usr/lib/dyld")) || !b.includes(Buffer.from("zero-direct"))) process.exit(1);'
 grep -q '"compiler": "zero-macho64"' .zero/native-test/direct-exe-darwin.json
 grep -q '"path":"direct-macho64-exe"' .zero/native-test/direct-exe-darwin.json
 grep -q '"generatedCBytes": 0' .zero/native-test/direct-exe-darwin.json

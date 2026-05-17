@@ -51,6 +51,22 @@ function repeatBuildHash(args, firstPath, repeatOut, repeatPath = repeatOut) {
   return repeatReport;
 }
 
+function assertMachOLoadCommand(bytes, expectedCommand, expectedSize) {
+  const ncmds = bytes.readUInt32LE(16);
+  for (let offset = 32, i = 0; i < ncmds; i++) {
+    const cmd = bytes.readUInt32LE(offset);
+    const cmdsize = bytes.readUInt32LE(offset + 4);
+    assert(cmdsize >= 8);
+    assert(offset + cmdsize <= bytes.length);
+    if (cmd === expectedCommand) {
+      if (expectedSize !== undefined) assert.equal(cmdsize, expectedSize);
+      return bytes.subarray(offset, offset + cmdsize);
+    }
+    offset += cmdsize;
+  }
+  assert.fail(`missing Mach-O load command 0x${expectedCommand.toString(16)}`);
+}
+
 function wasmI64ConstBytes(value) {
   let n = BigInt(value);
   const bytes = [0x42];
@@ -588,6 +604,8 @@ assertReleaseTargetContract(directMachOExeReport, {
 repeatBuildHash(["build", "--json", "--emit", "exe", "--backend", "zero-macho64", "--target", "darwin-arm64", "examples/direct-exe-return.0", "--out", directMachOExePath], directMachOExePath, `${directMachOExePath}.repeat`);
 assert.equal(directMachOExeBytes.readUInt32LE(0), 0xfeedfacf);
 assert.equal(directMachOExeBytes.readUInt32LE(12), 2);
+const directMachOExeUuid = assertMachOLoadCommand(directMachOExeBytes, 0x1b, 24);
+assert(!directMachOExeUuid.subarray(8, 24).every((byte) => byte === 0));
 assert(directMachOExeBytes.includes(Buffer.from("/usr/lib/dyld")));
 assert(directMachOExeBytes.includes(Buffer.from("zero-direct")));
 const directCoffExePath = join(outDir, "direct-coff-exe-return");
