@@ -174,6 +174,10 @@ static bool fail_at(Parser *parser, Token *token, const char *message) {
   return false;
 }
 
+static bool token_on_line(Token *token, int line) {
+  return token && token->kind != TOK_EOF && token->line == line;
+}
+
 static Token *expect(Parser *parser, const char *text, const char *message) {
   if (match(parser, text)) return previous(parser);
   fail(parser, message);
@@ -967,11 +971,14 @@ static UseImport parse_use_import(Parser *parser) {
 
   ZBuf module;
   zbuf_init(&module);
-  Token *segment = expect_ident(parser, "expected import module name");
+  if (!token_on_line(current(parser), start->line) || current(parser)->kind != TOK_IDENT) {
+    fail_at(parser, current(parser), "expected import module name");
+  }
+  Token *segment = parser->diag->code == 0 ? expect_ident(parser, "expected import module name") : NULL;
   if (segment) zbuf_append(&module, segment->text);
-  while (parser->diag->code == 0 && match(parser, ".")) {
+  while (parser->diag->code == 0 && token_on_line(current(parser), start->line) && match(parser, ".")) {
     Token *dot = previous(parser);
-    if (current(parser)->kind != TOK_IDENT) {
+    if (!token_on_line(current(parser), start->line) || current(parser)->kind != TOK_IDENT) {
       fail_at(parser, dot, "expected import module segment after '.'");
       break;
     }
@@ -981,9 +988,18 @@ static UseImport parse_use_import(Parser *parser) {
       zbuf_append(&module, segment->text);
     }
   }
-  if (parser->diag->code == 0 && match(parser, "as")) {
-    Token *alias = expect_ident(parser, "expected import alias");
+  if (parser->diag->code == 0 && check(parser, "as") && !token_on_line(current(parser), start->line)) {
+    fail_at(parser, current(parser), "expected import alias on same line");
+  }
+  if (parser->diag->code == 0 && token_on_line(current(parser), start->line) && match(parser, "as")) {
+    if (!token_on_line(current(parser), start->line) || current(parser)->kind != TOK_IDENT) {
+      fail_at(parser, current(parser), "expected import alias");
+    }
+    Token *alias = parser->diag->code == 0 ? expect_ident(parser, "expected import alias") : NULL;
     if (alias) item.alias = z_strdup(alias->text);
+  }
+  if (parser->diag->code == 0 && token_on_line(current(parser), start->line)) {
+    fail_at(parser, current(parser), "expected end of line after use declaration");
   }
   item.module = module.data ? module.data : z_strdup("");
   return item;

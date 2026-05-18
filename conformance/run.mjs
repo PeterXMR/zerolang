@@ -507,6 +507,26 @@ assert.match(agentSurfaceMalformedUseBody.diagnostics[0].message, /expected impo
 assert.equal(agentSurfaceMalformedUseBody.diagnostics[0].line, 1);
 assert.equal(agentSurfaceMalformedUseBody.diagnostics[0].column, 8);
 
+const agentSurfaceMalformedLocalUseFixture = `${outDir}/malformed-local-use.0`;
+await writeFile(agentSurfaceMalformedLocalUseFixture, 'use local.\n\npub fun main(world: World) -> Void raises {\n    check world.out.write("malformed local use parser fixture\\n")\n}\n');
+const agentSurfaceMalformedLocalUse = await execFileAsync(zero, ["check", "--json", agentSurfaceMalformedLocalUseFixture]).catch((error) => error);
+assert.notEqual(agentSurfaceMalformedLocalUse.code, 0);
+const agentSurfaceMalformedLocalUseBody = JSON.parse(agentSurfaceMalformedLocalUse.stdout);
+assert.equal(agentSurfaceMalformedLocalUseBody.diagnostics[0].code, "PAR100");
+assert.match(agentSurfaceMalformedLocalUseBody.diagnostics[0].message, /expected import module segment/);
+assert.equal(agentSurfaceMalformedLocalUseBody.diagnostics[0].line, 1);
+assert.equal(agentSurfaceMalformedLocalUseBody.diagnostics[0].column, 10);
+
+const agentSurfaceSplitUseFixture = `${outDir}/split-use-path.0`;
+await writeFile(agentSurfaceSplitUseFixture, 'use std.\ncodec\n\npub fun main(world: World) -> Void raises {\n    check world.out.write("split use parser fixture\\n")\n}\n');
+const agentSurfaceSplitUse = await execFileAsync(zero, ["check", "--json", agentSurfaceSplitUseFixture]).catch((error) => error);
+assert.notEqual(agentSurfaceSplitUse.code, 0);
+const agentSurfaceSplitUseBody = JSON.parse(agentSurfaceSplitUse.stdout);
+assert.equal(agentSurfaceSplitUseBody.diagnostics[0].code, "PAR100");
+assert.match(agentSurfaceSplitUseBody.diagnostics[0].message, /expected import module segment/);
+assert.equal(agentSurfaceSplitUseBody.diagnostics[0].line, 1);
+assert.equal(agentSurfaceSplitUseBody.diagnostics[0].column, 8);
+
 const agentSurfaceOwnedDropCheck = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]);
 const agentSurfaceOwnedDropCheckBody = JSON.parse(agentSurfaceOwnedDropCheck.stdout);
 assert.equal(agentSurfaceOwnedDropCheckBody.ok, true);

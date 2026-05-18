@@ -501,6 +501,58 @@ static void format_cycle_chain(const char *src_root, char **stack, size_t stack_
   free(module);
 }
 
+static bool import_ident_start(char ch) {
+  return isalpha((unsigned char)ch) || ch == '_';
+}
+
+static bool import_ident_continue(char ch) {
+  return isalnum((unsigned char)ch) || ch == '_';
+}
+
+static bool import_line_comment_at(const char *text, size_t pos, size_t len) {
+  return pos + 1 < len && text[pos] == '/' && text[pos + 1] == '/';
+}
+
+static void import_line_skip_ws(const char *text, size_t len, size_t *pos) {
+  while (*pos < len && isspace((unsigned char)text[*pos])) (*pos)++;
+}
+
+static bool parse_use_import_line_module(const char *text, size_t len, const char **module_out, size_t *module_len_out) {
+  size_t pos = 0;
+  import_line_skip_ws(text, len, &pos);
+  if (pos >= len || !import_ident_start(text[pos])) return false;
+  size_t module_start = pos;
+  for (;;) {
+    if (pos >= len || !import_ident_start(text[pos])) return false;
+    pos++;
+    while (pos < len && import_ident_continue(text[pos])) pos++;
+    if (pos < len && text[pos] == '.') {
+      pos++;
+      if (pos >= len || !import_ident_start(text[pos])) return false;
+      continue;
+    }
+    break;
+  }
+  size_t module_end = pos;
+  import_line_skip_ws(text, len, &pos);
+  if (import_line_comment_at(text, pos, len)) pos = len;
+  if (pos < len) {
+    if (pos + 2 > len || strncmp(text + pos, "as", 2) != 0) return false;
+    pos += 2;
+    if (pos >= len || !isspace((unsigned char)text[pos])) return false;
+    import_line_skip_ws(text, len, &pos);
+    if (pos >= len || !import_ident_start(text[pos])) return false;
+    pos++;
+    while (pos < len && import_ident_continue(text[pos])) pos++;
+    import_line_skip_ws(text, len, &pos);
+    if (import_line_comment_at(text, pos, len)) pos = len;
+    if (pos < len) return false;
+  }
+  *module_out = text + module_start;
+  *module_len_out = module_end - module_start;
+  return true;
+}
+
 static bool scan_imports_and_append_dependencies(const char *source, const char *src_root, const char *current_module, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
   const char *line = source;
   while (*line && diag->code == 0) {
@@ -512,16 +564,12 @@ static bool scan_imports_and_append_dependencies(const char *source, const char 
       len--;
     }
     const char *module = NULL;
-    size_t prefix_len = 0;
+    size_t module_len = 0;
     if (len >= 4 && strncmp(start, "use ", 4) == 0) {
-      module = start + 4;
-      prefix_len = 4;
+      parse_use_import_line_module(start + 4, len - 4, &module, &module_len);
     } else if (len >= 7 && strncmp(start, "import ", 7) == 0) {
       module = start + 7;
-      prefix_len = 7;
-    }
-    if (module) {
-      size_t module_len = len - prefix_len;
+      module_len = len - 7;
       while (module_len > 0 && isspace((unsigned char)module[module_len - 1])) module_len--;
       const char *as_kw = NULL;
       for (size_t i = 0; i + 4 <= module_len; i++) {
@@ -531,6 +579,8 @@ static bool scan_imports_and_append_dependencies(const char *source, const char 
         }
       }
       if (as_kw) module_len = (size_t)(as_kw - module);
+    }
+    if (module) {
       if (module_len >= 4 && strncmp(module, "std.", 4) == 0) {
         if (!end) break;
         line = end + 1;
