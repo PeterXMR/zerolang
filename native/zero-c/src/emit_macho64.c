@@ -1289,9 +1289,32 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
   }
 }
 
-static unsigned macho_frame_size(const IrFunction *fun) {
+static size_t macho_function_frame_bytes(const IrFunction *fun) {
+  uint32_t literal = 0;
+  if (macho_is_literal_return_function(fun, &literal, NULL)) return 0;
   unsigned base = (unsigned)(fun ? (fun->frame_bytes ? fun->frame_bytes : fun->local_len * 8) : 0);
-  return (unsigned)macho_align(base + MACHO_SCRATCH_SLOT_COUNT * MACHO_SCRATCH_SLOT_BYTES, 16);
+  return macho_align(base + MACHO_SCRATCH_SLOT_COUNT * MACHO_SCRATCH_SLOT_BYTES, 16);
+}
+
+size_t z_macho64_stack_bytes_from_ir(const IrProgram *program) {
+  size_t total = 0;
+  for (size_t i = 0; program && i < program->function_len; i++) {
+    total += macho_function_frame_bytes(&program->functions[i]);
+  }
+  return total;
+}
+
+size_t z_macho64_max_frame_bytes_from_ir(const IrProgram *program) {
+  size_t max_frame = 0;
+  for (size_t i = 0; program && i < program->function_len; i++) {
+    size_t frame = macho_function_frame_bytes(&program->functions[i]);
+    if (frame > max_frame) max_frame = frame;
+  }
+  return max_frame;
+}
+
+static unsigned macho_frame_size(const IrFunction *fun) {
+  return (unsigned)macho_function_frame_bytes(fun);
 }
 
 static void macho_emit_epilogue(ZBuf *text, unsigned frame_size, bool restore_process_args) {

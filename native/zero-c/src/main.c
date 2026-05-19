@@ -8196,13 +8196,18 @@ static void append_self_host_routing_json(ZBuf *buf, const char *command_name, c
   zbuf_append(buf, ",\"policy\":\"removed\",\"explicitDirectFallback\":\"never-c-bridge\"}}");
 }
 
-static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir) {
+static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, const ZTargetInfo *target) {
   if (!input || !ir) return;
   input->lowered_ir_bytes = ir->mir_bytes;
   input->direct_function_count = ir->direct_function_count;
   input->direct_export_count = ir->direct_export_count;
   input->direct_stack_bytes = ir->direct_stack_bytes;
   input->direct_max_frame_bytes = ir->direct_max_frame_bytes;
+  if (strcmp(z_direct_object_emitter(target), "zero-macho64") == 0 ||
+      strcmp(z_direct_exe_emitter(target), "zero-macho64-exe") == 0) {
+    input->direct_stack_bytes = z_macho64_stack_bytes_from_ir(ir);
+    input->direct_max_frame_bytes = z_macho64_max_frame_bytes_from_ir(ir);
+  }
   input->direct_readonly_data_bytes = ir->direct_readonly_data_bytes;
   input->direct_allocator_helper_count = ir->direct_allocator_helper_count;
   input->direct_buffer_helper_count = ir->direct_buffer_helper_count;
@@ -8387,7 +8392,7 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
     long long phase_started = now_ms();
     ir = z_lower_program_with_source(program, input);
     if (input) input->lower_ms = now_ms() - phase_started;
-    apply_ir_metrics_to_input(input, &ir);
+    apply_ir_metrics_to_input(input, &ir, target);
   }
 
   if (ready) {
@@ -9329,17 +9334,7 @@ int main(int argc, char **argv) {
   long long phase_started = now_ms();
   IrProgram ir = z_lower_program_with_source(&program, &input);
   input.lower_ms = now_ms() - phase_started;
-  input.lowered_ir_bytes = ir.mir_bytes;
-  input.direct_function_count = ir.direct_function_count;
-  input.direct_export_count = ir.direct_export_count;
-  input.direct_stack_bytes = ir.direct_stack_bytes;
-  input.direct_max_frame_bytes = ir.direct_max_frame_bytes;
-  input.direct_readonly_data_bytes = ir.direct_readonly_data_bytes;
-  input.direct_allocator_helper_count = ir.direct_allocator_helper_count;
-  input.direct_buffer_helper_count = ir.direct_buffer_helper_count;
-  input.direct_runtime_helper_count = ir.direct_runtime_helper_count;
-  input.direct_host_runtime_import_count = ir.direct_host_runtime_import_count;
-  input.direct_http_runtime_import_count = ir.direct_http_runtime_import_count;
+  apply_ir_metrics_to_input(&input, &ir, target);
   if (strcmp(command.command, "mem") == 0) {
     ZBuf mem_json;
     zbuf_init(&mem_json);

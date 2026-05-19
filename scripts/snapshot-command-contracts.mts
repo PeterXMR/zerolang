@@ -719,6 +719,8 @@ const directMachOBytes = readFileSync(directMachOPath);
 assert.equal(directMachOReport.compiler, "zero-macho64");
 assert.equal(directMachOReport.objectBackend.objectEmission.path, "direct-macho64-object");
 assert.equal(directMachOReport.objectBackend.linking.objectFormat, "macho");
+assert.equal(directMachOReport.objectBackend.directFacts.stackBytes, 544);
+assert.equal(directMachOReport.objectBackend.directFacts.maxFrameBytes, 272);
 assert.equal(directMachOBytes.readUInt32LE(0), 0xfeedfacf);
 assert.equal(directMachOBytes.readUInt32LE(4), 0x0100000c);
 assert.equal(directMachOBytes.readUInt32LE(12), 1);

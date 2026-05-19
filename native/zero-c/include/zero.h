@@ -805,6 +805,8 @@ bool z_emit_elf64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
 bool z_emit_elf64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf_aarch64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf_aarch64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
+size_t z_macho64_stack_bytes_from_ir(const IrProgram *program);
+size_t z_macho64_max_frame_bytes_from_ir(const IrProgram *program);
 bool z_emit_macho64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
