@@ -1,0 +1,20 @@
+const T: usize = 4
+
+interface First<T, static N: usize> {
+    fun first(self: ref<T>) -> u8
+}
+
+shape Bytes<static N: usize> {
+    items: [N]u8,
+
+    fun first(self: ref<Self>) -> u8 {
+        return self.items[0]
+    }
+}
+
+fun readFirst<T: First<T,T>>(value: ref<T>) -> u8 {
+    return T.first(value)
+}
+
+pub fun main() -> Void {
+}

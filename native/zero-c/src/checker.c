@@ -1867,7 +1867,9 @@ static bool scope_static_param_type(Scope *scope, const char *name, const char *
 static bool scope_type_name_shadows_static_const(Scope *scope, const char *name);
 static const char *visible_concrete_type_name_kind(const Program *program, const char *name);
 static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
+static bool type_param_name_known(const ParamVec *primary, const ParamVec *secondary, const char *name);
 static bool static_type_param_name_known_for_type(const Program *program, const ParamVec *primary, const ParamVec *secondary, const char *name, const char *expected_type);
+static bool static_value_name_shadowed_by_type_param(const ParamVec *primary, const ParamVec *secondary, const char *name);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
 static const Choice *find_choice(const Program *program, const char *name);
 static const Param *find_case(const ParamVec *cases, const char *name);
@@ -7960,7 +7962,7 @@ static void collect_visible_type_names(Scope *scope, ParamVec *out) {
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
     for (size_t i = 0; i < cursor->len; i++) {
       bool static_param = cursor->is_static_param && cursor->is_static_param[i];
-      bool type_param = cursor->types[i] && strcmp(cursor->types[i], "Type") == 0;
+      bool type_param = cursor->is_type_param && cursor->is_type_param[i];
       if (!cursor->names[i] || (!type_param && !static_param)) continue;
       if (param_vec_contains_name(out, cursor->names[i])) continue;
       out->items = checker_grow_items(out->items, out->len, &out->cap, 8, sizeof(Param));
@@ -8581,8 +8583,9 @@ static bool validate_type_param_constraints_in_scope(const Program *program, con
           free_type_arg_list(args, arg_len);
           return set_diag_detail(diag, 3043, "static value parameter type is not supported", interface_param->line, interface_param->column, "integer, Bool, or enum static parameter", static_type, "use a concrete integer, Bool, or enum type for this static parameter");
         }
-        char *canonical = canonical_static_arg_for_type(program, args[arg_index], static_type);
-        bool ok = canonical || static_type_param_name_known_for_type(program, &fun->type_params, outer_params, args[arg_index], static_type);
+        bool shadowed = static_value_name_shadowed_by_type_param(&fun->type_params, outer_params, args[arg_index]);
+        char *canonical = shadowed ? NULL : canonical_static_arg_for_type(program, args[arg_index], static_type);
+        bool ok = !shadowed && (canonical || static_type_param_name_known_for_type(program, &fun->type_params, outer_params, args[arg_index], static_type));
         free(canonical);
         if (!ok) {
           char actual[160];
@@ -8632,6 +8635,10 @@ static bool type_param_name_known(const ParamVec *primary, const ParamVec *secon
     }
   }
   return false;
+}
+
+static bool static_value_name_shadowed_by_type_param(const ParamVec *primary, const ParamVec *secondary, const char *name) {
+  return type_param_name_known(primary, secondary, name);
 }
 
 static bool static_type_param_name_known_for_type(const Program *program, const ParamVec *primary, const ParamVec *secondary, const char *name, const char *expected_type) {
@@ -8749,8 +8756,9 @@ static bool validate_type_names_inner(const Program *program, const char *type, 
     const char *close = strchr(type, ']');
     if (!close || !close[1]) return true;
     char *length = z_strndup(type + 1, (size_t)(close - type - 1));
-    char *canonical = canonical_static_arg_for_type(program, length, "usize");
-    bool length_ok = canonical || static_type_param_name_known_for_integer(primary, secondary, length);
+    bool shadowed = static_value_name_shadowed_by_type_param(primary, secondary, length);
+    char *canonical = shadowed ? NULL : canonical_static_arg_for_type(program, length, "usize");
+    bool length_ok = !shadowed && (canonical || static_type_param_name_known_for_integer(primary, secondary, length));
     free(canonical);
     if (!length_ok) {
       char actual[160];
@@ -8792,8 +8800,9 @@ static bool validate_type_names_inner(const Program *program, const char *type, 
             free(name);
             return set_diag_detail(diag, 3043, "static value parameter type is not supported", line, column, "integer, Bool, or enum static parameter", static_type, "use a concrete integer, Bool, or enum type for this static parameter");
           }
-          char *canonical = canonical_static_arg_for_type(program, args[i], static_type);
-          bool ok = canonical || static_type_param_name_known_for_type(program, primary, secondary, args[i], static_type);
+          bool shadowed = static_value_name_shadowed_by_type_param(primary, secondary, args[i]);
+          char *canonical = shadowed ? NULL : canonical_static_arg_for_type(program, args[i], static_type);
+          bool ok = !shadowed && (canonical || static_type_param_name_known_for_type(program, primary, secondary, args[i], static_type));
           free(canonical);
           if (!ok) {
             char actual[160];

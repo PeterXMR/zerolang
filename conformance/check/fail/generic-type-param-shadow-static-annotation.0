@@ -1,0 +1,11 @@
+const T: usize = 4
+
+shape Sized<static N: usize> {
+    value: i32,
+}
+
+fun caller<T>(item: Sized<T>) -> Void {
+}
+
+pub fun main() -> Void {
+}

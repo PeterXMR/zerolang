@@ -1,0 +1,7 @@
+const T: usize = 4
+
+fun caller<T>(items: ref<[T]i32>) -> Void {
+}
+
+pub fun main() -> Void {
+}

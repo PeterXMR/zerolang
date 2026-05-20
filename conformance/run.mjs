@@ -1058,6 +1058,24 @@ const genericTypeParamShadowStaticBody = JSON.parse(genericTypeParamShadowStatic
 assert.equal(genericTypeParamShadowStaticBody.diagnostics[0].code, "STC002");
 assert.equal(genericTypeParamShadowStaticBody.diagnostics[0].actual, "T");
 
+const genericTypeParamShadowArrayLengthJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-type-param-shadow-array-length.0"]).catch((error) => error);
+assert.notEqual(genericTypeParamShadowArrayLengthJson.code, 0);
+const genericTypeParamShadowArrayLengthBody = JSON.parse(genericTypeParamShadowArrayLengthJson.stdout);
+assert.equal(genericTypeParamShadowArrayLengthBody.diagnostics[0].code, "STC002");
+assert.equal(genericTypeParamShadowArrayLengthBody.diagnostics[0].actual, "T");
+
+const genericTypeParamShadowStaticAnnotationJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-type-param-shadow-static-annotation.0"]).catch((error) => error);
+assert.notEqual(genericTypeParamShadowStaticAnnotationJson.code, 0);
+const genericTypeParamShadowStaticAnnotationBody = JSON.parse(genericTypeParamShadowStaticAnnotationJson.stdout);
+assert.equal(genericTypeParamShadowStaticAnnotationBody.diagnostics[0].code, "STC002");
+assert.equal(genericTypeParamShadowStaticAnnotationBody.diagnostics[0].actual, "T");
+
+const genericTypeParamShadowStaticConstraintJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-type-param-shadow-static-constraint.0"]).catch((error) => error);
+assert.notEqual(genericTypeParamShadowStaticConstraintJson.code, 0);
+const genericTypeParamShadowStaticConstraintBody = JSON.parse(genericTypeParamShadowStaticConstraintJson.stdout);
+assert.equal(genericTypeParamShadowStaticConstraintBody.diagnostics[0].code, "STC002");
+assert.equal(genericTypeParamShadowStaticConstraintBody.diagnostics[0].actual, "T");
+
 const genericStaticParamTypeNameCollisionJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/generic-static-param-type-name-collision.0"]).catch((error) => error);
 assert.notEqual(genericStaticParamTypeNameCollisionJson.code, 0);
 const genericStaticParamTypeNameCollisionBody = JSON.parse(genericStaticParamTypeNameCollisionJson.stdout);
