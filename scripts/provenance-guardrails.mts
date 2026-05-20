@@ -6,10 +6,12 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const checkerPath = path.join(repoRoot, "native/zero-c/src/checker.c");
+const callResolvePath = path.join(repoRoot, "native/zero-c/src/call_resolve.h");
 const matrixPath = path.join(repoRoot, "conformance/provenance-surface.json");
 const conformancePath = path.join(repoRoot, "conformance/run.mjs");
 
 const checker = readFileSync(checkerPath, "utf8");
+const callResolve = readFileSync(callResolvePath, "utf8");
 const surfaceSpec = JSON.parse(readFileSync(matrixPath, "utf8"));
 const conformance = readFileSync(conformancePath, "utf8");
 
@@ -266,12 +268,13 @@ for (const name of requiredFunctions) {
 }
 
 for (const kind of [
-  "PROVENANCE_CALL_FUNCTION",
-  "PROVENANCE_CALL_SHAPE_NAMESPACE",
-  "PROVENANCE_CALL_RECEIVER",
-  "PROVENANCE_CALL_CONSTRAINED_INTERFACE",
-  "PROVENANCE_CALL_CONCRETE_CONSTRAINED_SHAPE",
+  "Z_CALL_FUNCTION",
+  "Z_CALL_SHAPE_NAMESPACE",
+  "Z_CALL_RECEIVER",
+  "Z_CALL_CONSTRAINED_INTERFACE",
+  "Z_CALL_CONCRETE_CONSTRAINED_SHAPE",
 ]) {
+  assertIncludes("shared call resolver", callResolve, kind);
   assertIncludes("checker provenance call resolver", checker, kind);
 }
 

@@ -1,4 +1,5 @@
 #include "zero.h"
+#include "call_resolve.h"
 #include "unify.h"
 
 #include <ctype.h>
@@ -1906,25 +1907,10 @@ static const Function *find_function(const Program *program, const char *name) {
   return NULL;
 }
 
-typedef enum {
-  PROVENANCE_CALL_FUNCTION,
-  PROVENANCE_CALL_SHAPE_NAMESPACE,
-  PROVENANCE_CALL_RECEIVER,
-  PROVENANCE_CALL_CONSTRAINED_INTERFACE,
-  PROVENANCE_CALL_CONCRETE_CONSTRAINED_SHAPE
-} ProvenanceCallKind;
-
 typedef struct {
-  ProvenanceCallKind kind;
-  const Function *callee;
-  const Expr *call;
-  const Expr *receiver;
-  size_t param_offset;
-  const Shape *shape;
-  const InterfaceDecl *interface;
+  ZCallResolution resolution;
   GenericBinding *bindings;
   size_t binding_len;
-  char *return_type;
 } ResolvedProvenanceCall;
 
 static bool apply_expr_call_storage_effects(
@@ -1954,6 +1940,21 @@ static const TypeArgVec *call_type_args(const Expr *call) {
   if (call->type_args.len > 0) return &call->type_args;
   if (call->kind == EXPR_CALL && call->left && call->left->type_args.len > 0) return &call->left->type_args;
   return &call->type_args;
+}
+
+static bool resolve_named_function_call(const Program *program, const Expr *call, ZCallResolution *out) {
+  if (!program || !call || call->kind != EXPR_CALL || !call->left || call->left->kind != EXPR_IDENT || !out) return false;
+  const Function *callee = find_function(program, call->left->text);
+  if (!callee) return false;
+  z_call_resolution_init(out);
+  out->kind = Z_CALL_FUNCTION;
+  out->call_expr = call;
+  out->callee_expr = call->left;
+  out->type_args = call_type_args(call);
+  out->callee = callee;
+  out->fallible = callee->raises || callee->has_error_set;
+  z_call_resolution_set_return_type(out, callee->return_type ? callee->return_type : "Void");
+  return true;
 }
 
 static const char *generic_binding_lookup(GenericBinding *bindings, size_t len, const char *name) {
@@ -2012,7 +2013,7 @@ static void resolved_provenance_call_free(ResolvedProvenanceCall *resolved) {
   if (!resolved) return;
   generic_bindings_free(resolved->bindings, resolved->binding_len);
   free(resolved->bindings);
-  free(resolved->return_type);
+  z_call_resolution_free(&resolved->resolution);
   *resolved = (ResolvedProvenanceCall){0};
 }
 
@@ -3375,7 +3376,11 @@ static const Function *resolve_call_function_in_context(CheckContext *ctx, const
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return NULL;
   const Function *fun = NULL;
   if (expr->left->kind == EXPR_IDENT) {
-    fun = find_function(program, expr->left->text);
+    ZCallResolution resolution = {0};
+    if (resolve_named_function_call(program, expr, &resolution)) {
+      fun = resolution.callee;
+      z_call_resolution_free(&resolution);
+    }
   } else if (expr->left->kind == EXPR_MEMBER) {
     fun = find_namespace_shape_method(program, expr->left, NULL);
     if (!fun) fun = find_constrained_interface_method_in_function(program, context_fun, expr->left, NULL);
@@ -5000,8 +5005,9 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
     case EXPR_CALL: {
       if (expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) return "Void";
       if (expr->left && expr->left->kind == EXPR_IDENT) {
-        const Function *fun = find_function(program, expr->left->text);
-        if (!fun) return "Unknown";
+        ZCallResolution resolution = {0};
+        if (!resolve_named_function_call(program, expr, &resolution)) return "Unknown";
+        const Function *fun = resolution.callee;
         if (function_is_generic(fun)) {
           GenericBinding *bindings = z_checked_calloc(fun->type_params.len, sizeof(GenericBinding));
           generic_bindings_init_from_params(bindings, &fun->type_params, 0);
@@ -5013,12 +5019,15 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
             free(substituted);
             generic_bindings_free(bindings, fun->type_params.len);
             free(bindings);
+            z_call_resolution_free(&resolution);
             return generic_return_type;
           }
           generic_bindings_free(bindings, fun->type_params.len);
           free(bindings);
         }
-        return fun->return_type;
+        const char *return_type = fun->return_type ? fun->return_type : "Void";
+        z_call_resolution_free(&resolution);
+        return return_type;
       }
       if (expr->left && expr->left->kind == EXPR_MEMBER) {
         if (is_world_stream_write_callee(expr->left, scope)) return "Void";
@@ -6889,14 +6898,11 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   const char *return_type = expected_return ? expected_return : expr_type(ctx, program, call, scope);
 
   if (call->left->kind == EXPR_IDENT) {
-    const Function *callee = find_function(program, call->left->text);
-    if (!callee) return false;
-    out->kind = PROVENANCE_CALL_FUNCTION;
-    out->callee = callee;
-    out->call = call;
-    out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+    if (!resolve_named_function_call(program, call, &out->resolution)) return false;
+    const Function *callee = out->resolution.callee;
+    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     if (function_is_generic(callee)) {
-      if (!generic_call_bindings_from_checked_call(ctx, program, callee, call, scope, out->return_type, &out->bindings, &out->binding_len)) {
+      if (!generic_call_bindings_from_checked_call(ctx, program, callee, call, scope, out->resolution.return_type, &out->bindings, &out->binding_len)) {
         resolved_provenance_call_free(out);
         return false;
       }
@@ -6906,17 +6912,20 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   }
 
   if (call->left->kind != EXPR_MEMBER) return false;
+  z_call_resolution_init(&out->resolution);
+  out->resolution.call_expr = call;
+  out->resolution.callee_expr = call->left;
+  out->resolution.type_args = call_type_args(call);
 
   const Shape *shape = NULL;
   const Function *callee = find_namespace_shape_method(program, call->left, &shape);
   if (callee) {
-    out->kind = PROVENANCE_CALL_SHAPE_NAMESPACE;
-    out->callee = callee;
-    out->call = call;
-    out->shape = shape;
-    out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+    out->resolution.kind = Z_CALL_SHAPE_NAMESPACE;
+    out->resolution.callee = callee;
+    out->resolution.shape = shape;
+    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     ZDiag ignored = {0};
-    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
+    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->resolution.return_type, &ignored, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
@@ -6927,13 +6936,12 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   shape = NULL;
   callee = find_concrete_constrained_shape_method_in_context(ctx, program, context_fun, context_bindings, context_binding_len, call->left, &shape);
   if (callee) {
-    out->kind = PROVENANCE_CALL_CONCRETE_CONSTRAINED_SHAPE;
-    out->callee = callee;
-    out->call = call;
-    out->shape = shape;
-    out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+    out->resolution.kind = Z_CALL_CONCRETE_CONSTRAINED_SHAPE;
+    out->resolution.callee = callee;
+    out->resolution.shape = shape;
+    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     ZDiag ignored = {0};
-    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
+    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->resolution.return_type, &ignored, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
@@ -6944,17 +6952,16 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   const InterfaceDecl *interface = NULL;
   callee = find_constrained_interface_method_in_function(program, context_fun, call->left, &interface);
   if (callee && interface) {
-    out->kind = PROVENANCE_CALL_CONSTRAINED_INTERFACE;
-    out->callee = callee;
-    out->call = call;
-    out->interface = interface;
+    out->resolution.kind = Z_CALL_CONSTRAINED_INTERFACE;
+    out->resolution.callee = callee;
+    out->resolution.interface = interface;
     ZDiag ignored = {0};
     if (!build_constrained_interface_method_bindings(ctx, program, context_fun, call, scope, interface, callee, return_type, context_bindings, context_binding_len, &ignored, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
     char *substituted_return = type_substitute_generic_signature(program, callee->return_type, out->bindings, out->binding_len);
-    out->return_type = z_strdup(return_type ? return_type : substituted_return);
+    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : substituted_return);
     free(substituted_return);
     return true;
   }
@@ -6968,13 +6975,12 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   callee = find_shape_method_decl(receiver_shape, call->left->text);
   bool receiver_requires_mut = false;
   if (!callee || !shape_method_receiver_info(callee, &receiver_requires_mut)) return false;
-  out->kind = PROVENANCE_CALL_RECEIVER;
-  out->callee = callee;
-  out->call = call;
-  out->receiver = receiver;
-  out->param_offset = 1;
-  out->shape = receiver_shape;
-  out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+  out->resolution.kind = Z_CALL_RECEIVER;
+  out->resolution.callee = callee;
+  out->resolution.receiver_expr = receiver;
+  out->resolution.param_offset = 1;
+  out->resolution.shape = receiver_shape;
+  z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
   ZDiag ignored = {0};
   char *self_arg_type = receiver_self_arg_type(expr_type(ctx, program, receiver, scope), receiver_requires_mut);
   if (!build_receiver_shape_method_bindings(ctx, program, receiver_shape, callee, call, self_arg_type, scope, &ignored, &out->bindings, &out->binding_len)) {
@@ -7174,9 +7180,9 @@ static bool call_result_value_provenance(CheckContext *ctx, const Program *progr
   bool added = false;
   ValueProvenance summary = {0};
   bool callee_may_return = true;
-  if (function_return_value_provenance(ctx, program, resolved.callee, resolved.bindings, resolved.binding_len, &summary, &callee_may_return)) {
+  if (function_return_value_provenance(ctx, program, resolved.resolution.callee, resolved.bindings, resolved.binding_len, &summary, &callee_may_return)) {
     for (size_t origin_index = 0; origin_index < summary.len; origin_index++) {
-      if (instantiate_call_provenance_entry(ctx, program, resolved.callee, expr, resolved.receiver, resolved.param_offset, scope, resolved.bindings, resolved.binding_len, &summary.items[origin_index], origins)) added = true;
+      if (instantiate_call_provenance_entry(ctx, program, resolved.resolution.callee, expr, resolved.resolution.receiver_expr, resolved.resolution.param_offset, scope, resolved.bindings, resolved.binding_len, &summary.items[origin_index], origins)) added = true;
     }
   }
   value_provenance_free(&summary);
@@ -7194,14 +7200,14 @@ static bool call_result_value_provenance(CheckContext *ctx, const Program *progr
     return false;
   }
 
-  if (resolved.receiver && resolved.callee->params.len > 0) {
-    char *param_type = call_param_type_text(program, resolved.callee, 0, resolved.bindings, resolved.binding_len);
+  if (resolved.resolution.receiver_expr && resolved.resolution.callee->params.len > 0) {
+    char *param_type = call_param_type_text(program, resolved.resolution.callee, 0, resolved.bindings, resolved.binding_len);
     if (type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref")) {
-      if (expr_reference_provenance_as(ctx, program, resolved.receiver, scope, origins, return_mut)) {
+      if (expr_reference_provenance_as(ctx, program, resolved.resolution.receiver_expr, scope, origins, return_mut)) {
         added = true;
       } else {
         char root[128];
-        if (expr_root_ident(resolved.receiver, root, sizeof(root)) && scope_has(scope, root)) {
+        if (expr_root_ident(resolved.resolution.receiver_expr, root, sizeof(root)) && scope_has(scope, root)) {
           if (value_provenance_add(origins, root, scope_binding_scope(scope, root), return_mut, reference_source_origin_is_local_storage(scope, root))) added = true;
         }
       }
@@ -7209,8 +7215,8 @@ static bool call_result_value_provenance(CheckContext *ctx, const Program *progr
     free(param_type);
   }
 
-  for (size_t i = 0; i < expr->args.len && i + resolved.param_offset < resolved.callee->params.len; i++) {
-    char *param_type = call_param_type_text(program, resolved.callee, i + resolved.param_offset, resolved.bindings, resolved.binding_len);
+  for (size_t i = 0; i < expr->args.len && i + resolved.resolution.param_offset < resolved.resolution.callee->params.len; i++) {
+    char *param_type = call_param_type_text(program, resolved.resolution.callee, i + resolved.resolution.param_offset, resolved.bindings, resolved.binding_len);
     bool reference_param = type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref");
     free(param_type);
     if (!reference_param) continue;
@@ -7958,10 +7964,11 @@ static bool function_storage_effect_summary(CheckContext *ctx, const Program *pr
 
 static bool apply_provenance_storage_effect(CheckContext *ctx, const Program *program, const ResolvedProvenanceCall *resolved, const ProvenanceStorageEffect *effect, Scope *scope, ZDiag *diag) {
   diag = check_context_diag(ctx, diag);
-  if (!program || !resolved || !resolved->callee || !resolved->call || !effect || !scope) return true;
-  size_t param_index = resolved->callee->params.len;
-  if (!function_param_index_by_name(resolved->callee, effect->target.root, &param_index)) return true;
-  const Expr *actual = call_actual_for_param(resolved->call, resolved->receiver, resolved->param_offset, param_index);
+  if (!program || !resolved || !resolved->resolution.callee || !resolved->resolution.call_expr || !effect || !scope) return true;
+  const ZCallResolution *resolution = &resolved->resolution;
+  size_t param_index = resolution->callee->params.len;
+  if (!function_param_index_by_name(resolution->callee, effect->target.root, &param_index)) return true;
+  const Expr *actual = call_actual_for_param(resolution->call_expr, resolution->receiver_expr, resolution->param_offset, param_index);
   if (!actual) return true;
 
   PlaceVec targets = {0};
@@ -7973,14 +7980,14 @@ static bool apply_provenance_storage_effect(CheckContext *ctx, const Program *pr
   ValueProvenance instantiated = {0};
   for (size_t i = 0; i < effect->value.len; i++) {
     const ProvenanceEntry *entry = &effect->value.items[i];
-    if (!function_param_index_by_name(resolved->callee, entry->origin.root, NULL)) {
+    if (!function_param_index_by_name(resolution->callee, entry->origin.root, NULL)) {
       char actual_detail[256];
       snprintf(actual_detail, sizeof(actual_detail), "reference to callee-local '%s'", entry->origin.root ? entry->origin.root : "<unknown>");
       value_provenance_free(&instantiated);
       place_vec_free(&targets);
-      return set_diag_detail(diag, 3030, "cannot store a reference to a callee-local binding through a mutable parameter", resolved->call->line, resolved->call->column, "borrow source that outlives the call", actual_detail, "store only references derived from caller-owned arguments into mutable parameter storage");
+      return set_diag_detail(diag, 3030, "cannot store a reference to a callee-local binding through a mutable parameter", resolution->call_expr->line, resolution->call_expr->column, "borrow source that outlives the call", actual_detail, "store only references derived from caller-owned arguments into mutable parameter storage");
     }
-    instantiate_call_provenance_entry(ctx, program, resolved->callee, resolved->call, resolved->receiver, resolved->param_offset, scope, resolved->bindings, resolved->binding_len, entry, &instantiated);
+    instantiate_call_provenance_entry(ctx, program, resolution->callee, resolution->call_expr, resolution->receiver_expr, resolution->param_offset, scope, resolved->bindings, resolved->binding_len, entry, &instantiated);
   }
   if (instantiated.len == 0) {
     value_provenance_free(&instantiated);
@@ -7996,7 +8003,7 @@ static bool apply_provenance_storage_effect(CheckContext *ctx, const Program *pr
       place_storage_value_provenance_under_path(ctx, program, scope, target, effect->target.path, &target_effects);
     }
     value_provenance_add_all(&target_effects, &instantiated);
-    if (!validate_installed_provenance_lifetimes(scope, target->root, target->root_scope, &target_effects, resolved->call, diag)) {
+    if (!validate_installed_provenance_lifetimes(scope, target->root, target->root_scope, &target_effects, resolution->call_expr, diag)) {
       free(target_path);
       value_provenance_free(&target_effects);
       value_provenance_free(&instantiated);
@@ -8027,17 +8034,18 @@ static bool apply_provenance_storage_effect(CheckContext *ctx, const Program *pr
 
 static bool apply_provenance_call_storage_effects(CheckContext *ctx, const Program *program, const ResolvedProvenanceCall *resolved, Scope *scope, ZDiag *diag) {
   diag = check_context_diag(ctx, diag);
-  if (!program || !resolved || !resolved->callee || !resolved->call || !scope) return true;
+  if (!program || !resolved || !resolved->resolution.callee || !resolved->resolution.call_expr || !scope) return true;
+  const ZCallResolution *resolution = &resolved->resolution;
   ProvenanceStorageEffectVec effects = {0};
-  bool complete = function_storage_effect_summary(ctx, program, resolved->callee, resolved->bindings, resolved->binding_len, &effects);
+  bool complete = function_storage_effect_summary(ctx, program, resolution->callee, resolved->bindings, resolved->binding_len, &effects);
   if (!complete) {
-    for (size_t i = 0; i < resolved->callee->params.len; i++) {
-      char *param_type = call_param_type_text(program, resolved->callee, i, resolved->bindings, resolved->binding_len);
+    for (size_t i = 0; i < resolution->callee->params.len; i++) {
+      char *param_type = call_param_type_text(program, resolution->callee, i, resolved->bindings, resolved->binding_len);
       bool mutref_param = type_is_named_generic(param_type, "mutref");
       free(param_type);
       if (!mutref_param) continue;
       provenance_storage_effect_vec_free(&effects);
-      return set_diag_detail(diag, 3030, "cannot verify provenance effects for mutable parameter call", resolved->call->line, resolved->call->column, "complete provenance summary", "recursive or incomplete mutable parameter summary", "simplify the call cycle or keep reference-storing mutable calls non-recursive");
+      return set_diag_detail(diag, 3030, "cannot verify provenance effects for mutable parameter call", resolution->call_expr->line, resolution->call_expr->column, "complete provenance summary", "recursive or incomplete mutable parameter summary", "simplify the call cycle or keep reference-storing mutable calls non-recursive");
     }
   }
   bool ok = true;
