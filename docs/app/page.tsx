@@ -1,4 +1,5 @@
 import { ArrowRightIcon, LogoIcon } from "@/components/icons";
+import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { InstallCopy } from "@/components/install-copy";
 import { pageMetadata } from "@/lib/page-metadata";
@@ -51,18 +52,7 @@ const CODE_EXAMPLE = `<span class="hl-keyword">fun</span> <span class="hl-variab
   }
 }`;
 
-const AGENT_EXAMPLE = `<span class="hl-comment">$ zero check --json</span>
-{
-  <span class="hl-key">"ok"</span>: <span class="hl-boolean">false</span>,
-  <span class="hl-key">"diagnostics"</span>: [{
-    <span class="hl-key">"code"</span>: <span class="hl-string">"NAM003"</span>,
-    <span class="hl-key">"message"</span>: <span class="hl-string">"unknown identifier"</span>,
-    <span class="hl-key">"line"</span>: <span class="hl-number">3</span>,
-    <span class="hl-key">"repair"</span>: { <span class="hl-key">"id"</span>: <span class="hl-string">"declare-missing-symbol"</span> }
-  }]
-}`;
-
-function CodeWindow({ title, html }: { title: string; html: string }) {
+function CodeWindow({ title, html, children }: { title: string; html?: string; children?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-code-bg shadow-card">
       <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
@@ -74,7 +64,9 @@ function CodeWindow({ title, html }: { title: string; html: string }) {
         <span className="font-mono text-xs font-medium text-muted">{title}</span>
       </div>
       <pre className="m-0 overflow-x-auto p-6 text-sm leading-7">
-        <code className="text-code-fg" dangerouslySetInnerHTML={{ __html: html }} />
+        <code className="text-code-fg">
+          {html ? <span dangerouslySetInnerHTML={{ __html: html }} /> : children}
+        </code>
       </pre>
     </div>
   );
@@ -124,13 +116,13 @@ export default function HomePage() {
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <CodeWindow title="main.0" html={CODE_EXAMPLE} />
-            <CodeWindow title="zero check --json" html={AGENT_EXAMPLE} />
+            <CodeWindow title="zero check">
+              <span className="text-[#D73A49] dark:text-[#F97583]">$</span>
+              <span className="text-[#6F42C1] dark:text-[#B392F0]"> zero</span>
+              <span className="text-[#032F62] dark:text-[#9ECBFF]"> check examples/hello.0</span>
+              {"\nhello.0:1:4 PAR100: expected '{' before block\n  explain: zero explain PAR100"}
+            </CodeWindow>
           </div>
-          <p className="mx-auto mt-4 max-w-[44rem] text-center text-sm leading-relaxed text-muted">
-            The direction is a CLI that works at both levels: readable messages
-            for humans, structured facts for agents, and deterministic repair
-            plans where the compiler can propose the next edit.
-          </p>
         </section>
 
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
