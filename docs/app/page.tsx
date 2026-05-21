@@ -1,4 +1,5 @@
 import { ArrowRightIcon, LogoIcon } from "@/components/icons";
+import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button";
 import { InstallCopy } from "@/components/install-copy";
 import { pageMetadata } from "@/lib/page-metadata";
@@ -11,7 +12,7 @@ const PILLARS = [
     label: "on demand",
     title: "Small surface area",
     description:
-      "Zero is aiming for a language an agent can learn while working: regular syntax, few special cases, and compiler feedback that points toward the next edit.",
+      "zerolang is aiming for a language an agent can learn while working: regular syntax, few special cases, and compiler feedback that points toward the next edit.",
   },
   {
     metric: "Library",
@@ -30,14 +31,14 @@ const PILLARS = [
 ];
 
 const FEATURES = [
-  { title: "Pre-1 by design", description: "Today's syntax and APIs are not a contract. Breaking changes are expected while Zero searches for what works best for agents." },
-  { title: "Safe environments only", description: "Security vulnerabilities should be expected. Run and develop Zero in isolated environments, not production systems or sensitive infrastructure." },
+  { title: "Pre-1 by design", description: "Today's syntax and APIs are not a contract. Breaking changes are expected while zerolang searches for what works best for agents." },
+  { title: "Safe environments only", description: "Security vulnerabilities should be expected. Run and develop zerolang in isolated environments, not production systems or sensitive infrastructure." },
   { title: "Exploration over mastery", description: "Try the current shape, inspect the output, and send feedback. The details will move as the experiment learns." },
   { title: "One obvious path", description: "The language should favor a small set of regular patterns over many interchangeable styles." },
   { title: "Standard library over sugar", description: "New capability should usually live in documented APIs before it becomes new syntax." },
   { title: "Agent-readable tooling", description: "Diagnostics, graph facts, size reports, and repair metadata should be available as structured output." },
   { title: "Explicit effects", description: "Outside-world access, fallibility, and resource use should stay visible to both readers and tools." },
-  { title: "No legacy promises", description: "When a clearer agent-facing design wins, Zero can replace old behavior instead of carrying compatibility paths forward." },
+  { title: "No legacy promises", description: "When a clearer agent-facing design wins, zerolang can replace old behavior instead of carrying compatibility paths forward." },
   { title: "DX as a goal", description: "Checking, inspecting, explaining, and repairing code should feel direct even when the language is intentionally explicit." },
 ];
 
@@ -51,18 +52,7 @@ const CODE_EXAMPLE = `<span class="hl-keyword">fun</span> <span class="hl-variab
   }
 }`;
 
-const AGENT_EXAMPLE = `<span class="hl-comment">$ zero check --json</span>
-{
-  <span class="hl-key">"ok"</span>: <span class="hl-boolean">false</span>,
-  <span class="hl-key">"diagnostics"</span>: [{
-    <span class="hl-key">"code"</span>: <span class="hl-string">"NAM003"</span>,
-    <span class="hl-key">"message"</span>: <span class="hl-string">"unknown identifier"</span>,
-    <span class="hl-key">"line"</span>: <span class="hl-number">3</span>,
-    <span class="hl-key">"repair"</span>: { <span class="hl-key">"id"</span>: <span class="hl-string">"declare-missing-symbol"</span> }
-  }]
-}`;
-
-function CodeWindow({ title, html }: { title: string; html: string }) {
+function CodeWindow({ title, html, children }: { title: string; html?: string; children?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-code-bg shadow-card">
       <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-3">
@@ -74,7 +64,9 @@ function CodeWindow({ title, html }: { title: string; html: string }) {
         <span className="font-mono text-xs font-medium text-muted">{title}</span>
       </div>
       <pre className="m-0 overflow-x-auto p-6 text-sm leading-7">
-        <code className="text-code-fg" dangerouslySetInnerHTML={{ __html: html }} />
+        <code className="text-code-fg">
+          {html ? <span dangerouslySetInnerHTML={{ __html: html }} /> : children}
+        </code>
       </pre>
     </div>
   );
@@ -94,7 +86,7 @@ export default function HomePage() {
             for agents
           </h1>
           <p className="mt-6 max-w-[38rem] text-[clamp(1rem,2vw,1.1875rem)] leading-[1.65] text-muted">
-            Zero explores what a programming language can look like when agents
+            zerolang explores what a programming language can look like when agents
             are primary users from day one. The aim is a language that is easy to
             learn on the fly, deterministic to inspect and repair, standard-library
             first, and explicit enough that most tasks have one obvious path.
@@ -102,7 +94,7 @@ export default function HomePage() {
           <InstallCopy />
           <p className="mt-4 max-w-[34rem] text-sm leading-relaxed text-muted">
             The current toolchain is useful for exploration, but today's syntax
-            and APIs are not a contract. Expect breaking changes while Zero
+            and APIs are not a contract. Expect breaking changes while zerolang
             searches for what works best for agents. Run it in a safe
             environment, not against production systems.
           </p>
@@ -124,13 +116,13 @@ export default function HomePage() {
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <CodeWindow title="main.0" html={CODE_EXAMPLE} />
-            <CodeWindow title="zero check --json" html={AGENT_EXAMPLE} />
+            <CodeWindow title="zero check">
+              <span className="text-[#D73A49] dark:text-[#F97583]">$</span>
+              <span className="text-[#6F42C1] dark:text-[#B392F0]"> zero</span>
+              <span className="text-[#032F62] dark:text-[#9ECBFF]"> check examples/hello.0</span>
+              {"\nhello.0:1:4 PAR100: expected '{' before block\n  explain: zero explain PAR100"}
+            </CodeWindow>
           </div>
-          <p className="mx-auto mt-4 max-w-[44rem] text-center text-sm leading-relaxed text-muted">
-            The direction is a CLI that works at both levels: readable messages
-            for humans, structured facts for agents, and deterministic repair
-            plans where the compiler can propose the next edit.
-          </p>
         </section>
 
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
@@ -138,7 +130,7 @@ export default function HomePage() {
             <p className="mb-2 text-[0.8125rem] font-semibold uppercase tracking-[0.04em] text-blue">Direction</p>
             <h2 className="mb-4 text-[clamp(1.5rem,4vw,2.25rem)] font-bold leading-[1.15] tracking-[-0.035em]">Regularity over cleverness.</h2>
             <p className="m-0 leading-[1.65] text-muted">
-              Zero favors explicit capabilities and standard-library APIs over
+              zerolang favors explicit capabilities and standard-library APIs over
               syntax for every convenience. Some code may be more verbose for
               humans if that makes it easier for agents to generate, inspect,
               and repair.
@@ -173,7 +165,7 @@ export default function HomePage() {
         <div className="mx-auto flex w-[min(100%-3rem,var(--container-content))] flex-col items-center gap-2 text-center md:flex-row md:justify-between md:text-left">
           <div className="flex items-center gap-2 text-sm font-semibold text-fg">
             <LogoIcon width="14" height="12" />
-            <span>Zero</span>
+            <span>zerolang</span>
           </div>
           <p className="m-0 text-[0.8125rem] text-muted">Agent-first language design, still under active exploration.</p>
         </div>
