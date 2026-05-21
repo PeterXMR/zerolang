@@ -604,6 +604,84 @@ static void helper_result_type_mismatch_fails(void) {
   expect_fail("helper result type mismatch", &ir, "helper result type mismatch");
 }
 
+static void byte_copy_immutable_destination_fails(void) {
+  IrValue src = byte_view_value();
+  IrValue dst = byte_view_value();
+  IrValue copy = value(IR_VALUE_BYTE_COPY, IR_TYPE_USIZE);
+  copy.left = &src;
+  copy.right = &dst;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &copy, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_USIZE, IR_TYPE_USIZE, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("byte copy immutable destination", &ir, "invalid byte copy destination");
+}
+
+static void byte_copy_result_type_mismatch_fails(void) {
+  IrLocal locals[] = {array_local("dst", IR_TYPE_U8, 0)};
+  locals[0].is_mutable = true;
+  IrValue src = byte_view_value();
+  IrValue dst = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  dst.array_index = 0;
+  dst.data_len = 4;
+  IrValue copy = value(IR_VALUE_BYTE_COPY, IR_TYPE_BOOL);
+  copy.left = &src;
+  copy.right = &dst;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &copy, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_BOOL, IR_TYPE_BOOL, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("byte copy result type mismatch", &ir, "helper result type mismatch");
+}
+
+static void byte_fill_value_mismatch_fails(void) {
+  IrLocal locals[] = {array_local("dst", IR_TYPE_U8, 0)};
+  locals[0].is_mutable = true;
+  IrValue fill = value(IR_VALUE_INT, IR_TYPE_I32);
+  IrValue dst = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  dst.array_index = 0;
+  dst.data_len = 4;
+  IrValue copy = value(IR_VALUE_BYTE_FILL, IR_TYPE_USIZE);
+  copy.left = &fill;
+  copy.right = &dst;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &copy, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_USIZE, IR_TYPE_USIZE, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("byte fill value mismatch", &ir, "invalid byte fill value");
+}
+
+static void check_input_type_mismatch_fails(void) {
+  IrValue number = value(IR_VALUE_INT, IR_TYPE_I32);
+  IrValue checked = value(IR_VALUE_CHECK, IR_TYPE_I32);
+  checked.left = &number;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &checked, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("check input type mismatch", &ir, "invalid check input");
+}
+
+static void check_result_type_mismatch_fails(void) {
+  IrValue packed = value(IR_VALUE_INT, IR_TYPE_I64);
+  packed.element_type = IR_TYPE_U8;
+  IrValue checked = value(IR_VALUE_CHECK, IR_TYPE_I32);
+  checked.left = &packed;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &checked, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("check result type mismatch", &ir, "check result type mismatch");
+}
+
+static void rescue_fallback_type_mismatch_fails(void) {
+  IrValue packed = value(IR_VALUE_INT, IR_TYPE_I64);
+  packed.element_type = IR_TYPE_U8;
+  IrValue fallback = value(IR_VALUE_INT, IR_TYPE_I32);
+  IrValue rescued = value(IR_VALUE_RESCUE, IR_TYPE_U8);
+  rescued.left = &packed;
+  rescued.right = &fallback;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &rescued, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_U8, IR_TYPE_U8, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("rescue fallback type mismatch", &ir, "rescue type mismatch");
+}
+
 static void byte_view_len_u32_passes(void) {
   IrValue bytes = byte_view_value();
   IrValue len = value(IR_VALUE_BYTE_VIEW_LEN, IR_TYPE_U32);
@@ -726,6 +804,12 @@ int main(void) {
   vec_init_maybe_immutable_overwrite_fails();
   http_fetch_immutable_response_fails();
   helper_result_type_mismatch_fails();
+  byte_copy_immutable_destination_fails();
+  byte_copy_result_type_mismatch_fails();
+  byte_fill_value_mismatch_fails();
+  check_input_type_mismatch_fails();
+  check_result_type_mismatch_fails();
+  rescue_fallback_type_mismatch_fails();
   byte_view_len_u32_passes();
   maybe_has_non_maybe_local_fails();
   maybe_value_type_mismatch_fails();

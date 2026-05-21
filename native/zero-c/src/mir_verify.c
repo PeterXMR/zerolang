@@ -543,11 +543,61 @@ static bool mir_verify_byte_view_value_contract(IrProgram *ir, const IrValue *va
   return true;
 }
 
+static bool mir_verify_byte_mutation_value_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, value->kind == IR_VALUE_BYTE_COPY ? "byte copy result" : "byte fill result")) return false;
+  if (value->kind == IR_VALUE_BYTE_COPY) {
+    if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid byte copy source", "byte copy source")) return false;
+    return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid byte copy destination", "byte copy destination");
+  }
+  if (value->kind == IR_VALUE_BYTE_FILL) {
+    if (!mir_verify_value_type(ir, value->left, IR_TYPE_U8, "MIR verifier found invalid byte fill value", "byte fill value")) return false;
+    return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid byte fill destination", "byte fill destination");
+  }
+  return true;
+}
+
+static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrValue *value) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if (value->kind == IR_VALUE_CHECK) {
+    if (!value->left || value->left->type != IR_TYPE_I64) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "check input is %s", value->left ? mir_type_kind_name(value->left->type) : "missing");
+      mir_verify_mark_unsupported(ir, "MIR verifier found invalid check input", value->line, value->column, actual);
+      return false;
+    }
+    if (value->type != value->left->element_type) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "check result is %s but fallible value carries %s", mir_type_kind_name(value->type), mir_type_kind_name(value->left->element_type));
+      mir_verify_mark_unsupported(ir, "MIR verifier found check result type mismatch", value->line, value->column, actual);
+      return false;
+    }
+    return true;
+  }
+  if (value->kind == IR_VALUE_RESCUE) {
+    if (!value->left || !value->right || value->left->type != IR_TYPE_I64) {
+      char actual[160];
+      snprintf(actual, sizeof(actual), "rescue input is %s and fallback is %s", value->left ? mir_type_kind_name(value->left->type) : "missing", value->right ? mir_type_kind_name(value->right->type) : "missing");
+      mir_verify_mark_unsupported(ir, "MIR verifier found invalid rescue input", value->line, value->column, actual);
+      return false;
+    }
+    if (value->type != value->left->element_type || value->right->type != value->type) {
+      char actual[192];
+      snprintf(actual, sizeof(actual), "rescue result %s, fallible value %s, fallback %s", mir_type_kind_name(value->type), mir_type_kind_name(value->left->element_type), mir_type_kind_name(value->right->type));
+      mir_verify_mark_unsupported(ir, "MIR verifier found rescue type mismatch", value->line, value->column, actual);
+      return false;
+    }
+  }
+  return true;
+}
+
 static bool mir_verify_direct_value(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {
   if (!ir || !ir->mir_valid) return false;
   if (!value) return true;
   if (value->kind == IR_VALUE_CALL && !mir_verify_direct_call_contract(ir, value)) return false;
   if (!mir_verify_direct_helper_value_contract(ir, fun, state, value, requirements)) return false;
+  if ((value->kind == IR_VALUE_BYTE_COPY || value->kind == IR_VALUE_BYTE_FILL) && !mir_verify_byte_mutation_value_contract(ir, fun, state, value)) return false;
+  if ((value->kind == IR_VALUE_CHECK || value->kind == IR_VALUE_RESCUE) && !mir_verify_fallible_flow_value_contract(ir, value)) return false;
   if (value->kind == IR_VALUE_LOCAL) {
     if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, "MIR verifier found local value outside the local table")) return false;
     const IrLocal *local = &fun->locals[value->local_index];
