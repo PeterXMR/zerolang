@@ -66,6 +66,19 @@ static void zero_arg_and_uppercase_member_calls_check(void) {
   );
 }
 
+static void check_space_call_expression_check(void) {
+  check_row_source(
+    "check space call expression",
+    "fn parse i32 input i32 ![InvalidInput]\n"
+    "  if == input 0\n"
+    "    raise InvalidInput\n"
+    "  ret input\n"
+    "\n"
+    "pub fn main Void ![InvalidInput]\n"
+    "  let value i32 check parse 41\n"
+  );
+}
+
 static void shapes_and_members_check(void) {
   check_row_source(
     "shapes and members",
@@ -174,6 +187,7 @@ static void named_error_rejects_without_brackets(void) {
 int main(void) {
   function_calls_check();
   zero_arg_and_uppercase_member_calls_check();
+  check_space_call_expression_check();
   shapes_and_members_check();
   control_flow_check();
   slices_and_casts_check();

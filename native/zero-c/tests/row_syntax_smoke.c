@@ -507,6 +507,33 @@ static void parses_zero_arg_and_uppercase_member_calls(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void parses_check_space_call_expression(void) {
+  const char *source =
+    "fn parse i32 input i32 !\n"
+    "  ret input\n"
+    "pub fn main Void !\n"
+    "  let value i32 check parse 41\n";
+  ZRowTokenVec tokens = {0};
+  ZRowTree tree = {0};
+  Program program = parse_row_program(source, &tokens, &tree);
+
+  expect(program.functions.len == 2, "expected parse and main functions");
+  Function *main_fun = &program.functions.items[1];
+  expect(main_fun->body.len == 1, "expected one main statement");
+  Expr *checked = main_fun->body.items[0]->expr;
+  expect(checked->kind == EXPR_CHECK, "expected let initializer to be a check expression");
+  expect(checked->left && checked->left->kind == EXPR_CALL, "expected check operand to be the row call");
+  expect(checked->left->left && checked->left->left->kind == EXPR_IDENT, "expected checked callee identifier");
+  expect(strcmp(checked->left->left->text, "parse") == 0, "expected parse callee");
+  expect(checked->left->args.len == 1, "expected checked row call argument");
+  expect(checked->left->args.items[0]->kind == EXPR_NUMBER, "expected numeric checked argument");
+  expect(strcmp(checked->left->args.items[0]->text, "41") == 0, "expected checked argument value");
+
+  z_free_program(&program);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 static void parses_lowercase_primitive_annotations(void) {
   const char *source =
     "pub fn main Void\n"
@@ -603,6 +630,10 @@ static void rejects_unconsumed_row_expression_tokens(void) {
 static void rejects_empty_use_import(void) {
   expect_row_parse_failure("use\n", "import module");
   expect_row_parse_failure("use as mem\n", "import module");
+  expect_row_parse_failure("use std.\n", "module segment");
+  expect_row_parse_failure("use .std\n", "import module");
+  expect_row_parse_failure("use std mem\n", "module");
+  expect_row_parse_failure("use pub\n", "import module");
 }
 
 static void rejects_unexpected_child_rows(void) {
@@ -702,6 +733,7 @@ int main(void) {
   parses_match_statement();
   parses_core_data_declarations();
   parses_zero_arg_and_uppercase_member_calls();
+  parses_check_space_call_expression();
   parses_lowercase_primitive_annotations();
   rejects_unbracketed_named_errors();
   rejects_else_after_explicit_else_block();

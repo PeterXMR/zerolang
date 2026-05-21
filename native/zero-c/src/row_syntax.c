@@ -592,6 +592,41 @@ static const ZRowToken *row_expect_word(const ZRowTokenVec *tokens, size_t *pos,
   return NULL;
 }
 
+static bool row_validate_use_module(const ZRowTokenVec *tokens, size_t start, size_t end, ZDiag *diag) {
+  if (start >= end) {
+    const ZRowToken *token = start < tokens->len ? &tokens->items[start] : (start > 0 ? &tokens->items[start - 1] : NULL);
+    row_diag(diag, token ? token->line : 1, token ? token->column : 1, 1, "expected import module name", "import module name", NULL);
+    return false;
+  }
+
+  bool expect_segment = true;
+  for (size_t i = start; i < end; i++) {
+    const ZRowToken *token = &tokens->items[i];
+    if (expect_segment) {
+      if (token->kind != Z_ROW_TOKEN_WORD || row_is_reserved_word(token->text)) {
+        row_diag(diag, token->line, token->column, token->length > 0 ? (int)token->length : 1,
+                 i == start ? "expected import module name" : "expected import module segment",
+                 i == start ? "import module name" : "import module segment", NULL);
+        return false;
+      }
+      expect_segment = false;
+      continue;
+    }
+    if (!row_token_text(tokens, i, ".")) {
+      row_diag(diag, token->line, token->column, token->length > 0 ? (int)token->length : 1, "expected '.' between import module segments", "'.' or import alias", NULL);
+      return false;
+    }
+    expect_segment = true;
+  }
+
+  if (expect_segment) {
+    const ZRowToken *token = &tokens->items[end - 1];
+    row_diag(diag, token->line, token->column, token->length > 0 ? (int)token->length : 1, "expected import module segment", "import module segment", NULL);
+    return false;
+  }
+  return true;
+}
+
 static bool row_is_type_start(const ZRowTokenVec *tokens, size_t pos, size_t end) {
   if (pos >= end) return false;
   const ZRowToken *token = &tokens->items[pos];
@@ -890,7 +925,7 @@ static Expr *row_parse_expr_atom(RowExprParser *parser) {
   if (parser->pos < parser->end && row_token_text(parser->tokens, parser->pos, "check")) {
     const ZRowToken *token = &parser->tokens->items[parser->pos++];
     Expr *expr = row_new_expr(EXPR_CHECK, token);
-    expr->left = row_parse_expr_atom(parser);
+    expr->left = row_parse_expr(parser);
     return expr;
   }
   if (parser->pos < parser->end && row_token_text(parser->tokens, parser->pos, "rescue")) {
@@ -1404,6 +1439,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
         row_diag(diag, token->line, token->column, 1, "expected import module name", "import module name", NULL);
         return program;
       }
+      if (!row_validate_use_module(tokens, module_start, module_end, diag)) return program;
       char *alias = NULL;
       int end_column = node->column;
       if (module_end > module_start) {
