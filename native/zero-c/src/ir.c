@@ -1,4 +1,5 @@
 #include "zero.h"
+#include "mir_verify.h"
 #include "specialize.h"
 #include "type_core.h"
 
@@ -560,44 +561,6 @@ static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, in
   snprintf(ir->mir_actual, sizeof(ir->mir_actual), "%s", actual ? actual : "unsupported construct");
   snprintf(ir->mir_help, sizeof(ir->mir_help), "restrict this program to exported primitive arithmetic functions or choose another supported direct target");
   z_backend_blocker_set(&ir->backend_blocker, NULL, NULL, NULL, "lower", ir->mir_actual);
-}
-
-static bool ir_verify_direct_call_value(IrProgram *ir, const IrValue *value) {
-  if (!ir || !ir->mir_valid) return false;
-  if (!value) return true;
-  if (value->kind == IR_VALUE_CALL && value->callee_index >= ir->function_len) {
-    char actual[128];
-    snprintf(actual, sizeof(actual), "callee index %u with %zu MIR function(s)", value->callee_index, ir->function_len);
-    ir_mark_unsupported(ir, "MIR verifier found direct call target outside the function table", value->line, value->column, actual);
-    return false;
-  }
-  for (size_t i = 0; i < value->arg_len; i++) {
-    if (!ir_verify_direct_call_value(ir, value->args[i])) return false;
-  }
-  if (!ir_verify_direct_call_value(ir, value->index)) return false;
-  if (!ir_verify_direct_call_value(ir, value->left)) return false;
-  if (!ir_verify_direct_call_value(ir, value->right)) return false;
-  return true;
-}
-
-static bool ir_verify_direct_call_instrs(IrProgram *ir, const IrInstr *instrs, size_t len) {
-  if (!ir || !ir->mir_valid) return false;
-  for (size_t i = 0; i < len; i++) {
-    const IrInstr *instr = &instrs[i];
-    if (!ir_verify_direct_call_value(ir, instr->value)) return false;
-    if (!ir_verify_direct_call_value(ir, instr->index)) return false;
-    if (!ir_verify_direct_call_instrs(ir, instr->then_instrs, instr->then_len)) return false;
-    if (!ir_verify_direct_call_instrs(ir, instr->else_instrs, instr->else_len)) return false;
-  }
-  return true;
-}
-
-static bool ir_verify_direct_call_targets(IrProgram *ir) {
-  if (!ir || !ir->mir_valid) return false;
-  for (size_t i = 0; i < ir->function_len; i++) {
-    if (!ir_verify_direct_call_instrs(ir, ir->functions[i].instrs, ir->functions[i].instr_len)) return false;
-  }
-  return true;
 }
 
 static bool ir_parse_integer_literal(const char *text, unsigned long long *out) {
@@ -3540,7 +3503,7 @@ static void ir_lower_direct_backend_subset(IrProgram *ir, const Program *program
       return;
     }
   }
-  if (!ir_verify_direct_call_targets(ir)) {
+  if (!z_mir_verify_direct_contracts(ir)) {
     free(order);
     for (size_t stable_index = 0; stable_index < direct_functions.len; stable_index++) free(stable_ids[stable_index]);
     free(stable_ids);
