@@ -209,6 +209,54 @@ static void array_write_type_mismatch_fails(void) {
   expect_fail("array write type mismatch", &ir, "array write type mismatch");
 }
 
+static void array_load_contract_fails(void) {
+  IrLocal locals[] = {scalar_local("x", IR_TYPE_I32, 0, false)};
+  IrValue index = value(IR_VALUE_INT, IR_TYPE_USIZE);
+  IrValue load = value(IR_VALUE_INDEX_LOAD, IR_TYPE_I32);
+  load.array_index = 0;
+  load.index = &index;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &load, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("array load from scalar", &ir, "array load from a non-array local");
+}
+
+static void array_load_type_mismatch_fails(void) {
+  IrLocal locals[] = {array_local("bytes", IR_TYPE_U8, 0)};
+  IrValue index = value(IR_VALUE_INT, IR_TYPE_USIZE);
+  IrValue load = value(IR_VALUE_INDEX_LOAD, IR_TYPE_I32);
+  load.array_index = 0;
+  load.index = &index;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &load, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_I32, IR_TYPE_I32, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("array load type mismatch", &ir, "array load type mismatch");
+}
+
+static void array_byte_view_contract_fails(void) {
+  IrLocal locals[] = {array_local("numbers", IR_TYPE_I32, 0)};
+  IrValue view = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  view.array_index = 0;
+  view.data_len = 4;
+  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .value = &view, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 1, 0, &write, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_runtime_helper_count = 1;
+  expect_fail("array byte view from non-byte array", &ir, "array byte view from a non-byte array local");
+}
+
+static void array_byte_view_length_mismatch_fails(void) {
+  IrLocal locals[] = {array_local("bytes", IR_TYPE_U8, 0)};
+  IrValue view = value(IR_VALUE_ARRAY_BYTE_VIEW, IR_TYPE_BYTE_VIEW);
+  view.array_index = 0;
+  view.data_len = 3;
+  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .value = &view, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 1, 0, &write, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_runtime_helper_count = 1;
+  expect_fail("array byte view length mismatch", &ir, "array byte view length mismatch");
+}
+
 static void field_write_contract_fails(void) {
   IrLocal locals[] = {record_local("point", 0)};
   IrValue item = value(IR_VALUE_INT, IR_TYPE_I32);
@@ -286,6 +334,44 @@ static void buffer_helper_contract_fails(void) {
   expect_fail("buffer helper contract", &ir, "missing buffer helper contract");
 }
 
+static void helper_result_type_mismatch_fails(void) {
+  IrValue request = byte_view_value();
+  IrValue response = byte_view_value();
+  IrValue timeout = value(IR_VALUE_INT, IR_TYPE_I64);
+  IrValue fetch = value(IR_VALUE_HTTP_FETCH, IR_TYPE_BOOL);
+  fetch.left = &request;
+  fetch.right = &response;
+  fetch.index = &timeout;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &fetch, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_BOOL, IR_TYPE_BOOL, NULL, 0, 0, &ret, 1, 0, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_runtime_helper_count = 2;
+  ir.direct_host_runtime_import_count = 2;
+  ir.direct_http_runtime_import_count = 1;
+  expect_fail("helper result type mismatch", &ir, "helper result type mismatch");
+}
+
+static void maybe_has_non_maybe_local_fails(void) {
+  IrLocal locals[] = {scalar_local("x", IR_TYPE_I32, 0, false)};
+  IrValue has = value(IR_VALUE_MAYBE_HAS, IR_TYPE_BOOL);
+  has.local_index = 0;
+  IrInstr ret = {.kind = IR_INSTR_RETURN, .value = &has, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_BOOL, IR_TYPE_BOOL, locals, 1, 0, &ret, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  expect_fail("Maybe.has non-Maybe local", &ir, "maybe helper for a non-Maybe local");
+}
+
+static void maybe_value_type_mismatch_fails(void) {
+  IrLocal locals[] = {scalar_local("maybe", IR_TYPE_MAYBE_SCALAR, 0, false)};
+  IrValue maybe = value(IR_VALUE_MAYBE_VALUE, IR_TYPE_BYTE_VIEW);
+  maybe.local_index = 0;
+  IrInstr write = {.kind = IR_INSTR_WORLD_WRITE, .value = &maybe, .line = 1, .column = 1};
+  IrFunction fun = function("main", IR_TYPE_VOID, IR_TYPE_VOID, locals, 1, 0, &write, 1, 16, false);
+  IrProgram ir = program(&fun, 1);
+  ir.direct_runtime_helper_count = 1;
+  expect_fail("Maybe.value type mismatch", &ir, "maybe scalar value type mismatch");
+}
+
 static void runtime_helper_shape_fails(void) {
   IrValue number = value(IR_VALUE_INT, IR_TYPE_I32);
   IrValue json = value(IR_VALUE_JSON_VALIDATE_BYTES, IR_TYPE_BOOL);
@@ -352,6 +438,10 @@ int main(void) {
   branch_condition_mismatch_fails();
   array_write_contract_fails();
   array_write_type_mismatch_fails();
+  array_load_contract_fails();
+  array_load_type_mismatch_fails();
+  array_byte_view_contract_fails();
+  array_byte_view_length_mismatch_fails();
   field_write_contract_fails();
   field_write_partial_overrun_fails();
   field_load_partial_overrun_fails();
@@ -360,6 +450,9 @@ int main(void) {
   raise_in_hosted_world_main_passes();
   allocator_helper_contract_fails();
   buffer_helper_contract_fails();
+  helper_result_type_mismatch_fails();
+  maybe_has_non_maybe_local_fails();
+  maybe_value_type_mismatch_fails();
   runtime_helper_shape_fails();
   runtime_helper_contract_fails();
   host_runtime_import_contract_fails();
