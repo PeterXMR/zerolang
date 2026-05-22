@@ -1,4 +1,6 @@
 #include "zero.h"
+#include "elf_format.h"
+#include "x64_emit.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -7,11 +9,6 @@
 
 static void elf_append_u8(ZBuf *buf, unsigned value) {
   zbuf_append_char(buf, (char)(value & 0xff));
-}
-
-static void elf_append_u16(ZBuf *buf, uint16_t value) {
-  elf_append_u8(buf, value);
-  elf_append_u8(buf, value >> 8);
 }
 
 static void elf_append_u32(ZBuf *buf, uint32_t value) {
@@ -105,48 +102,14 @@ static unsigned elf_local_offset(const IrFunction *fun, unsigned local_index) {
   return (local_index + 1) * 8;
 }
 
-static void elf_emit_rbp_disp_reg(ZBuf *code, unsigned opcode, unsigned reg, unsigned offset, bool wide) {
-  if (wide || reg >= 8) {
-    unsigned rex = wide ? 0x48 : 0x40;
-    if (reg >= 8) rex |= 0x04;
-    elf_append_u8(code, rex);
-  }
-  elf_append_u8(code, opcode);
-  unsigned reg_low = reg & 7;
-  if (offset <= 127) {
-    elf_append_u8(code, 0x40 | (reg_low << 3) | 0x05);
-    elf_append_u8(code, (unsigned char)(-(int)offset));
-  } else {
-    elf_append_u8(code, 0x80 | (reg_low << 3) | 0x05);
-    elf_append_u32(code, (uint32_t)(-(int32_t)offset));
-  }
-}
-
-static void elf_emit_load_rbp_positive_reg(ZBuf *code, unsigned reg, unsigned offset, bool wide) {
-  if (wide || reg >= 8) {
-    unsigned rex = wide ? 0x48 : 0x40;
-    if (reg >= 8) rex |= 0x04;
-    elf_append_u8(code, rex);
-  }
-  elf_append_u8(code, 0x8b);
-  unsigned reg_low = reg & 7;
-  if (offset <= 127) {
-    elf_append_u8(code, 0x40 | (reg_low << 3) | 0x05);
-    elf_append_u8(code, (unsigned char)offset);
-  } else {
-    elf_append_u8(code, 0x80 | (reg_low << 3) | 0x05);
-    elf_append_u32(code, offset);
-  }
-}
-
 static void elf_emit_load_local_rax(ZBuf *code, const IrFunction *fun, unsigned local_index) {
   bool wide = fun && local_index < fun->local_len && elf_type_is_i64(fun->locals[local_index].type);
-  elf_emit_rbp_disp_reg(code, 0x8b, 0, elf_local_offset(fun, local_index), wide);
+  z_x64_emit_rbp_disp_reg(code, 0x8b, 0, elf_local_offset(fun, local_index), wide);
 }
 
 static void elf_emit_store_local_from_reg(ZBuf *code, const IrFunction *fun, unsigned local_index, unsigned reg) {
   bool wide = fun && local_index < fun->local_len && elf_type_is_i64(fun->locals[local_index].type);
-  elf_emit_rbp_disp_reg(code, 0x89, reg, elf_local_offset(fun, local_index), wide);
+  z_x64_emit_rbp_disp_reg(code, 0x89, reg, elf_local_offset(fun, local_index), wide);
 }
 
 static unsigned elf_record_field_disp(const IrLocal *local, unsigned field_offset) {
@@ -158,22 +121,22 @@ static void elf_emit_load_field_rax(ZBuf *code, const IrLocal *local, unsigned f
   unsigned disp = elf_record_field_disp(local, field_offset);
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
     elf_append_u8(code, 0x0f);
-    elf_emit_rbp_disp_reg(code, 0xb6, 0, disp, false);
+    z_x64_emit_rbp_disp_reg(code, 0xb6, 0, disp, false);
   } else if (elf_type_is_i64(type)) {
-    elf_emit_rbp_disp_reg(code, 0x8b, 0, disp, true);
+    z_x64_emit_rbp_disp_reg(code, 0x8b, 0, disp, true);
   } else {
-    elf_emit_rbp_disp_reg(code, 0x8b, 0, disp, false);
+    z_x64_emit_rbp_disp_reg(code, 0x8b, 0, disp, false);
   }
 }
 
 static void elf_emit_store_field_from_rax(ZBuf *code, const IrLocal *local, unsigned field_offset, IrTypeKind type) {
   unsigned disp = elf_record_field_disp(local, field_offset);
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
-    elf_emit_rbp_disp_reg(code, 0x88, 0, disp, false);
+    z_x64_emit_rbp_disp_reg(code, 0x88, 0, disp, false);
   } else if (elf_type_is_i64(type)) {
-    elf_emit_rbp_disp_reg(code, 0x89, 0, disp, true);
+    z_x64_emit_rbp_disp_reg(code, 0x89, 0, disp, true);
   } else {
-    elf_emit_rbp_disp_reg(code, 0x89, 0, disp, false);
+    z_x64_emit_rbp_disp_reg(code, 0x89, 0, disp, false);
   }
 }
 
@@ -204,30 +167,6 @@ static void elf_emit_scale_index_into_rax(ZBuf *code, IrTypeKind element_type) {
     elf_append_u8(code, 0x04);
     elf_append_u8(code, 0xc8);
   }
-}
-
-static size_t elf_emit_jmp32_placeholder(ZBuf *code, unsigned opcode) {
-  elf_append_u8(code, opcode);
-  size_t patch = code->len;
-  elf_append_u32(code, 0);
-  return patch;
-}
-
-static size_t elf_emit_jcc32_placeholder(ZBuf *code, unsigned condition) {
-  elf_append_u8(code, 0x0f);
-  elf_append_u8(code, condition);
-  size_t patch = code->len;
-  elf_append_u32(code, 0);
-  return patch;
-}
-
-static void elf_patch_rel32(ZBuf *code, size_t patch_offset, size_t target_offset) {
-  int64_t rel = (int64_t)target_offset - (int64_t)(patch_offset + 4);
-  uint32_t value = (uint32_t)(int32_t)rel;
-  code->data[patch_offset] = (char)(value & 0xff);
-  code->data[patch_offset + 1] = (char)((value >> 8) & 0xff);
-  code->data[patch_offset + 2] = (char)((value >> 16) & 0xff);
-  code->data[patch_offset + 3] = (char)((value >> 24) & 0xff);
 }
 
 static unsigned elf_setcc_opcode(IrCompareOp op, bool uns) {
@@ -313,6 +252,25 @@ typedef struct {
 
 static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
 static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag);
+
+static void elf_emit_context_free(ElfEmitContext *ctx) {
+  if (!ctx) return;
+  free(ctx->call_patches);
+  free(ctx->rodata_patches);
+  free(ctx->runtime_json_parse_bytes_patches);
+  free(ctx->runtime_http_fetch_patches);
+  free(ctx->runtime_http_result_ok_patches);
+  free(ctx->runtime_http_result_status_patches);
+  free(ctx->runtime_http_result_body_len_patches);
+  free(ctx->runtime_http_result_error_patches);
+  free(ctx->runtime_http_response_len_patches);
+  free(ctx->runtime_http_response_headers_len_patches);
+  free(ctx->runtime_http_response_body_offset_patches);
+  free(ctx->runtime_http_header_value_patches);
+  free(ctx->runtime_http_header_found_patches);
+  free(ctx->runtime_http_header_offset_patches);
+  free(ctx->runtime_http_header_len_patches);
+}
 
 static bool elf_function_propagates_to_process_exit(const IrFunction *fun) {
   return fun && (fun->raises ||
@@ -423,7 +381,7 @@ static bool elf_record_runtime_http_header_len_patch(ElfEmitContext *ctx, size_t
 static void elf_patch_call_patches(ZBuf *code, const ElfEmitContext *ctx) {
   for (size_t i = 0; i < ctx->call_patch_len; i++) {
     const ElfCallPatch *patch = &ctx->call_patches[i];
-    elf_patch_rel32(code, patch->patch_offset, ctx->function_offsets[patch->callee_index]);
+    z_x64_patch_rel32(code, patch->patch_offset, ctx->function_offsets[patch->callee_index]);
   }
 }
 
@@ -454,22 +412,12 @@ static unsigned elf_total_stack_size(const IrFunction *fun, const ElfEmitContext
 static void elf_emit_epilogue(ZBuf *code, const IrFunction *fun, const ElfEmitContext *ctx) {
   if (elf_function_seeds_process_args(fun, ctx)) {
     unsigned base = elf_base_stack_size(fun);
-    elf_emit_rbp_disp_reg(code, 0x8b, 13, base + 8, true);
-    elf_emit_rbp_disp_reg(code, 0x8b, 14, base + 16, true);
-    elf_emit_rbp_disp_reg(code, 0x8b, 15, base + 24, true);
+    z_x64_emit_rbp_disp_reg(code, 0x8b, 13, base + 8, true);
+    z_x64_emit_rbp_disp_reg(code, 0x8b, 14, base + 16, true);
+    z_x64_emit_rbp_disp_reg(code, 0x8b, 15, base + 24, true);
   }
   elf_append_u8(code, 0xc9);
   elf_append_u8(code, 0xc3);
-}
-
-static void elf_emit_pop_reg64(ZBuf *code, unsigned reg) {
-  if (reg >= 8) elf_append_u8(code, 0x41);
-  elf_append_u8(code, 0x58 + (reg & 7));
-}
-
-static void elf_emit_push_reg64(ZBuf *code, unsigned reg) {
-  if (reg >= 8) elf_append_u8(code, 0x41);
-  elf_append_u8(code, 0x50 + (reg & 7));
 }
 
 static void elf_emit_push_rax(ZBuf *code) {
@@ -491,12 +439,12 @@ static void elf_emit_strlen_rax_to_ecx(ZBuf *code) {
   elf_append_u8(code, 0x3c);
   elf_append_u8(code, 0x0a);
   elf_append_u8(code, 0x00);
-  size_t done = elf_emit_jcc32_placeholder(code, 0x84);
+  size_t done = z_x64_emit_jcc32_placeholder(code, 0x84);
   elf_append_u8(code, 0xff);
   elf_append_u8(code, 0xc1);
-  size_t back = elf_emit_jmp32_placeholder(code, 0xe9);
-  elf_patch_rel32(code, back, loop);
-  elf_patch_rel32(code, done, code->len);
+  size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+  z_x64_patch_rel32(code, back, loop);
+  z_x64_patch_rel32(code, done, code->len);
 }
 
 static void elf_emit_maybe_clear(ZBuf *code, const IrLocal *local) {
@@ -578,10 +526,10 @@ static bool elf_emit_bounds_checked_address(ZBuf *code, const IrFunction *fun, c
   if (!elf_emit_value(code, fun, index, ctx, diag)) return false;
   elf_append_u8(code, 0x3d);
   elf_append_u32(code, local->array_len);
-  size_t ok_patch = elf_emit_jcc32_placeholder(code, 0x82);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x82);
   elf_append_u8(code, 0x0f);
   elf_append_u8(code, 0x0b);
-  elf_patch_rel32(code, ok_patch, code->len);
+  z_x64_patch_rel32(code, ok_patch, code->len);
   elf_append_u8(code, 0x89);
   elf_append_u8(code, 0xc1);
   elf_emit_lea_array_base_rax(code, local);
@@ -676,22 +624,22 @@ static bool elf_emit_rodata_ptr_rax(ZBuf *code, unsigned data_offset, ElfEmitCon
 
 static void elf_emit_store_local_slot_rax(ZBuf *code, const IrLocal *local, unsigned slot_offset) {
   unsigned disp = local && local->frame_offset >= slot_offset ? local->frame_offset - slot_offset : 0;
-  elf_emit_rbp_disp_reg(code, 0x89, 0, disp, true);
+  z_x64_emit_rbp_disp_reg(code, 0x89, 0, disp, true);
 }
 
 static void elf_emit_store_local_slot_reg(ZBuf *code, const IrLocal *local, unsigned slot_offset, unsigned reg, bool wide) {
   unsigned disp = local && local->frame_offset >= slot_offset ? local->frame_offset - slot_offset : 0;
-  elf_emit_rbp_disp_reg(code, 0x89, reg, disp, wide);
+  z_x64_emit_rbp_disp_reg(code, 0x89, reg, disp, wide);
 }
 
 static void elf_emit_load_local_slot_rax(ZBuf *code, const IrLocal *local, unsigned slot_offset) {
   unsigned disp = local && local->frame_offset >= slot_offset ? local->frame_offset - slot_offset : 0;
-  elf_emit_rbp_disp_reg(code, 0x8b, 0, disp, true);
+  z_x64_emit_rbp_disp_reg(code, 0x8b, 0, disp, true);
 }
 
 static void elf_emit_load_local_slot_reg(ZBuf *code, const IrLocal *local, unsigned slot_offset, unsigned reg, bool wide) {
   unsigned disp = local && local->frame_offset >= slot_offset ? local->frame_offset - slot_offset : 0;
-  elf_emit_rbp_disp_reg(code, 0x8b, reg, disp, wide);
+  z_x64_emit_rbp_disp_reg(code, 0x8b, reg, disp, wide);
 }
 
 static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrValue *view, ElfEmitContext *ctx, ZDiag *diag);
@@ -702,9 +650,9 @@ static bool elf_emit_json_parse_bytes_call(ZBuf *code, const IrFunction *fun, co
   elf_emit_push_rax(code);
   if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
   elf_emit_push_rax(code);
-  elf_emit_pop_reg64(code, 6);
-  elf_emit_pop_reg64(code, 7);
-  size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+  z_x64_emit_pop_reg64(code, 6);
+  z_x64_emit_pop_reg64(code, 7);
+  size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
   return elf_record_runtime_json_parse_bytes_patch(ctx, patch, diag, value);
 }
 
@@ -741,7 +689,7 @@ static bool elf_emit_byte_view_len(ZBuf *code, const IrFunction *fun, const IrVa
     if (!elf_emit_value(code, fun, view->index, ctx, diag)) return false;
     elf_emit_push_rax(code);
     if (!elf_emit_value(code, fun, view->right, ctx, diag)) return false;
-    elf_emit_pop_reg64(code, 1);
+    z_x64_emit_pop_reg64(code, 1);
     elf_append_u8(code, 0x48);
     elf_append_u8(code, 0x29);
     elf_append_u8(code, 0xc8);
@@ -928,9 +876,9 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         elf_emit_push_rax(code);
       }
       for (size_t i = value->arg_len; i > 0; i--) {
-        elf_emit_pop_reg64(code, param_regs[i - 1]);
+        z_x64_emit_pop_reg64(code, param_regs[i - 1]);
       }
-      size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+      size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
       return elf_record_call_patch(ctx, patch, value->callee_index, diag, value);
     }
     case IR_VALUE_JSON_PARSE_BYTES:
@@ -953,11 +901,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x85);
       elf_append_u8(code, 0xc0);
-      size_t ok = elf_emit_jcc32_placeholder(code, 0x89);
+      size_t ok = z_x64_emit_jcc32_placeholder(code, 0x89);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x31);
       elf_append_u8(code, 0xc0);
-      elf_patch_rel32(code, ok, code->len);
+      z_x64_patch_rel32(code, ok, code->len);
       return true;
     }
     case IR_VALUE_HTTP_FETCH: {
@@ -971,12 +919,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_push_rax(code);
       if (!elf_emit_value(code, fun, value->index, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      elf_emit_pop_reg64(code, 8);
-      elf_emit_pop_reg64(code, 1);
-      elf_emit_pop_reg64(code, 2);
-      elf_emit_pop_reg64(code, 6);
-      elf_emit_pop_reg64(code, 7);
-      size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+      z_x64_emit_pop_reg64(code, 8);
+      z_x64_emit_pop_reg64(code, 1);
+      z_x64_emit_pop_reg64(code, 2);
+      z_x64_emit_pop_reg64(code, 6);
+      z_x64_emit_pop_reg64(code, 7);
+      size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
       return elf_record_runtime_http_fetch_patch(ctx, patch, diag, value);
     }
     case IR_VALUE_HTTP_RESULT_OK:
@@ -988,8 +936,8 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
     case IR_VALUE_HTTP_HEADER_LEN: {
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      elf_emit_pop_reg64(code, 7);
-      size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+      z_x64_emit_pop_reg64(code, 7);
+      size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
       if (value->kind == IR_VALUE_HTTP_RESULT_OK) return elf_record_runtime_http_result_ok_patch(ctx, patch, diag, value);
       if (value->kind == IR_VALUE_HTTP_RESULT_STATUS) return elf_record_runtime_http_result_status_patch(ctx, patch, diag, value);
       if (value->kind == IR_VALUE_HTTP_RESULT_BODY_LEN) return elf_record_runtime_http_result_body_len_patch(ctx, patch, diag, value);
@@ -1005,9 +953,9 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_push_rax(code);
       if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      elf_emit_pop_reg64(code, 6);
-      elf_emit_pop_reg64(code, 7);
-      size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+      z_x64_emit_pop_reg64(code, 6);
+      z_x64_emit_pop_reg64(code, 7);
+      size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
       if (value->kind == IR_VALUE_HTTP_RESPONSE_LEN) return elf_record_runtime_http_response_len_patch(ctx, patch, diag, value);
       if (value->kind == IR_VALUE_HTTP_RESPONSE_HEADERS_LEN) return elf_record_runtime_http_response_headers_len_patch(ctx, patch, diag, value);
       return elf_record_runtime_http_response_body_offset_patch(ctx, patch, diag, value);
@@ -1021,17 +969,17 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_push_rax(code);
       if (!elf_emit_byte_view_len(code, fun, value->right, ctx, diag)) return false;
       elf_emit_push_rax(code);
-      elf_emit_pop_reg64(code, 1);
-      elf_emit_pop_reg64(code, 2);
-      elf_emit_pop_reg64(code, 6);
-      elf_emit_pop_reg64(code, 7);
-      size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
+      z_x64_emit_pop_reg64(code, 1);
+      z_x64_emit_pop_reg64(code, 2);
+      z_x64_emit_pop_reg64(code, 6);
+      z_x64_emit_pop_reg64(code, 7);
+      size_t patch = z_x64_emit_jmp32_placeholder(code, 0xe8);
       return elf_record_runtime_http_header_value_patch(ctx, patch, diag, value);
     }
     case IR_VALUE_ARGS_LEN:
       if (ctx && ctx->seed_main_process_args) {
-        elf_emit_push_reg64(code, 14);
-        elf_emit_pop_reg64(code, 0);
+        z_x64_emit_push_reg64(code, 14);
+        z_x64_emit_pop_reg64(code, 0);
         return true;
       }
       elf_append_u8(code, 0x49);
@@ -1127,10 +1075,10 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         size_t fail = elf_emit_js_placeholder(code);
         elf_append_u8(code, 0x89);
         elf_append_u8(code, 0xc0);
-        size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-        elf_patch_rel32(code, fail, code->len);
+        size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, fail, code->len);
         elf_emit_packed_error_rax(code, value->error_code ? value->error_code : IR_ERROR_UNKNOWN);
-        elf_patch_rel32(code, end, code->len);
+        z_x64_patch_rel32(code, end, code->len);
       }
       return true;
     }
@@ -1150,11 +1098,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_close_rax_fd(code);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 1);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, fail, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, fail, code->len);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 0);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_FS_REMOVE:
@@ -1247,7 +1195,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x85);
       elf_append_u8(code, 0xc0);
       size_t read_fail = elf_emit_js_placeholder(code);
-      size_t done = elf_emit_jcc32_placeholder(code, 0x84);
+      size_t done = z_x64_emit_jcc32_placeholder(code, 0x84);
       elf_append_u8(code, 0x49);
       elf_append_u8(code, 0x89);
       elf_append_u8(code, 0xe1);
@@ -1259,7 +1207,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x4d);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc1);
-      size_t scan_done = elf_emit_jcc32_placeholder(code, 0x83);
+      size_t scan_done = z_x64_emit_jcc32_placeholder(code, 0x83);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xff);
       elf_append_u8(code, 0x84);
@@ -1273,12 +1221,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x49);
       elf_append_u8(code, 0x01);
       elf_append_u8(code, 0xc1);
-      size_t scan_back = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, scan_back, scan_loop);
-      elf_patch_rel32(code, scan_done, code->len);
-      size_t loop_back = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, loop_back, read_loop);
-      elf_patch_rel32(code, done, code->len);
+      size_t scan_back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, scan_back, scan_loop);
+      z_x64_patch_rel32(code, scan_done, code->len);
+      size_t loop_back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, loop_back, read_loop);
+      z_x64_patch_rel32(code, done, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x8b);
       elf_append_u8(code, 0x84);
@@ -1294,8 +1242,8 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x81);
       elf_append_u8(code, 0xc4);
       elf_append_u32(code, 1040);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, read_fail, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, read_fail, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x8b);
       elf_append_u8(code, 0x84);
@@ -1306,12 +1254,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x81);
       elf_append_u8(code, 0xc4);
       elf_append_u32(code, 1040);
-      elf_patch_rel32(code, open_fail, code->len);
+      z_x64_patch_rel32(code, open_fail, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xc7);
       elf_append_u8(code, 0xc0);
       elf_append_u32(code, 0xffffffffu);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_FS_ATOMIC_WRITE: {
@@ -1351,7 +1299,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x3b);
       elf_append_u8(code, 0x04);
       elf_append_u8(code, 0x24);
-      size_t short_write = elf_emit_jcc32_placeholder(code, 0x85);
+      size_t short_write = z_x64_emit_jcc32_placeholder(code, 0x85);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x8b);
       elf_append_u8(code, 0x7c);
@@ -1381,9 +1329,9 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x0f);
       elf_append_u8(code, 0x05);
       elf_emit_bool_from_nonnegative_rax(code);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, write_fail, code->len);
-      elf_patch_rel32(code, short_write, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, write_fail, code->len);
+      z_x64_patch_rel32(code, short_write, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x8b);
       elf_append_u8(code, 0x7c);
@@ -1397,11 +1345,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x83);
       elf_append_u8(code, 0xc4);
       elf_append_u8(code, 0x18);
-      elf_patch_rel32(code, open_fail, code->len);
-      elf_patch_rel32(code, close_fail, code->len);
+      z_x64_patch_rel32(code, open_fail, code->len);
+      z_x64_patch_rel32(code, close_fail, code->len);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 0);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_FS_FILE_LEN:
@@ -1426,10 +1374,10 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         size_t fail = elf_emit_js_placeholder(code);
         elf_append_u8(code, 0x89);
         elf_append_u8(code, 0xc0);
-        size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-        elf_patch_rel32(code, fail, code->len);
+        size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, fail, code->len);
         elf_emit_packed_error_rax(code, value->error_code ? value->error_code : IR_ERROR_UNKNOWN);
-        elf_patch_rel32(code, end, code->len);
+        z_x64_patch_rel32(code, end, code->len);
       }
       return true;
     case IR_VALUE_FS_READ_FILE:
@@ -1455,10 +1403,10 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         size_t fail = elf_emit_js_placeholder(code);
         elf_append_u8(code, 0x89);
         elf_append_u8(code, 0xc0);
-        size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-        elf_patch_rel32(code, fail, code->len);
+        size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, fail, code->len);
         elf_emit_packed_error_rax(code, value->error_code ? value->error_code : IR_ERROR_UNKNOWN);
-        elf_patch_rel32(code, end, code->len);
+        z_x64_patch_rel32(code, end, code->len);
       }
       return true;
     case IR_VALUE_FS_WRITE_ALL_FILE:
@@ -1490,14 +1438,14 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       if (value->type == IR_TYPE_I64) {
         elf_append_u8(code, 0x85);
         elf_append_u8(code, 0xc0);
-        size_t success = elf_emit_jcc32_placeholder(code, 0x85);
+        size_t success = z_x64_emit_jcc32_placeholder(code, 0x85);
         elf_emit_packed_error_rax(code, value->error_code ? value->error_code : IR_ERROR_UNKNOWN);
-        size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-        elf_patch_rel32(code, success, code->len);
+        size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+        z_x64_patch_rel32(code, success, code->len);
         elf_append_u8(code, 0x48);
         elf_append_u8(code, 0x31);
         elf_append_u8(code, 0xc0);
-        elf_patch_rel32(code, end, code->len);
+        z_x64_patch_rel32(code, end, code->len);
       }
       return true;
     case IR_VALUE_FS_READ_PATH:
@@ -1526,13 +1474,13 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0xf8);
       elf_emit_close_rax_fd(code);
       elf_append_u8(code, 0x58);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, open_fail, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, open_fail, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xc7);
       elf_append_u8(code, 0xc0);
       elf_append_u32(code, 0xffffffffu);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_FS_WRITE_PATH:
@@ -1561,13 +1509,13 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0xf8);
       elf_emit_close_rax_fd(code);
       elf_append_u8(code, 0x58);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, open_fail, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, open_fail, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xc7);
       elf_append_u8(code, 0xc0);
       elf_append_u32(code, 0xffffffffu);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_MAYBE_HAS:
@@ -1593,11 +1541,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_load_local_slot_reg(code, local, 12, 1, false);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc8);
-      size_t ok_patch = elf_emit_jcc32_placeholder(code, 0x82);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x82);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 0);
-      size_t end_patch = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, ok_patch, code->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, ok_patch, code->len);
       elf_append_u8(code, 0x50);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_append_u8(code, 0x59);
@@ -1615,14 +1563,14 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_emit_store_local_slot_reg(code, local, 8, 0, false);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 1);
-      elf_patch_rel32(code, end_patch, code->len);
+      z_x64_patch_rel32(code, end_patch, code->len);
       return true;
     }
     case IR_VALUE_CHECK: {
       if (!value->left || value->left->type != IR_TYPE_I64) return elf_diag(diag, "direct ELF64 check requires a packed fallible call result", value->line, value->column, "non-fallible value");
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_emit_error_condition_from_rax(code);
-      size_t ok_patch = elf_emit_jcc32_placeholder(code, 0x84);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x84);
       if (elf_function_propagates_to_process_exit(fun)) {
         elf_emit_epilogue(code, fun, ctx);
       } else {
@@ -1630,7 +1578,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         elf_append_u32(code, 1);
         elf_emit_epilogue(code, fun, ctx);
       }
-      elf_patch_rel32(code, ok_patch, code->len);
+      z_x64_patch_rel32(code, ok_patch, code->len);
       if (!elf_type_is_i64(value->type)) {
         elf_append_u8(code, 0x89);
         elf_append_u8(code, 0xc0);
@@ -1643,15 +1591,15 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       }
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_emit_error_condition_from_rax(code);
-      size_t success_patch = elf_emit_jcc32_placeholder(code, 0x84);
+      size_t success_patch = z_x64_emit_jcc32_placeholder(code, 0x84);
       if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
-      size_t end_patch = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, success_patch, code->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, success_patch, code->len);
       if (!elf_type_is_i64(value->type)) {
         elf_append_u8(code, 0x89);
         elf_append_u8(code, 0xc0);
       }
-      elf_patch_rel32(code, end_patch, code->len);
+      z_x64_patch_rel32(code, end_patch, code->len);
       return true;
     }
     case IR_VALUE_INDEX_LOAD: {
@@ -1699,7 +1647,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x4c);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc9);
-      size_t done = elf_emit_jcc32_placeholder(code, 0x83);
+      size_t done = z_x64_emit_jcc32_placeholder(code, 0x83);
       elf_append_u8(code, 0x0f);
       elf_append_u8(code, 0xb6);
       elf_append_u8(code, 0x14);
@@ -1727,14 +1675,14 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x41);
       elf_append_u8(code, 0xff);
       elf_append_u8(code, 0xc8);
-      size_t bit_back = elf_emit_jcc32_placeholder(code, 0x85);
-      elf_patch_rel32(code, bit_back, bit_loop);
+      size_t bit_back = z_x64_emit_jcc32_placeholder(code, 0x85);
+      z_x64_patch_rel32(code, bit_back, bit_loop);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xff);
       elf_append_u8(code, 0xc1);
-      size_t byte_back = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, byte_back, byte_loop);
-      elf_patch_rel32(code, done, code->len);
+      size_t byte_back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, byte_back, byte_loop);
+      z_x64_patch_rel32(code, done, code->len);
       elf_append_u8(code, 0x35);
       elf_append_u32(code, 0xffffffffu);
       return true;
@@ -1754,11 +1702,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc8);
-      size_t keep_dst_len = elf_emit_jcc32_placeholder(code, 0x86);
+      size_t keep_dst_len = z_x64_emit_jcc32_placeholder(code, 0x86);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x89);
       elf_append_u8(code, 0xc8);
-      elf_patch_rel32(code, keep_dst_len, code->len);
+      z_x64_patch_rel32(code, keep_dst_len, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x89);
       elf_append_u8(code, 0xc2);
@@ -1769,7 +1717,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x4c);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc2);
-      size_t done = elf_emit_jcc32_placeholder(code, 0x86);
+      size_t done = z_x64_emit_jcc32_placeholder(code, 0x86);
       elf_append_u8(code, 0x42);
       elf_append_u8(code, 0x8a);
       elf_append_u8(code, 0x1c);
@@ -1781,9 +1729,9 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x49);
       elf_append_u8(code, 0xff);
       elf_append_u8(code, 0xc0);
-      size_t back = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, back, loop);
-      elf_patch_rel32(code, done, code->len);
+      size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, back, loop);
+      z_x64_patch_rel32(code, done, code->len);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0x89);
       elf_append_u8(code, 0xd0);
@@ -1797,11 +1745,11 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x59);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc1);
-      size_t same_len = elf_emit_jcc32_placeholder(code, 0x84);
+      size_t same_len = z_x64_emit_jcc32_placeholder(code, 0x84);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 0);
-      size_t end = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, same_len, code->len);
+      size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, same_len, code->len);
       elf_append_u8(code, 0x49);
       elf_append_u8(code, 0x89);
       elf_append_u8(code, 0xc2);
@@ -1819,7 +1767,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x4c);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xd1);
-      size_t equal = elf_emit_jcc32_placeholder(code, 0x83);
+      size_t equal = z_x64_emit_jcc32_placeholder(code, 0x83);
       elf_append_u8(code, 0x41);
       elf_append_u8(code, 0x8a);
       elf_append_u8(code, 0x04);
@@ -1828,21 +1776,21 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x38);
       elf_append_u8(code, 0x04);
       elf_append_u8(code, 0x09);
-      size_t mismatch = elf_emit_jcc32_placeholder(code, 0x85);
+      size_t mismatch = z_x64_emit_jcc32_placeholder(code, 0x85);
       elf_append_u8(code, 0x48);
       elf_append_u8(code, 0xff);
       elf_append_u8(code, 0xc1);
-      size_t back = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, back, loop);
-      elf_patch_rel32(code, mismatch, code->len);
+      size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, back, loop);
+      z_x64_patch_rel32(code, mismatch, code->len);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 0);
-      size_t after_false = elf_emit_jmp32_placeholder(code, 0xe9);
-      elf_patch_rel32(code, equal, code->len);
+      size_t after_false = z_x64_emit_jmp32_placeholder(code, 0xe9);
+      z_x64_patch_rel32(code, equal, code->len);
       elf_append_u8(code, 0xb8);
       elf_append_u32(code, 1);
-      elf_patch_rel32(code, after_false, code->len);
-      elf_patch_rel32(code, end, code->len);
+      z_x64_patch_rel32(code, after_false, code->len);
+      z_x64_patch_rel32(code, end, code->len);
       return true;
     }
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD: {
@@ -1862,10 +1810,10 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       elf_append_u8(code, 0x58);
       elf_append_u8(code, 0x39);
       elf_append_u8(code, 0xc8);
-      size_t ok_patch = elf_emit_jcc32_placeholder(code, 0x82);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(code, 0x82);
       elf_append_u8(code, 0x0f);
       elf_append_u8(code, 0x0b);
-      elf_patch_rel32(code, ok_patch, code->len);
+      z_x64_patch_rel32(code, ok_patch, code->len);
       elf_append_u8(code, 0x50);
       if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
       elf_append_u8(code, 0x59);
@@ -1918,8 +1866,8 @@ static bool elf_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInst
   elf_append_u8(text, 0x50);
   if (!elf_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
   elf_append_u8(text, 0x50);
-  elf_emit_pop_reg64(text, 2);
-  elf_emit_pop_reg64(text, 6);
+  z_x64_emit_pop_reg64(text, 2);
+  z_x64_emit_pop_reg64(text, 6);
   elf_append_u8(text, 0xbf);
   elf_append_u32(text, instr->field_offset == 2 ? 2 : 1);
   elf_append_u8(text, 0xb8);
@@ -1929,10 +1877,10 @@ static bool elf_emit_world_write(ZBuf *text, const IrFunction *fun, const IrInst
   elf_append_u8(text, 0x48);
   elf_append_u8(text, 0x85);
   elf_append_u8(text, 0xc0);
-  size_t ok_patch = elf_emit_jcc32_placeholder(text, 0x89);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x89);
   elf_append_u8(text, 0x0f);
   elf_append_u8(text, 0x0b);
-  elf_patch_rel32(text, ok_patch, text->len);
+  z_x64_patch_rel32(text, ok_patch, text->len);
   return true;
 }
 
@@ -1940,8 +1888,8 @@ static bool elf_emit_args_get_to_local(ZBuf *text, const IrFunction *fun, const 
   if (!value || !value->left) return elf_diag(diag, "direct ELF64 std.args.get requires an index", value ? value->line : 1, value ? value->column : 1, "missing index");
   if (!elf_emit_value(text, fun, value->left, ctx, diag)) return false;
   if (ctx && ctx->seed_main_process_args) {
-    elf_emit_push_reg64(text, 14);
-    elf_emit_pop_reg64(text, 1);
+    z_x64_emit_push_reg64(text, 14);
+    z_x64_emit_pop_reg64(text, 1);
     elf_append_u8(text, 0x48);
     elf_append_u8(text, 0x39);
     elf_append_u8(text, 0xc8);
@@ -1950,10 +1898,10 @@ static bool elf_emit_args_get_to_local(ZBuf *text, const IrFunction *fun, const 
     elf_append_u8(text, 0x3b);
     elf_append_u8(text, 0x07);
   }
-  size_t in_range = elf_emit_jcc32_placeholder(text, 0x82);
+  size_t in_range = z_x64_emit_jcc32_placeholder(text, 0x82);
   elf_emit_maybe_clear(text, local);
-  size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
-  elf_patch_rel32(text, in_range, text->len);
+  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, in_range, text->len);
 
   if (ctx && ctx->seed_main_process_args) {
     elf_append_u8(text, 0x49);
@@ -1975,7 +1923,7 @@ static bool elf_emit_args_get_to_local(ZBuf *text, const IrFunction *fun, const 
   elf_append_u8(text, 0x58);
   elf_emit_store_local_slot_rax(text, local, 8);
   elf_emit_store_local_slot_reg(text, local, 16, 1, false);
-  elf_patch_rel32(text, end, text->len);
+  z_x64_patch_rel32(text, end, text->len);
   return true;
 }
 
@@ -1991,8 +1939,8 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   elf_append_u8(text, 0xc2);
 
   if (ctx && ctx->seed_main_process_args) {
-    elf_emit_push_reg64(text, 13);
-    elf_emit_pop_reg64(text, 8);
+    z_x64_emit_push_reg64(text, 13);
+    z_x64_emit_pop_reg64(text, 8);
   } else {
     elf_append_u8(text, 0x4d);
     elf_append_u8(text, 0x8b);
@@ -2017,7 +1965,7 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   elf_append_u8(text, 0x48);
   elf_append_u8(text, 0x85);
   elf_append_u8(text, 0xdb);
-  size_t none = elf_emit_jcc32_placeholder(text, 0x84);
+  size_t none = z_x64_emit_jcc32_placeholder(text, 0x84);
   elf_append_u8(text, 0x31);
   elf_append_u8(text, 0xc9);
 
@@ -2025,7 +1973,7 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   elf_append_u8(text, 0x4c);
   elf_append_u8(text, 0x39);
   elf_append_u8(text, 0xd1);
-  size_t key_done = elf_emit_jcc32_placeholder(text, 0x83);
+  size_t key_done = z_x64_emit_jcc32_placeholder(text, 0x83);
   elf_append_u8(text, 0x41);
   elf_append_u8(text, 0x8a);
   elf_append_u8(text, 0x04);
@@ -2033,20 +1981,20 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   elf_append_u8(text, 0x38);
   elf_append_u8(text, 0x04);
   elf_append_u8(text, 0x0b);
-  size_t next = elf_emit_jcc32_placeholder(text, 0x85);
+  size_t next = z_x64_emit_jcc32_placeholder(text, 0x85);
   elf_append_u8(text, 0x48);
   elf_append_u8(text, 0xff);
   elf_append_u8(text, 0xc1);
-  size_t compare_back = elf_emit_jmp32_placeholder(text, 0xe9);
-  elf_patch_rel32(text, compare_back, compare_loop);
+  size_t compare_back = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, compare_back, compare_loop);
 
-  elf_patch_rel32(text, key_done, text->len);
+  z_x64_patch_rel32(text, key_done, text->len);
   elf_append_u8(text, 0x42);
   elf_append_u8(text, 0x80);
   elf_append_u8(text, 0x3c);
   elf_append_u8(text, 0x13);
   elf_append_u8(text, 0x3d);
-  size_t next_after_key = elf_emit_jcc32_placeholder(text, 0x85);
+  size_t next_after_key = z_x64_emit_jcc32_placeholder(text, 0x85);
   elf_append_u8(text, 0x4a);
   elf_append_u8(text, 0x8d);
   elf_append_u8(text, 0x44);
@@ -2060,20 +2008,20 @@ static bool elf_emit_env_get_to_local(ZBuf *text, const IrFunction *fun, const I
   elf_append_u8(text, 0x58);
   elf_emit_store_local_slot_rax(text, local, 8);
   elf_emit_store_local_slot_reg(text, local, 16, 1, false);
-  size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
+  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
 
-  elf_patch_rel32(text, next, text->len);
-  elf_patch_rel32(text, next_after_key, text->len);
+  z_x64_patch_rel32(text, next, text->len);
+  z_x64_patch_rel32(text, next_after_key, text->len);
   elf_append_u8(text, 0x49);
   elf_append_u8(text, 0x83);
   elf_append_u8(text, 0xc0);
   elf_append_u8(text, 0x08);
-  size_t loop_back = elf_emit_jmp32_placeholder(text, 0xe9);
-  elf_patch_rel32(text, loop_back, env_loop);
+  size_t loop_back = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, loop_back, env_loop);
 
-  elf_patch_rel32(text, none, text->len);
+  z_x64_patch_rel32(text, none, text->len);
   elf_emit_maybe_clear(text, local);
-  elf_patch_rel32(text, end, text->len);
+  z_x64_patch_rel32(text, end, text->len);
   return true;
 }
 
@@ -2125,7 +2073,7 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
     elf_append_u8(text, 0x48);
     elf_append_u8(text, 0x39);
     elf_append_u8(text, 0xc1);
-    size_t size_ok = elf_emit_jcc32_placeholder(text, 0x83);
+    size_t size_ok = z_x64_emit_jcc32_placeholder(text, 0x83);
     elf_append_u8(text, 0x58);
     elf_emit_close_rax_fd(text);
     elf_emit_packed_error_rax(text, IR_ERROR_TOO_LARGE);
@@ -2134,7 +2082,7 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
       elf_append_u32(text, 1);
     }
     elf_emit_epilogue(text, fun, ctx);
-    elf_patch_rel32(text, size_ok, text->len);
+    z_x64_patch_rel32(text, size_ok, text->len);
   }
   elf_append_u8(text, 0x58);
 
@@ -2152,10 +2100,10 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
     if (!elf_emit_value(text, fun, value->right, ctx, diag)) return false;
     elf_append_u8(text, 0x39);
     elf_append_u8(text, 0xc2);
-    size_t keep_capacity = elf_emit_jcc32_placeholder(text, 0x86);
+    size_t keep_capacity = z_x64_emit_jcc32_placeholder(text, 0x86);
     elf_append_u8(text, 0x89);
     elf_append_u8(text, 0xc2);
-    elf_patch_rel32(text, keep_capacity, text->len);
+    z_x64_patch_rel32(text, keep_capacity, text->len);
   }
   elf_append_u8(text, 0x5f);
   elf_append_u8(text, 0x31);
@@ -2192,9 +2140,9 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   elf_append_u8(text, 0x01);
   elf_append_u8(text, 0xc8);
   elf_emit_store_local_slot_reg(text, alloc, 12, 0, false);
-  size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
+  size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
 
-  elf_patch_rel32(text, open_fail, text->len);
+  z_x64_patch_rel32(text, open_fail, text->len);
   elf_emit_packed_error_rax(text, IR_ERROR_NOT_FOUND);
   if (!fun->raises) {
     elf_append_u8(text, 0xb8);
@@ -2202,7 +2150,7 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   }
   elf_emit_epilogue(text, fun, ctx);
 
-  elf_patch_rel32(text, tell_fail, text->len);
+  z_x64_patch_rel32(text, tell_fail, text->len);
   elf_append_u8(text, 0x58);
   elf_emit_close_rax_fd(text);
   elf_emit_packed_error_rax(text, IR_ERROR_IO);
@@ -2212,14 +2160,14 @@ static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fu
   }
   elf_emit_epilogue(text, fun, ctx);
 
-  elf_patch_rel32(text, read_fail, text->len);
+  z_x64_patch_rel32(text, read_fail, text->len);
   elf_emit_packed_error_rax(text, IR_ERROR_IO);
   if (!fun->raises) {
     elf_append_u8(text, 0xb8);
     elf_append_u32(text, 1);
   }
   elf_emit_epilogue(text, fun, ctx);
-  elf_patch_rel32(text, end, text->len);
+  z_x64_patch_rel32(text, end, text->len);
   return true;
 }
 
@@ -2358,11 +2306,11 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
         elf_append_u8(text, 0x58);
         elf_emit_store_local_slot_reg(text, local, 16, 0, false);
         elf_emit_store_local_slot_reg(text, alloc, 12, 0, false);
-        size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
-        elf_patch_rel32(text, open_fail, text->len);
-        elf_patch_rel32(text, read_fail, text->len);
+        size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+        z_x64_patch_rel32(text, open_fail, text->len);
+        z_x64_patch_rel32(text, read_fail, text->len);
         elf_emit_maybe_clear(text, local);
-        elf_patch_rel32(text, end, text->len);
+        z_x64_patch_rel32(text, end, text->len);
         return true;
       }
       if (!instr->value || instr->value->kind != IR_VALUE_ALLOC_BYTES || instr->value->local_index >= fun->local_len || fun->locals[instr->value->local_index].type != IR_TYPE_ALLOC) return elf_diag(diag, "direct ELF64 allocation source is invalid", instr->line, instr->column, "invalid allocation");
@@ -2414,16 +2362,16 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
         elf_emit_load_local_slot_reg(text, alloc, 8, 2, false);
         elf_append_u8(text, 0x39);
         elf_append_u8(text, 0xd1);
-        size_t overflow = elf_emit_jcc32_placeholder(text, 0x87);
+        size_t overflow = z_x64_emit_jcc32_placeholder(text, 0x87);
         elf_append_u8(text, 0x58);
         elf_emit_maybe_scalar_store_rax(text, local);
         elf_emit_store_local_slot_reg(text, alloc, 12, 1, false);
-        size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
-        elf_patch_rel32(text, overflow, text->len);
+        size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+        z_x64_patch_rel32(text, overflow, text->len);
         elf_append_u8(text, 0x58);
-        elf_patch_rel32(text, fail, text->len);
+        z_x64_patch_rel32(text, fail, text->len);
         elf_emit_maybe_scalar_clear(text, local);
-        elf_patch_rel32(text, end, text->len);
+        z_x64_patch_rel32(text, end, text->len);
         return true;
       }
       if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
@@ -2432,10 +2380,10 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
       elf_append_u8(text, 0xc0);
       size_t fail = elf_emit_js_placeholder(text);
       elf_emit_maybe_scalar_store_rax(text, local);
-      size_t end = elf_emit_jmp32_placeholder(text, 0xe9);
-      elf_patch_rel32(text, fail, text->len);
+      size_t end = z_x64_emit_jmp32_placeholder(text, 0xe9);
+      z_x64_patch_rel32(text, fail, text->len);
       elf_emit_maybe_scalar_clear(text, local);
-      elf_patch_rel32(text, end, text->len);
+      z_x64_patch_rel32(text, end, text->len);
       return true;
     }
     if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
@@ -2497,15 +2445,15 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
     if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
     elf_append_u8(text, 0x85);
     elf_append_u8(text, 0xc0);
-    size_t false_patch = elf_emit_jcc32_placeholder(text, 0x84);
+    size_t false_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
     if (!elf_emit_instrs(text, fun, instr->then_instrs, instr->then_len, ctx, diag)) return false;
     if (instr->else_len > 0) {
-      size_t end_patch = elf_emit_jmp32_placeholder(text, 0xe9);
-      elf_patch_rel32(text, false_patch, text->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+      z_x64_patch_rel32(text, false_patch, text->len);
       if (!elf_emit_instrs(text, fun, instr->else_instrs, instr->else_len, ctx, diag)) return false;
-      elf_patch_rel32(text, end_patch, text->len);
+      z_x64_patch_rel32(text, end_patch, text->len);
     } else {
-      elf_patch_rel32(text, false_patch, text->len);
+      z_x64_patch_rel32(text, false_patch, text->len);
     }
     return true;
   }
@@ -2514,11 +2462,11 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
     if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
     elf_append_u8(text, 0x85);
     elf_append_u8(text, 0xc0);
-    size_t exit_patch = elf_emit_jcc32_placeholder(text, 0x84);
+    size_t exit_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
     if (!elf_emit_instrs(text, fun, instr->then_instrs, instr->then_len, ctx, diag)) return false;
-    size_t back_patch = elf_emit_jmp32_placeholder(text, 0xe9);
-    elf_patch_rel32(text, back_patch, loop_start);
-    elf_patch_rel32(text, exit_patch, text->len);
+    size_t back_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, back_patch, loop_start);
+    z_x64_patch_rel32(text, exit_patch, text->len);
     return true;
   }
   return elf_diag(diag, "direct ELF64 instruction kind is unsupported", instr->line, instr->column, "unsupported instruction");
@@ -2554,42 +2502,27 @@ static bool elf_emit_function_text(ZBuf *text, const IrFunction *fun, ElfEmitCon
     }
   }
   if (seed_process_args) {
-    elf_emit_rbp_disp_reg(text, 0x89, 13, base_stack_size + 8, true);
-    elf_emit_rbp_disp_reg(text, 0x89, 14, base_stack_size + 16, true);
-    elf_emit_rbp_disp_reg(text, 0x89, 15, base_stack_size + 24, true);
-    elf_emit_push_reg64(text, 7);
-    elf_emit_pop_reg64(text, 14);
-    elf_emit_push_reg64(text, 6);
-    elf_emit_pop_reg64(text, 15);
-    elf_emit_push_reg64(text, 2);
-    elf_emit_pop_reg64(text, 13);
+    z_x64_emit_rbp_disp_reg(text, 0x89, 13, base_stack_size + 8, true);
+    z_x64_emit_rbp_disp_reg(text, 0x89, 14, base_stack_size + 16, true);
+    z_x64_emit_rbp_disp_reg(text, 0x89, 15, base_stack_size + 24, true);
+    z_x64_emit_push_reg64(text, 7);
+    z_x64_emit_pop_reg64(text, 14);
+    z_x64_emit_push_reg64(text, 6);
+    z_x64_emit_pop_reg64(text, 15);
+    z_x64_emit_push_reg64(text, 2);
+    z_x64_emit_pop_reg64(text, 13);
   }
   for (size_t i = 0; i < fun->param_count; i++) {
     if (i < 6) {
       elf_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
     } else {
-      elf_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(i - 6u) * 8u, false);
+      z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(i - 6u) * 8u, false);
       elf_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
     }
   }
   if (!elf_emit_instrs(text, fun, fun->instrs, fun->instr_len, ctx, diag)) return false;
   if (fun->instr_len == 0 || fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN) elf_emit_epilogue(text, fun, ctx);
   return true;
-}
-
-static void elf_append_symbol(ZBuf *symtab, uint32_t name, unsigned char info, uint16_t shndx, uint64_t value, uint64_t size) {
-  elf_append_u32(symtab, name);
-  elf_append_u8(symtab, info);
-  elf_append_u8(symtab, 0);
-  elf_append_u16(symtab, shndx);
-  elf_append_u64(symtab, value);
-  elf_append_u64(symtab, size);
-}
-
-static void elf_append_rela(ZBuf *rela, uint64_t offset, uint32_t sym, uint32_t type, int64_t addend) {
-  elf_append_u64(rela, offset);
-  elf_append_u64(rela, ((uint64_t)sym << 32) | type);
-  elf_append_u64(rela, (uint64_t)addend);
 }
 
 static unsigned elf_rodata_base_offset(const IrProgram *ir) {
@@ -2609,19 +2542,6 @@ static void elf_append_rodata(ZBuf *rodata, const IrProgram *ir, unsigned base_o
   }
 }
 
-static void elf_append_section_header(ZBuf *out, uint32_t name, uint32_t type, uint64_t flags, uint64_t offset, uint64_t size, uint32_t link, uint32_t info, uint64_t align, uint64_t entsize) {
-  elf_append_u32(out, name);
-  elf_append_u32(out, type);
-  elf_append_u64(out, flags);
-  elf_append_u64(out, 0);
-  elf_append_u64(out, offset);
-  elf_append_u64(out, size);
-  elf_append_u32(out, link);
-  elf_append_u32(out, info);
-  elf_append_u64(out, align);
-  elf_append_u64(out, entsize);
-}
-
 bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   if (!ir) return elf_diag(diag, "direct ELF64 object backend requires MIR", 1, 1, "missing MIR");
   if (!ir->mir_valid) return elf_ir_diag(diag, ir);
@@ -2638,20 +2558,18 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   ZBuf rela_text;
   ZBuf strtab;
   ZBuf symtab;
-  ZBuf shstrtab;
   zbuf_init(&text);
   zbuf_init(&rodata);
   zbuf_init(&rela_text);
   zbuf_init(&strtab);
   zbuf_init(&symtab);
-  zbuf_init(&shstrtab);
   elf_append_u8(&strtab, 0);
   elf_append_zeros(&symtab, 24);
   bool has_rodata = ir->readonly_data_bytes > 0 || ir->data_segment_len > 0;
   unsigned rodata_base_offset = elf_rodata_base_offset(ir);
   if (has_rodata) {
     elf_append_rodata(&rodata, ir, rodata_base_offset);
-    elf_append_symbol(&symtab, 0, 0x03, 2, 0, 0);
+    z_elf_append_symbol(&symtab, 0, 0x03, 2, 0, 0);
   }
 
   size_t *function_offsets = z_checked_calloc(ir->function_len, sizeof(size_t));
@@ -2666,7 +2584,6 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
     zbuf_free(&rela_text);
     zbuf_free(&strtab);
     zbuf_free(&symtab);
-    zbuf_free(&shstrtab);
     return elf_diag(diag, "direct ELF64 object backend ran out of memory", 1, 1, "allocation failed");
   }
   ElfEmitContext ctx = {
@@ -2685,27 +2602,12 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
       free(function_offsets);
       free(function_sizes);
       free(symbol_names);
-      free(ctx.call_patches);
-      free(ctx.rodata_patches);
-      free(ctx.runtime_json_parse_bytes_patches);
-      free(ctx.runtime_http_fetch_patches);
-      free(ctx.runtime_http_result_ok_patches);
-      free(ctx.runtime_http_result_status_patches);
-      free(ctx.runtime_http_result_body_len_patches);
-      free(ctx.runtime_http_result_error_patches);
-      free(ctx.runtime_http_response_len_patches);
-      free(ctx.runtime_http_response_headers_len_patches);
-      free(ctx.runtime_http_response_body_offset_patches);
-      free(ctx.runtime_http_header_value_patches);
-      free(ctx.runtime_http_header_found_patches);
-      free(ctx.runtime_http_header_offset_patches);
-      free(ctx.runtime_http_header_len_patches);
+      elf_emit_context_free(&ctx);
       zbuf_free(&text);
       zbuf_free(&rodata);
       zbuf_free(&rela_text);
       zbuf_free(&strtab);
       zbuf_free(&symtab);
-      zbuf_free(&shstrtab);
       return false;
     }
     function_sizes[i] = text.len - function_offsets[i];
@@ -2806,7 +2708,7 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   }
   elf_patch_call_patches(&text, &ctx);
   for (size_t i = 0; i < ctx.rodata_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.rodata_patches[i].patch_offset, 1, 1, ctx.rodata_patches[i].data_offset - ctx.rodata_base_offset);
+    z_elf_append_rela(&rela_text, ctx.rodata_patches[i].patch_offset, 1, 1, ctx.rodata_patches[i].data_offset - ctx.rodata_base_offset);
   }
   const uint32_t function_symbol_base = has_rodata ? 2u : 1u;
   uint32_t next_runtime_symbol = function_symbol_base + (uint32_t)ir->function_len;
@@ -2837,194 +2739,109 @@ bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   if (has_runtime_http_header_offset) runtime_http_header_offset_symbol = next_runtime_symbol++;
   if (has_runtime_http_header_len) runtime_http_header_len_symbol = next_runtime_symbol++;
   for (size_t i = 0; i < ctx.runtime_json_parse_bytes_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_json_parse_bytes_patches[i].patch_offset, runtime_json_parse_bytes_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_json_parse_bytes_patches[i].patch_offset, runtime_json_parse_bytes_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_fetch_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_fetch_patches[i].patch_offset, runtime_http_fetch_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_fetch_patches[i].patch_offset, runtime_http_fetch_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_result_ok_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_result_ok_patches[i].patch_offset, runtime_http_result_ok_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_result_ok_patches[i].patch_offset, runtime_http_result_ok_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_result_status_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_result_status_patches[i].patch_offset, runtime_http_result_status_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_result_status_patches[i].patch_offset, runtime_http_result_status_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_result_body_len_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_result_body_len_patches[i].patch_offset, runtime_http_result_body_len_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_result_body_len_patches[i].patch_offset, runtime_http_result_body_len_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_result_error_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_result_error_patches[i].patch_offset, runtime_http_result_error_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_result_error_patches[i].patch_offset, runtime_http_result_error_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_response_len_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_response_len_patches[i].patch_offset, runtime_http_response_len_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_response_len_patches[i].patch_offset, runtime_http_response_len_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_response_headers_len_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_response_headers_len_patches[i].patch_offset, runtime_http_response_headers_len_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_response_headers_len_patches[i].patch_offset, runtime_http_response_headers_len_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_response_body_offset_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_response_body_offset_patches[i].patch_offset, runtime_http_response_body_offset_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_response_body_offset_patches[i].patch_offset, runtime_http_response_body_offset_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_header_value_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_header_value_patches[i].patch_offset, runtime_http_header_value_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_header_value_patches[i].patch_offset, runtime_http_header_value_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_header_found_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_header_found_patches[i].patch_offset, runtime_http_header_found_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_header_found_patches[i].patch_offset, runtime_http_header_found_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_header_offset_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_header_offset_patches[i].patch_offset, runtime_http_header_offset_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_header_offset_patches[i].patch_offset, runtime_http_header_offset_symbol, 4, -4);
   }
   for (size_t i = 0; i < ctx.runtime_http_header_len_patch_len; i++) {
-    elf_append_rela(&rela_text, ctx.runtime_http_header_len_patches[i].patch_offset, runtime_http_header_len_symbol, 4, -4);
+    z_elf_append_rela(&rela_text, ctx.runtime_http_header_len_patches[i].patch_offset, runtime_http_header_len_symbol, 4, -4);
   }
 
   for (size_t i = 0; i < ir->function_len; i++) {
-    elf_append_symbol(&symtab, symbol_names[i], ir->functions[i].is_exported ? 0x12 : 0x02, 1, function_offsets[i], function_sizes[i]);
+    z_elf_append_symbol(&symtab, symbol_names[i], ir->functions[i].is_exported ? 0x12 : 0x02, 1, function_offsets[i], function_sizes[i]);
   }
   if (has_runtime_json_parse_bytes) {
-    elf_append_symbol(&symtab, runtime_json_parse_bytes_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_json_parse_bytes_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_fetch) {
-    elf_append_symbol(&symtab, runtime_http_fetch_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_fetch_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_result_ok) {
-    elf_append_symbol(&symtab, runtime_http_result_ok_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_result_ok_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_result_status) {
-    elf_append_symbol(&symtab, runtime_http_result_status_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_result_status_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_result_body_len) {
-    elf_append_symbol(&symtab, runtime_http_result_body_len_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_result_body_len_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_result_error) {
-    elf_append_symbol(&symtab, runtime_http_result_error_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_result_error_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_response_len) {
-    elf_append_symbol(&symtab, runtime_http_response_len_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_response_len_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_response_headers_len) {
-    elf_append_symbol(&symtab, runtime_http_response_headers_len_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_response_headers_len_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_response_body_offset) {
-    elf_append_symbol(&symtab, runtime_http_response_body_offset_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_response_body_offset_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_header_value) {
-    elf_append_symbol(&symtab, runtime_http_header_value_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_header_value_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_header_found) {
-    elf_append_symbol(&symtab, runtime_http_header_found_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_header_found_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_header_offset) {
-    elf_append_symbol(&symtab, runtime_http_header_offset_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_header_offset_name, 0x12, 0, 0, 0);
   }
   if (has_runtime_http_header_len) {
-    elf_append_symbol(&symtab, runtime_http_header_len_name, 0x12, 0, 0, 0);
+    z_elf_append_symbol(&symtab, runtime_http_header_len_name, 0x12, 0, 0, 0);
   }
-
-  elf_append_u8(&shstrtab, 0);
-  uint32_t sh_name_text = (uint32_t)shstrtab.len;
-  zbuf_append(&shstrtab, ".text");
-  elf_append_u8(&shstrtab, 0);
-  uint32_t sh_name_rodata = 0;
-  uint32_t sh_name_rela_text = 0;
-  if (has_rodata) {
-    sh_name_rodata = (uint32_t)shstrtab.len;
-    zbuf_append(&shstrtab, ".rodata");
-    elf_append_u8(&shstrtab, 0);
-  }
-  if (rela_text.len > 0) {
-    sh_name_rela_text = (uint32_t)shstrtab.len;
-    zbuf_append(&shstrtab, ".rela.text");
-    elf_append_u8(&shstrtab, 0);
-  }
-  uint32_t sh_name_symtab = (uint32_t)shstrtab.len;
-  zbuf_append(&shstrtab, ".symtab");
-  elf_append_u8(&shstrtab, 0);
-  uint32_t sh_name_strtab = (uint32_t)shstrtab.len;
-  zbuf_append(&shstrtab, ".strtab");
-  elf_append_u8(&shstrtab, 0);
-  uint32_t sh_name_shstrtab = (uint32_t)shstrtab.len;
-  zbuf_append(&shstrtab, ".shstrtab");
-  elf_append_u8(&shstrtab, 0);
-
-  const size_t ehdr_size = 64;
-  const size_t shnum = 5 + (has_rodata ? 1 : 0) + (rela_text.len > 0 ? 1 : 0);
-  const uint16_t symtab_shndx = (uint16_t)(2 + (has_rodata ? 1 : 0) + (rela_text.len > 0 ? 1 : 0));
-  const uint16_t strtab_shndx = (uint16_t)(symtab_shndx + 1);
-  const uint16_t shstrtab_shndx = (uint16_t)(strtab_shndx + 1);
-  size_t text_offset = elf_align(ehdr_size, 16);
-  size_t rodata_offset = has_rodata ? elf_align(text_offset + text.len, 8) : 0;
-  size_t rela_text_offset = rela_text.len > 0 ? elf_align((has_rodata ? rodata_offset + rodata.len : text_offset + text.len), 8) : 0;
-  size_t symtab_offset = elf_align((rela_text.len > 0 ? rela_text_offset + rela_text.len : (has_rodata ? rodata_offset + rodata.len : text_offset + text.len)), 8);
-  size_t strtab_offset = symtab_offset + symtab.len;
-  size_t shstrtab_offset = strtab_offset + strtab.len;
-  size_t shoff = elf_align(shstrtab_offset + shstrtab.len, 8);
-
-  zbuf_init(out);
-  const unsigned char ident[] = {0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  elf_append_bytes(out, ident, sizeof(ident));
-  elf_append_u16(out, 1);
-  elf_append_u16(out, 62);
-  elf_append_u32(out, 1);
-  elf_append_u64(out, 0);
-  elf_append_u64(out, 0);
-  elf_append_u64(out, shoff);
-  elf_append_u32(out, 0);
-  elf_append_u16(out, 64);
-  elf_append_u16(out, 0);
-  elf_append_u16(out, 0);
-  elf_append_u16(out, 64);
-  elf_append_u16(out, (uint16_t)shnum);
-  elf_append_u16(out, shstrtab_shndx);
-
-  elf_pad_to(out, text_offset);
-  elf_append_bytes(out, (const unsigned char *)text.data, text.len);
-  if (has_rodata) {
-    elf_pad_to(out, rodata_offset);
-    elf_append_bytes(out, (const unsigned char *)rodata.data, rodata.len);
-  }
-  if (rela_text.len > 0) {
-    elf_pad_to(out, rela_text_offset);
-    elf_append_bytes(out, (const unsigned char *)rela_text.data, rela_text.len);
-  }
-  elf_pad_to(out, symtab_offset);
-  elf_append_bytes(out, (const unsigned char *)symtab.data, symtab.len);
-  elf_pad_to(out, strtab_offset);
-  elf_append_bytes(out, (const unsigned char *)strtab.data, strtab.len);
-  elf_pad_to(out, shstrtab_offset);
-  elf_append_bytes(out, (const unsigned char *)shstrtab.data, shstrtab.len);
-  elf_pad_to(out, shoff);
-
-  elf_append_section_header(out, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-  elf_append_section_header(out, sh_name_text, 1, 0x6, text_offset, text.len, 0, 0, 16, 0);
-  if (has_rodata) elf_append_section_header(out, sh_name_rodata, 1, 0x2, rodata_offset, rodata.len, 0, 0, 8, 0);
-  if (rela_text.len > 0) elf_append_section_header(out, sh_name_rela_text, 4, 0, rela_text_offset, rela_text.len, symtab_shndx, 1, 8, 24);
-  elf_append_section_header(out, sh_name_symtab, 2, 0, symtab_offset, symtab.len, strtab_shndx, has_rodata ? 2 : 1, 8, 24);
-  elf_append_section_header(out, sh_name_strtab, 3, 0, strtab_offset, strtab.len, 0, 0, 1, 0);
-  elf_append_section_header(out, sh_name_shstrtab, 3, 0, shstrtab_offset, shstrtab.len, 0, 0, 1, 0);
+  ZElfObjectImage image = {
+    .machine = Z_ELF_MACHINE_X86_64,
+    .text = &text,
+    .text_align = 16,
+    .rodata = has_rodata ? &rodata : NULL,
+    .rodata_align = 8,
+    .rela_text = rela_text.len > 0 ? &rela_text : NULL,
+    .symtab = &symtab,
+    .strtab = &strtab,
+    .local_symbol_count = has_rodata ? 2 : 1
+  };
+  z_elf_write_object64(out, &image);
 
   free(function_offsets);
   free(function_sizes);
   free(symbol_names);
-  free(ctx.call_patches);
-  free(ctx.rodata_patches);
-  free(ctx.runtime_json_parse_bytes_patches);
-  free(ctx.runtime_http_fetch_patches);
-  free(ctx.runtime_http_result_ok_patches);
-  free(ctx.runtime_http_result_status_patches);
-  free(ctx.runtime_http_result_body_len_patches);
-  free(ctx.runtime_http_result_error_patches);
-  free(ctx.runtime_http_response_len_patches);
-  free(ctx.runtime_http_response_headers_len_patches);
-  free(ctx.runtime_http_response_body_offset_patches);
-  free(ctx.runtime_http_header_value_patches);
-  free(ctx.runtime_http_header_found_patches);
-  free(ctx.runtime_http_header_offset_patches);
-  free(ctx.runtime_http_header_len_patches);
+  elf_emit_context_free(&ctx);
   zbuf_free(&text);
   zbuf_free(&rodata);
   zbuf_free(&rela_text);
   zbuf_free(&strtab);
   zbuf_free(&symtab);
-  zbuf_free(&shstrtab);
   return true;
 }
 
@@ -3062,7 +2879,7 @@ static size_t elf_emit_start_stub(ZBuf *text) {
   elf_append_u8(text, 0x49);
   elf_append_u8(text, 0x89);
   elf_append_u8(text, 0xe7);
-  size_t patch = elf_emit_jmp32_placeholder(text, 0xe8);
+  size_t patch = z_x64_emit_jmp32_placeholder(text, 0xe8);
   elf_append_u8(text, 0x48);
   elf_append_u8(text, 0x89);
   elf_append_u8(text, 0xc1);
@@ -3072,14 +2889,14 @@ static size_t elf_emit_start_stub(ZBuf *text) {
   elf_append_u8(text, 32);
   elf_append_u8(text, 0x85);
   elf_append_u8(text, 0xc9);
-  size_t success_patch = elf_emit_jcc32_placeholder(text, 0x84);
+  size_t success_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
   elf_append_u8(text, 0xbf);
   elf_append_u32(text, 1);
-  size_t exit_patch = elf_emit_jmp32_placeholder(text, 0xe9);
-  elf_patch_rel32(text, success_patch, text->len);
+  size_t exit_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+  z_x64_patch_rel32(text, success_patch, text->len);
   elf_append_u8(text, 0x89);
   elf_append_u8(text, 0xc7);
-  elf_patch_rel32(text, exit_patch, text->len);
+  z_x64_patch_rel32(text, exit_patch, text->len);
   elf_append_u8(text, 0xb8);
   elf_append_u32(text, 60);
   elf_append_u8(text, 0x0f);
@@ -3102,7 +2919,6 @@ bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   const size_t phdr_size = 56;
   const size_t text_offset = ehdr_size + phdr_size;
   const uint64_t entry_addr = base_addr + text_offset;
-  (void)entry_addr;
 
   ZBuf text;
   ZBuf rodata;
@@ -3132,21 +2948,7 @@ bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
     function_offsets[i] = text.len;
     if (!elf_emit_function_text(&text, &ir->functions[i], &ctx, diag)) {
       free(function_offsets);
-      free(ctx.call_patches);
-      free(ctx.rodata_patches);
-      free(ctx.runtime_json_parse_bytes_patches);
-      free(ctx.runtime_http_fetch_patches);
-      free(ctx.runtime_http_result_ok_patches);
-      free(ctx.runtime_http_result_status_patches);
-      free(ctx.runtime_http_result_body_len_patches);
-      free(ctx.runtime_http_result_error_patches);
-      free(ctx.runtime_http_response_len_patches);
-      free(ctx.runtime_http_response_headers_len_patches);
-      free(ctx.runtime_http_response_body_offset_patches);
-      free(ctx.runtime_http_header_value_patches);
-      free(ctx.runtime_http_header_found_patches);
-      free(ctx.runtime_http_header_offset_patches);
-      free(ctx.runtime_http_header_len_patches);
+      elf_emit_context_free(&ctx);
       zbuf_free(&text);
       zbuf_free(&rodata);
       return false;
@@ -3166,81 +2968,30 @@ bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
       ctx.runtime_http_header_offset_patch_len > 0 ||
       ctx.runtime_http_header_len_patch_len > 0) {
     free(function_offsets);
-    free(ctx.call_patches);
-    free(ctx.rodata_patches);
-    free(ctx.runtime_json_parse_bytes_patches);
-    free(ctx.runtime_http_fetch_patches);
-    free(ctx.runtime_http_result_ok_patches);
-    free(ctx.runtime_http_result_status_patches);
-    free(ctx.runtime_http_result_body_len_patches);
-    free(ctx.runtime_http_result_error_patches);
-    free(ctx.runtime_http_response_len_patches);
-    free(ctx.runtime_http_response_headers_len_patches);
-    free(ctx.runtime_http_response_body_offset_patches);
-    free(ctx.runtime_http_header_value_patches);
-    free(ctx.runtime_http_header_found_patches);
-    free(ctx.runtime_http_header_offset_patches);
-    free(ctx.runtime_http_header_len_patches);
+    elf_emit_context_free(&ctx);
     zbuf_free(&text);
     zbuf_free(&rodata);
     return elf_diag(diag, "direct ELF64 executable runtime helpers require object emission and an explicit runtime link step", 1, 1, "use --emit obj and link zero_runtime.c");
   }
-  elf_patch_rel32(&text, start_call_patch, function_offsets[main_index]);
+  z_x64_patch_rel32(&text, start_call_patch, function_offsets[main_index]);
   elf_patch_call_patches(&text, &ctx);
 
-  size_t rodata_offset = has_rodata ? elf_align(text_offset + text.len, 8) : 0;
+  size_t rodata_offset = has_rodata ? z_elf_align(text_offset + text.len, 8) : 0;
   ctx.rodata_addr = has_rodata ? base_addr + rodata_offset : 0;
   elf_patch_rodata_patches(&text, &ctx);
-  uint64_t file_size = has_rodata ? rodata_offset + rodata.len : text_offset + text.len;
-
-  zbuf_init(out);
-  const unsigned char ident[] = {0x7f, 'E', 'L', 'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  elf_append_bytes(out, ident, sizeof(ident));
-  elf_append_u16(out, 2);
-  elf_append_u16(out, 62);
-  elf_append_u32(out, 1);
-  elf_append_u64(out, entry_addr);
-  elf_append_u64(out, ehdr_size);
-  elf_append_u64(out, 0);
-  elf_append_u32(out, 0);
-  elf_append_u16(out, 64);
-  elf_append_u16(out, 56);
-  elf_append_u16(out, 1);
-  elf_append_u16(out, 0);
-  elf_append_u16(out, 0);
-  elf_append_u16(out, 0);
-
-  elf_append_u32(out, 1);
-  elf_append_u32(out, 5);
-  elf_append_u64(out, 0);
-  elf_append_u64(out, base_addr);
-  elf_append_u64(out, base_addr);
-  elf_append_u64(out, file_size);
-  elf_append_u64(out, file_size);
-  elf_append_u64(out, 0x1000);
-
-  elf_pad_to(out, text_offset);
-  elf_append_bytes(out, (const unsigned char *)text.data, text.len);
-  if (has_rodata) {
-    elf_pad_to(out, rodata_offset);
-    elf_append_bytes(out, (const unsigned char *)rodata.data, rodata.len);
-  }
+  ZElfExecutableImage image = {
+    .machine = Z_ELF_MACHINE_X86_64,
+    .base_addr = base_addr,
+    .entry_addr = entry_addr,
+    .text_offset = text_offset,
+    .text = &text,
+    .rodata = has_rodata ? &rodata : NULL,
+    .rodata_offset = rodata_offset,
+    .segment_align = 0x1000
+  };
+  z_elf_write_executable64(out, &image);
   free(function_offsets);
-  free(ctx.call_patches);
-  free(ctx.rodata_patches);
-  free(ctx.runtime_json_parse_bytes_patches);
-  free(ctx.runtime_http_fetch_patches);
-  free(ctx.runtime_http_result_ok_patches);
-  free(ctx.runtime_http_result_status_patches);
-  free(ctx.runtime_http_result_body_len_patches);
-  free(ctx.runtime_http_result_error_patches);
-  free(ctx.runtime_http_response_len_patches);
-  free(ctx.runtime_http_response_headers_len_patches);
-  free(ctx.runtime_http_response_body_offset_patches);
-  free(ctx.runtime_http_header_value_patches);
-  free(ctx.runtime_http_header_found_patches);
-  free(ctx.runtime_http_header_offset_patches);
-  free(ctx.runtime_http_header_len_patches);
+  elf_emit_context_free(&ctx);
   zbuf_free(&text);
   zbuf_free(&rodata);
   return true;

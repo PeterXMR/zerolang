@@ -24,10 +24,14 @@ const fileBudgets = {
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
   "native/zero-c/src/call_resolve.c": { maxLines: 200, maxStrcmpCalls: 2 },
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
+  "native/zero-c/src/coff_format.c": { maxLines: 370, maxStrcmpCalls: 0 },
+  "native/zero-c/src/coff_format.h": { maxLines: 100, maxStrcmpCalls: 0 },
+  "native/zero-c/src/elf_format.c": { maxLines: 220, maxStrcmpCalls: 0 },
+  "native/zero-c/src/elf_format.h": { maxLines: 60, maxStrcmpCalls: 0 },
   "native/zero-c/src/emit_macho64.c": { maxLines: 2600, maxStrcmpCalls: 2 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 3300, maxStrcmpCalls: 3 },
-  "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 400, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 1500, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 3000, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 250, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 1150, maxStrcmpCalls: 1 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -40,6 +44,8 @@ const fileBudgets = {
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 125, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.h": { maxLines: 30, maxStrcmpCalls: 0 },
 };
 
 const knownLargeFunctionLimits = new Map([
@@ -48,7 +54,7 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/emit_elf64.c|static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {", 1085],
   ["native/zero-c/src/main.c|int main(int argc, char **argv) {", 924],
   ["native/zero-c/src/emit_macho64.c|bool z_emit_macho64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 481],
-  ["native/zero-c/src/emit_elf64.c|bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 405],
+  ["native/zero-c/src/emit_elf64.c|bool z_emit_elf64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 302],
   ["native/zero-c/src/main.c|static void append_graph_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 374],
   ["native/zero-c/src/emit_macho64.c|bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 318],
   ["native/zero-c/src/emit_elf64.c|static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {", 300],
@@ -64,13 +70,11 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/ir.c|static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFunction *mir_fun, const Stmt *stmt, IrInstr **out_items, size_t *out_len, size_t *out_cap, bool *saw_return) {", 172],
   ["native/zero-c/src/emit_coff.c|bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {", 171],
   ["native/zero-c/src/emit_coff.c|static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *instr, CoffEmitContext *ctx, ZDiag *diag) {", 165],
-  ["native/zero-c/src/emit_elf64.c|bool z_emit_elf64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 158],
   ["native/zero-c/src/checker.c|static bool expr_reference_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {", 152],
   ["native/zero-c/src/main.c|static int run_tests_direct(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 151],
   ["native/zero-c/src/emit_elf64.c|static bool elf_emit_read_all_or_raise_to_local(ZBuf *text, const IrFunction *fun, const IrInstr *instr, ElfEmitContext *ctx, ZDiag *diag) {", 145],
   ["native/zero-c/src/ast.c|void z_free_program(Program *program) {", 143],
   ["native/zero-c/src/checker.c|static const char *std_call_arg_type(const char *name, size_t index) {", 139],
-  ["native/zero-c/src/emit_elf_aarch64.c|bool z_emit_elf_aarch64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {", 134],
   ["native/zero-c/src/mir_verify.c|static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, MirHelperRequirements *requirements) {", 134],
   ["native/zero-c/src/row_syntax.c|static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t row_index, ZDiag *diag) {", 132],
   ["native/zero-c/src/row_syntax.c|Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *diag) {", 130],
@@ -435,7 +439,7 @@ function knownReturnTypeDivergenceMatches(mismatch) {
     known.checkerReturnType === mismatch.checkerReturnType;
 }
 
-function budgetViolations(files, allLargeFunctions, stdlib) {
+function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
   const violations = [];
   for (const path of Object.keys(files).sort()) {
     if (!fileBudgets[path]) {
@@ -578,6 +582,50 @@ function budgetViolations(files, allLargeFunctions, stdlib) {
       names: staleArgTypeAllowlist,
     });
   }
+  if (!backendFormats.elf.sharedWriter ||
+      !backendFormats.elf.x86ObjectUsesSharedWriter ||
+      !backendFormats.elf.x86ExecutableUsesSharedWriter ||
+      !backendFormats.elf.aarch64ObjectUsesSharedWriter ||
+      !backendFormats.elf.aarch64ExecutableUsesSharedWriter) {
+    violations.push({
+      kind: "elf-format-writer-split",
+      elf: backendFormats.elf,
+    });
+  }
+  if (backendFormats.elf.archFilesWithLocalSectionWriters.length > 0) {
+    violations.push({
+      kind: "elf-section-writer-in-architecture-file",
+      paths: backendFormats.elf.archFilesWithLocalSectionWriters,
+    });
+  }
+  if (!backendFormats.coff.sharedWriter ||
+      !backendFormats.coff.objectUsesSharedWriter ||
+      !backendFormats.coff.executableUsesSharedWriter) {
+    violations.push({
+      kind: "coff-format-writer-split",
+      coff: backendFormats.coff,
+    });
+  }
+  if (backendFormats.coff.archFilesWithLocalContainerWriters.length > 0) {
+    violations.push({
+      kind: "coff-container-writer-in-architecture-file",
+      paths: backendFormats.coff.archFilesWithLocalContainerWriters,
+    });
+  }
+  if (!backendFormats.x64.sharedEncodingPrimitives ||
+      !backendFormats.x64.elfUsesSharedEncodingPrimitives ||
+      !backendFormats.x64.coffUsesSharedEncodingPrimitives) {
+    violations.push({
+      kind: "x64-encoding-primitives-split",
+      x64: backendFormats.x64,
+    });
+  }
+  if (backendFormats.x64.formatFilesWithLocalEncodingPrimitives.length > 0) {
+    violations.push({
+      kind: "x64-encoding-primitive-in-format-file",
+      paths: backendFormats.x64.formatFilesWithLocalEncodingPrimitives,
+    });
+  }
   return violations;
 }
 
@@ -655,13 +703,62 @@ const stdlib = {
     checkerArgCounts: checkerArgCountsUseSharedTable,
   },
 };
-const violations = budgetViolations(files, allLargeFunctions, stdlib);
+const elfFormatSource = texts.get("native/zero-c/src/elf_format.c") ?? "";
+const coffFormatSource = texts.get("native/zero-c/src/coff_format.c") ?? "";
+const x64EmitSource = texts.get("native/zero-c/src/x64_emit.c") ?? "";
+const elfX64Source = cCodeText(texts.get("native/zero-c/src/emit_elf64.c") ?? "");
+const elfAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_elf_aarch64.c") ?? "");
+const coffX64Source = cCodeText(texts.get("native/zero-c/src/emit_coff.c") ?? "");
+const backendFormats = {
+  elf: {
+    sharedWriter: /\bz_elf_write_object64\s*\(/.test(elfFormatSource) && /\bz_elf_write_executable64\s*\(/.test(elfFormatSource),
+    x86ObjectUsesSharedWriter: /\bz_elf_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(elfX64Source),
+    x86ExecutableUsesSharedWriter: /\bz_elf_write_executable64\s*\(\s*out\s*,\s*&image\s*\)/.test(elfX64Source),
+    aarch64ObjectUsesSharedWriter: /\bz_elf_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(elfAarch64Source),
+    aarch64ExecutableUsesSharedWriter: /\bz_elf_write_executable64\s*\(\s*out\s*,\s*&image\s*\)/.test(elfAarch64Source),
+    archFilesWithLocalSectionWriters: [
+      ["native/zero-c/src/emit_elf64.c", elfX64Source],
+      ["native/zero-c/src/emit_elf_aarch64.c", elfAarch64Source],
+    ]
+      .filter(([, text]) => /\bappend_section_header\s*\(/.test(text))
+      .map(([path]) => path),
+  },
+  coff: {
+    sharedWriter: /\bz_coff_write_object\s*\(/.test(coffFormatSource) && /\bz_coff_write_pe64_executable\s*\(/.test(coffFormatSource),
+    objectUsesSharedWriter: /\bz_coff_write_object\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source),
+    executableUsesSharedWriter: /\bz_coff_write_pe64_executable\s*\(\s*out\s*,\s*&image\s*\)/.test(coffX64Source),
+    archFilesWithLocalContainerWriters: [
+      ["native/zero-c/src/emit_coff.c", coffX64Source],
+    ]
+      .filter(([, text]) => /\bappend_coff_name\s*\(|\bcoff_append_import_table\s*\(|\bPE32\+|\bIMAGE_FILE_MACHINE_AMD64/.test(text))
+      .map(([path]) => path),
+  },
+  x64: {
+    sharedEncodingPrimitives: /\bz_x64_emit_rbp_disp_reg\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_patch_rel32\s*\(/.test(x64EmitSource),
+    elfUsesSharedEncodingPrimitives: /\bz_x64_emit_rbp_disp_reg\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(elfX64Source) &&
+      /\bz_x64_patch_rel32\s*\(/.test(elfX64Source),
+    coffUsesSharedEncodingPrimitives: /\bz_x64_emit_rbp_disp_reg\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_jcc32_placeholder\s*\(/.test(coffX64Source) &&
+      /\bz_x64_patch_rel32\s*\(/.test(coffX64Source),
+    formatFilesWithLocalEncodingPrimitives: [
+      ["native/zero-c/src/emit_elf64.c", elfX64Source],
+      ["native/zero-c/src/emit_coff.c", coffX64Source],
+    ]
+      .filter(([, text]) => /\bstatic\s+(?:void|size_t)\s+z_x64_/.test(text))
+      .map(([path]) => path),
+  },
+};
+const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats);
 
 const report = {
   schema: 1,
   files,
   largeFunctions: allLargeFunctions.slice(0, 25),
   stdlib,
+  backendFormats,
   budget: {
     ok: violations.length === 0,
     newLargeFunctionLimit: NEW_LARGE_FUNCTION_LIMIT,

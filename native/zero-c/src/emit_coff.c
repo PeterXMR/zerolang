@@ -1,4 +1,6 @@
 #include "zero.h"
+#include "coff_format.h"
+#include "x64_emit.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -9,11 +11,6 @@ static void append_u8(ZBuf *buf, unsigned value) {
   zbuf_append_char(buf, (char)(value & 0xffu));
 }
 
-static void append_u16le(ZBuf *buf, uint16_t value) {
-  append_u8(buf, value);
-  append_u8(buf, value >> 8);
-}
-
 static void append_u32le(ZBuf *buf, uint32_t value) {
   append_u8(buf, value);
   append_u8(buf, value >> 8);
@@ -21,35 +18,8 @@ static void append_u32le(ZBuf *buf, uint32_t value) {
   append_u8(buf, value >> 24);
 }
 
-static void append_u64le(ZBuf *buf, uint64_t value) {
-  append_u32le(buf, (uint32_t)(value & 0xffffffffu));
-  append_u32le(buf, (uint32_t)(value >> 32));
-}
-
-static void patch_u32le(ZBuf *buf, size_t offset, uint32_t value) {
-  buf->data[offset + 0] = (char)(value & 0xff);
-  buf->data[offset + 1] = (char)((value >> 8) & 0xff);
-  buf->data[offset + 2] = (char)((value >> 16) & 0xff);
-  buf->data[offset + 3] = (char)((value >> 24) & 0xff);
-}
-
-static void patch_u64le(ZBuf *buf, size_t offset, uint64_t value) {
-  for (unsigned i = 0; i < 8; i++) buf->data[offset + i] = (char)((value >> (i * 8)) & 0xffu);
-}
-
 static void append_bytes(ZBuf *buf, const char *bytes, size_t len) {
   for (size_t i = 0; i < len; i++) append_u8(buf, (unsigned char)bytes[i]);
-}
-
-static void append_zeros(ZBuf *buf, size_t len) {
-  for (size_t i = 0; i < len; i++) append_u8(buf, 0);
-}
-
-static void append_coff_name(ZBuf *buf, const char *name) {
-  size_t len = name ? strlen(name) : 0;
-  if (len > 8) len = 8;
-  for (size_t i = 0; i < len; i++) append_u8(buf, (unsigned char)name[i]);
-  for (size_t i = len; i < 8; i++) append_u8(buf, 0);
 }
 
 static bool coff_diag(ZDiag *diag, const char *message) {
@@ -80,27 +50,10 @@ static bool coff_diag_at(ZDiag *diag, const char *message, int line, int column,
   return false;
 }
 
-static void append_symbol_name(ZBuf *buf, const char *name, ZBuf *strings) {
-  size_t len = name ? strlen(name) : 0;
-  if (len <= 8) {
-    append_coff_name(buf, name);
-    return;
-  }
-  append_u32le(buf, 0);
-  append_u32le(buf, (uint32_t)strings->len + 4);
-  zbuf_append(strings, name);
-  append_u8(strings, 0);
-}
-
 typedef struct {
   size_t patch_offset;
   unsigned callee_index;
 } CoffCallPatch;
-
-typedef struct {
-  size_t patch_offset;
-  unsigned data_offset;
-} CoffRodataPatch;
 
 typedef struct {
   size_t patch_offset;
@@ -113,7 +66,7 @@ typedef struct {
   CoffCallPatch *call_patches;
   size_t call_patch_len;
   size_t call_patch_cap;
-  CoffRodataPatch *rodata_patches;
+  ZCoffImageDataPatch *rodata_patches;
   size_t rodata_patch_len;
   size_t rodata_patch_cap;
   CoffWorldWritePatch *world_write_patches;
@@ -121,11 +74,6 @@ typedef struct {
   size_t world_write_patch_cap;
   unsigned rodata_base_offset;
 } CoffEmitContext;
-
-static size_t coff_align(size_t value, size_t alignment) {
-  size_t remainder = alignment ? value % alignment : 0;
-  return remainder == 0 ? value : value + (alignment - remainder);
-}
 
 static bool coff_type_is_scalar32(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
@@ -141,155 +89,65 @@ static unsigned coff_local_slot_offset(const IrFunction *fun, unsigned local_ind
   return offset >= slot_offset ? offset - slot_offset : offset;
 }
 
-static void coff_emit_rbp_disp_reg(ZBuf *text, unsigned opcode, unsigned reg, unsigned offset, bool wide) {
-  if (wide || reg >= 8) {
-    unsigned rex = wide ? 0x48 : 0x40;
-    if (reg >= 8) rex |= 0x04;
-    append_u8(text, rex);
-  }
-  append_u8(text, opcode);
-  unsigned reg_low = reg & 7u;
-  if (offset <= 127) {
-    append_u8(text, 0x40 | (reg_low << 3) | 0x05);
-    append_u8(text, (unsigned char)(-(int)offset));
-  } else {
-    append_u8(text, 0x80 | (reg_low << 3) | 0x05);
-    append_u32le(text, (uint32_t)(-(int32_t)offset));
-  }
-}
-
-static void coff_emit_load_rbp_positive_reg(ZBuf *text, unsigned reg, unsigned offset, bool wide) {
-  if (wide || reg >= 8) {
-    unsigned rex = wide ? 0x48 : 0x40;
-    if (reg >= 8) rex |= 0x04;
-    append_u8(text, rex);
-  }
-  append_u8(text, 0x8b);
-  unsigned reg_low = reg & 7u;
-  if (offset <= 127) {
-    append_u8(text, 0x40 | (reg_low << 3) | 0x05);
-    append_u8(text, (unsigned char)offset);
-  } else {
-    append_u8(text, 0x80 | (reg_low << 3) | 0x05);
-    append_u32le(text, offset);
-  }
-}
-
 static void coff_emit_load_local_eax(ZBuf *text, const IrFunction *fun, unsigned local_index) {
-  coff_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_offset(fun, local_index), false);
+  z_x64_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_offset(fun, local_index), false);
 }
 
 static void coff_emit_load_local_slot_rax(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned slot_offset) {
-  coff_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_slot_offset(fun, local_index, slot_offset), true);
+  z_x64_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_slot_offset(fun, local_index, slot_offset), true);
 }
 
 static void coff_emit_load_local_slot_eax(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned slot_offset) {
-  coff_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_slot_offset(fun, local_index, slot_offset), false);
+  z_x64_emit_rbp_disp_reg(text, 0x8b, 0, coff_local_slot_offset(fun, local_index, slot_offset), false);
 }
 
 static void coff_emit_load_local_slot_reg(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned slot_offset, unsigned reg, bool wide) {
-  coff_emit_rbp_disp_reg(text, 0x8b, reg, coff_local_slot_offset(fun, local_index, slot_offset), wide);
+  z_x64_emit_rbp_disp_reg(text, 0x8b, reg, coff_local_slot_offset(fun, local_index, slot_offset), wide);
 }
 
 static void coff_emit_store_local_from_reg(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned reg) {
-  coff_emit_rbp_disp_reg(text, 0x89, reg, coff_local_offset(fun, local_index), false);
+  z_x64_emit_rbp_disp_reg(text, 0x89, reg, coff_local_offset(fun, local_index), false);
 }
 
 static void coff_emit_store_local_slot_from_reg(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned reg, unsigned slot_offset, bool wide) {
-  coff_emit_rbp_disp_reg(text, 0x89, reg, coff_local_slot_offset(fun, local_index, slot_offset), wide);
+  z_x64_emit_rbp_disp_reg(text, 0x89, reg, coff_local_slot_offset(fun, local_index, slot_offset), wide);
 }
 
 static void coff_emit_load_field_eax(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned field_offset, IrTypeKind type) {
   unsigned offset = coff_local_slot_offset(fun, local_index, field_offset);
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
     append_u8(text, 0x0f);
-    coff_emit_rbp_disp_reg(text, 0xb6, 0, offset, false);
+    z_x64_emit_rbp_disp_reg(text, 0xb6, 0, offset, false);
   } else {
-    coff_emit_rbp_disp_reg(text, 0x8b, 0, offset, false);
+    z_x64_emit_rbp_disp_reg(text, 0x8b, 0, offset, false);
   }
 }
 
 static void coff_emit_store_field_from_eax(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned field_offset, IrTypeKind type) {
   unsigned offset = coff_local_slot_offset(fun, local_index, field_offset);
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) {
-    coff_emit_rbp_disp_reg(text, 0x88, 0, offset, false);
+    z_x64_emit_rbp_disp_reg(text, 0x88, 0, offset, false);
   } else {
-    coff_emit_rbp_disp_reg(text, 0x89, 0, offset, false);
+    z_x64_emit_rbp_disp_reg(text, 0x89, 0, offset, false);
   }
 }
 
-static size_t coff_emit_jcc32_placeholder(ZBuf *text, unsigned opcode);
-static void coff_patch_rel32(ZBuf *buf, size_t patch_offset, size_t target_offset);
-
 static void coff_emit_array_base_rdx(ZBuf *text, const IrFunction *fun, unsigned local_index) {
-  coff_emit_rbp_disp_reg(text, 0x8d, 2, coff_local_offset(fun, local_index), true);
+  z_x64_emit_rbp_disp_reg(text, 0x8d, 2, coff_local_offset(fun, local_index), true);
 }
 
 static void coff_emit_u8_array_bounds_check(ZBuf *text, const IrLocal *local) {
   append_u8(text, 0x3d);
   append_u32le(text, local ? local->array_len : 0);
-  size_t ok_patch = coff_emit_jcc32_placeholder(text, 0x82);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
   append_u8(text, 0x0f);
   append_u8(text, 0x0b);
-  coff_patch_rel32(text, ok_patch, text->len);
-}
-
-static void coff_emit_pop_reg64(ZBuf *text, unsigned reg) {
-  if (reg >= 8) append_u8(text, 0x41);
-  append_u8(text, 0x58 + (reg & 7u));
-}
-
-static void coff_emit_sub_rsp(ZBuf *text, unsigned amount) {
-  if (amount == 0) return;
-  append_u8(text, 0x48);
-  if (amount <= 127) {
-    append_u8(text, 0x83);
-    append_u8(text, 0xec);
-    append_u8(text, amount);
-  } else {
-    append_u8(text, 0x81);
-    append_u8(text, 0xec);
-    append_u32le(text, amount);
-  }
-}
-
-static void coff_emit_add_rsp(ZBuf *text, unsigned amount) {
-  if (amount == 0) return;
-  append_u8(text, 0x48);
-  if (amount <= 127) {
-    append_u8(text, 0x83);
-    append_u8(text, 0xc4);
-    append_u8(text, amount);
-  } else {
-    append_u8(text, 0x81);
-    append_u8(text, 0xc4);
-    append_u32le(text, amount);
-  }
+  z_x64_patch_rel32(text, ok_patch, text->len);
 }
 
 static void coff_emit_epilogue(ZBuf *text) {
   append_u8(text, 0xc9);
   append_u8(text, 0xc3);
-}
-
-static size_t coff_emit_jmp32_placeholder(ZBuf *text, unsigned opcode) {
-  append_u8(text, opcode);
-  size_t patch = text->len;
-  append_u32le(text, 0);
-  return patch;
-}
-
-static size_t coff_emit_jcc32_placeholder(ZBuf *text, unsigned opcode) {
-  append_u8(text, 0x0f);
-  append_u8(text, opcode);
-  size_t patch = text->len;
-  append_u32le(text, 0);
-  return patch;
-}
-
-static void coff_patch_rel32(ZBuf *text, size_t patch_offset, size_t target_offset) {
-  int64_t rel = (int64_t)target_offset - (int64_t)(patch_offset + 4);
-  patch_u32le(text, patch_offset, (uint32_t)(int32_t)rel);
 }
 
 static unsigned coff_setcc_opcode(IrCompareOp op) {
@@ -320,9 +178,9 @@ static bool coff_record_rodata_patch(CoffEmitContext *ctx, size_t patch_offset, 
   if (!ctx) return coff_diag_at(diag, "direct COFF readonly data relocation requires an emit context", value ? value->line : 1, value ? value->column : 1, "missing context");
   if (ctx->rodata_patch_len == ctx->rodata_patch_cap) {
     ctx->rodata_patch_cap = z_grow_capacity(ctx->rodata_patch_cap, ctx->rodata_patch_len + 1, 8);
-    ctx->rodata_patches = z_checked_reallocarray(ctx->rodata_patches, ctx->rodata_patch_cap, sizeof(CoffRodataPatch));
+    ctx->rodata_patches = z_checked_reallocarray(ctx->rodata_patches, ctx->rodata_patch_cap, sizeof(ZCoffImageDataPatch));
   }
-  ctx->rodata_patches[ctx->rodata_patch_len++] = (CoffRodataPatch){.patch_offset = patch_offset, .data_offset = data_offset};
+  ctx->rodata_patches[ctx->rodata_patch_len++] = (ZCoffImageDataPatch){.patch_offset = patch_offset, .data_offset = data_offset};
   return true;
 }
 
@@ -443,7 +301,7 @@ static bool coff_emit_byte_view_ptr(ZBuf *text, const IrFunction *fun, const IrV
   if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && view->array_index < fun->local_len) {
     const IrLocal *local = &fun->locals[view->array_index];
     if (!local->is_array || local->element_type != IR_TYPE_U8) return coff_diag_at(diag, "direct COFF byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
-    coff_emit_rbp_disp_reg(text, 0x8d, 0, coff_local_offset(fun, view->array_index), true);
+    z_x64_emit_rbp_disp_reg(text, 0x8d, 0, coff_local_offset(fun, view->array_index), true);
     return true;
   }
   if (view->kind == IR_VALUE_STRING_LITERAL) {
@@ -520,13 +378,13 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
         append_u8(text, 0x50);
       }
       for (size_t i = value->arg_len; i > 0; i--) {
-        coff_emit_pop_reg64(text, param_regs[i - 1]);
+        z_x64_emit_pop_reg64(text, param_regs[i - 1]);
       }
-      coff_emit_sub_rsp(text, 32);
+      z_x64_emit_sub_rsp(text, 32);
       append_u8(text, 0xe8);
       size_t patch = text->len;
       append_u32le(text, 0);
-      coff_emit_add_rsp(text, 32);
+      z_x64_emit_add_rsp(text, 32);
       return coff_record_call_patch(ctx, patch, value->callee_index, value, diag);
     }
     case IR_VALUE_VEC_LEN:
@@ -540,11 +398,11 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       coff_emit_load_local_slot_reg(text, fun, value->local_index, 12, 1, false);
       append_u8(text, 0x39);
       append_u8(text, 0xc8);
-      size_t ok_patch = coff_emit_jcc32_placeholder(text, 0x82);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
       append_u8(text, 0xb8);
       append_u32le(text, 0);
-      size_t end_patch = coff_emit_jmp32_placeholder(text, 0xe9);
-      coff_patch_rel32(text, ok_patch, text->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+      z_x64_patch_rel32(text, ok_patch, text->len);
       append_u8(text, 0x50);
       if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
       append_u8(text, 0x59);
@@ -562,7 +420,7 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       coff_emit_store_local_slot_from_reg(text, fun, value->local_index, 0, 8, false);
       append_u8(text, 0xb8);
       append_u32le(text, 1);
-      coff_patch_rel32(text, end_patch, text->len);
+      z_x64_patch_rel32(text, end_patch, text->len);
       return true;
     }
     case IR_VALUE_MAYBE_HAS:
@@ -588,10 +446,10 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       append_u8(text, 0x58);
       append_u8(text, 0x39);
       append_u8(text, 0xc8);
-      size_t ok_patch = coff_emit_jcc32_placeholder(text, 0x82);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x82);
       append_u8(text, 0x0f);
       append_u8(text, 0x0b);
-      coff_patch_rel32(text, ok_patch, text->len);
+      z_x64_patch_rel32(text, ok_patch, text->len);
       append_u8(text, 0x50);
       if (!coff_emit_byte_view_ptr(text, fun, value->left, ctx, diag)) return false;
       append_u8(text, 0x59);
@@ -668,17 +526,17 @@ static bool coff_emit_world_write(ZBuf *text, const IrFunction *fun, const IrIns
   append_u8(text, 0x5a); // pop rdx
   append_u8(text, 0xb9);
   append_u32le(text, instr->field_offset == 2 ? 2u : 1u); // ecx = fd
-  coff_emit_sub_rsp(text, 32);
+  z_x64_emit_sub_rsp(text, 32);
   append_u8(text, 0xe8);
   size_t patch = text->len;
   append_u32le(text, 0);
-  coff_emit_add_rsp(text, 32);
+  z_x64_emit_add_rsp(text, 32);
   append_u8(text, 0x85);
   append_u8(text, 0xc0); // test eax, eax
-  size_t ok_patch = coff_emit_jcc32_placeholder(text, 0x84);
+  size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
   append_u8(text, 0x0f);
   append_u8(text, 0x0b); // ud2 on runtime write failure
-  coff_patch_rel32(text, ok_patch, text->len);
+  z_x64_patch_rel32(text, ok_patch, text->len);
   return coff_record_world_write_patch(ctx, patch, instr, diag);
 }
 
@@ -730,14 +588,14 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       append_u8(text, 0xc8);
       append_u8(text, 0x39);
       append_u8(text, 0xc8);
-      size_t ok_patch = coff_emit_jcc32_placeholder(text, 0x86);
+      size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x86);
       append_u8(text, 0xb8);
       append_u32le(text, 0);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 0, false);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 8, true);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 16, false);
-      size_t end_patch = coff_emit_jmp32_placeholder(text, 0xe9);
-      coff_patch_rel32(text, ok_patch, text->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+      z_x64_patch_rel32(text, ok_patch, text->len);
       append_u8(text, 0xb8);
       append_u32le(text, 1);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 0, false);
@@ -752,7 +610,7 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       append_u8(text, 0x89);
       append_u8(text, 0xc8);
       coff_emit_store_local_slot_from_reg(text, fun, instr->value->local_index, 0, 12, false);
-      coff_patch_rel32(text, end_patch, text->len);
+      z_x64_patch_rel32(text, end_patch, text->len);
       return true;
     }
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
@@ -819,15 +677,15 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     append_u8(text, 0x85);
     append_u8(text, 0xc0);
-    size_t false_patch = coff_emit_jcc32_placeholder(text, 0x84);
+    size_t false_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
     if (!coff_emit_instrs(text, fun, instr->then_instrs, instr->then_len, ctx, diag)) return false;
     if (instr->else_len > 0) {
-      size_t end_patch = coff_emit_jmp32_placeholder(text, 0xe9);
-      coff_patch_rel32(text, false_patch, text->len);
+      size_t end_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+      z_x64_patch_rel32(text, false_patch, text->len);
       if (!coff_emit_instrs(text, fun, instr->else_instrs, instr->else_len, ctx, diag)) return false;
-      coff_patch_rel32(text, end_patch, text->len);
+      z_x64_patch_rel32(text, end_patch, text->len);
     } else {
-      coff_patch_rel32(text, false_patch, text->len);
+      z_x64_patch_rel32(text, false_patch, text->len);
     }
     return true;
   }
@@ -836,11 +694,11 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     append_u8(text, 0x85);
     append_u8(text, 0xc0);
-    size_t false_patch = coff_emit_jcc32_placeholder(text, 0x84);
+    size_t false_patch = z_x64_emit_jcc32_placeholder(text, 0x84);
     if (!coff_emit_instrs(text, fun, instr->then_instrs, instr->then_len, ctx, diag)) return false;
-    size_t loop_patch = coff_emit_jmp32_placeholder(text, 0xe9);
-    coff_patch_rel32(text, loop_patch, loop_start);
-    coff_patch_rel32(text, false_patch, text->len);
+    size_t loop_patch = z_x64_emit_jmp32_placeholder(text, 0xe9);
+    z_x64_patch_rel32(text, loop_patch, loop_start);
+    z_x64_patch_rel32(text, false_patch, text->len);
     return true;
   }
   char actual[64];
@@ -880,17 +738,17 @@ static bool coff_validate_function(const IrFunction *fun, ZDiag *diag) {
 
 static bool coff_emit_function_text(ZBuf *text, const IrFunction *fun, CoffEmitContext *ctx, ZDiag *diag) {
   static const unsigned param_regs[] = {1, 2, 8, 9};
-  unsigned frame_size = (unsigned)coff_align(fun ? fun->frame_bytes : 0, 16);
+  unsigned frame_size = (unsigned)z_coff_align(fun ? fun->frame_bytes : 0, 16);
   append_u8(text, 0x55);
   append_u8(text, 0x48);
   append_u8(text, 0x89);
   append_u8(text, 0xe5);
-  coff_emit_sub_rsp(text, frame_size);
+  z_x64_emit_sub_rsp(text, frame_size);
   for (size_t i = 0; i < fun->param_count; i++) {
     if (i < 4) {
       coff_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
     } else {
-      coff_emit_load_rbp_positive_reg(text, 0, 48u + (unsigned)(i - 4u) * 8u, false);
+      z_x64_emit_load_rbp_positive_reg(text, 0, 48u + (unsigned)(i - 4u) * 8u, false);
       coff_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
     }
   }
@@ -931,8 +789,6 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
   }
   if (!has_export) return coff_diag_at(diag, "direct COFF object backend requires at least one exported function", 1, 1, "no exported function");
 
-  zbuf_init(out);
-
   ZBuf text;
   ZBuf rodata;
   ZBuf relocs;
@@ -971,142 +827,71 @@ bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *
   }
 
   unsigned section_symbol_count = has_rodata ? 2u : 1u;
+  size_t symbol_len = program->function_len + (ctx.world_write_patch_len > 0 ? 1u : 0u);
+  ZCoffSymbol *symbols = z_checked_calloc(symbol_len, sizeof(ZCoffSymbol));
+  if (!symbols) {
+    free(ctx.world_write_patches);
+    free(ctx.rodata_patches);
+    free(ctx.call_patches);
+    free(offsets);
+    zbuf_free(&relocs);
+    zbuf_free(&rodata);
+    zbuf_free(&text);
+    return coff_diag(diag, "out of memory while emitting COFF object");
+  }
   for (size_t i = 0; i < ctx.call_patch_len; i++) {
     const CoffCallPatch *patch = &ctx.call_patches[i];
-    int64_t rel = (int64_t)offsets[patch->callee_index] - (int64_t)(patch->patch_offset + 4);
-    patch_u32le(&text, patch->patch_offset, (uint32_t)(int32_t)rel);
-    append_u32le(&relocs, (uint32_t)patch->patch_offset);
-    append_u32le(&relocs, section_symbol_count + patch->callee_index);
-    append_u16le(&relocs, 0x0004); // IMAGE_REL_AMD64_REL32
+    z_x64_patch_rel32(&text, patch->patch_offset, offsets[patch->callee_index]);
+    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, section_symbol_count + patch->callee_index, Z_COFF_RELOC_AMD64_REL32);
   }
   for (size_t i = 0; i < ctx.rodata_patch_len; i++) {
-    const CoffRodataPatch *patch = &ctx.rodata_patches[i];
-    append_u32le(&relocs, (uint32_t)patch->patch_offset);
-    append_u32le(&relocs, 1u); // .rdata section symbol
-    append_u16le(&relocs, 0x0001); // IMAGE_REL_AMD64_ADDR64
+    const ZCoffImageDataPatch *patch = &ctx.rodata_patches[i];
+    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, 1u, Z_COFF_RELOC_AMD64_ADDR64);
   }
   uint32_t world_write_symbol_index = section_symbol_count + (uint32_t)program->function_len;
   for (size_t i = 0; i < ctx.world_write_patch_len; i++) {
     const CoffWorldWritePatch *patch = &ctx.world_write_patches[i];
-    append_u32le(&relocs, (uint32_t)patch->patch_offset);
-    append_u32le(&relocs, world_write_symbol_index);
-    append_u16le(&relocs, 0x0004); // IMAGE_REL_AMD64_REL32
-  }
-
-  ZBuf strings;
-  zbuf_init(&strings);
-  const uint16_t section_count = has_rodata ? 2 : 1;
-  const uint32_t header_size = 20 + 40 * section_count;
-  const uint32_t raw_text_offset = header_size;
-  const uint32_t raw_rodata_offset = has_rodata ? raw_text_offset + (uint32_t)text.len : 0;
-  const uint32_t reloc_offset = raw_text_offset + (uint32_t)text.len + (uint32_t)rodata.len;
-  const uint32_t symbol_offset = reloc_offset + (uint32_t)relocs.len;
-  const uint32_t symbol_count = section_symbol_count + (uint32_t)program->function_len + (ctx.world_write_patch_len > 0 ? 1u : 0u);
-
-  append_u16le(out, 0x8664);           // IMAGE_FILE_MACHINE_AMD64
-  append_u16le(out, section_count);
-  append_u32le(out, 0);
-  append_u32le(out, symbol_offset);
-  append_u32le(out, symbol_count);
-  append_u16le(out, 0);
-  append_u16le(out, 0);
-
-  append_coff_name(out, ".text");
-  append_u32le(out, (uint32_t)text.len);
-  append_u32le(out, 0);
-  append_u32le(out, (uint32_t)text.len);
-  append_u32le(out, raw_text_offset);
-  append_u32le(out, relocs.len > 0 ? reloc_offset : 0);
-  append_u32le(out, 0);
-  append_u16le(out, (uint16_t)(ctx.call_patch_len + ctx.rodata_patch_len + ctx.world_write_patch_len));
-  append_u16le(out, 0);
-  append_u32le(out, 0x60000020u);      // code | execute | read
-
-  if (has_rodata) {
-    append_coff_name(out, ".rdata");
-    append_u32le(out, (uint32_t)rodata.len);
-    append_u32le(out, 0);
-    append_u32le(out, (uint32_t)rodata.len);
-    append_u32le(out, raw_rodata_offset);
-    append_u32le(out, 0);
-    append_u32le(out, 0);
-    append_u16le(out, 0);
-    append_u16le(out, 0);
-    append_u32le(out, 0x40000040u);    // initialized data | read
-  }
-
-  if (text.data) append_bytes(out, text.data, text.len);
-  if (rodata.data) append_bytes(out, rodata.data, rodata.len);
-  if (relocs.data) append_bytes(out, relocs.data, relocs.len);
-
-  append_coff_name(out, ".text");
-  append_u32le(out, 0);
-  append_u16le(out, 1);
-  append_u16le(out, 0);
-  append_u8(out, 3);                   // IMAGE_SYM_CLASS_STATIC
-  append_u8(out, 0);
-
-  if (has_rodata) {
-    append_coff_name(out, ".rdata");
-    append_u32le(out, 0);
-    append_u16le(out, 2);
-    append_u16le(out, 0);
-    append_u8(out, 3);
-    append_u8(out, 0);
+    z_coff_append_reloc_amd64(&relocs, (uint32_t)patch->patch_offset, world_write_symbol_index, Z_COFF_RELOC_AMD64_REL32);
   }
 
   for (size_t i = 0; i < program->function_len; i++) {
-    append_symbol_name(out, program->functions[i].name ? program->functions[i].name : "zero_fn", &strings);
-    append_u32le(out, (uint32_t)offsets[i]);
-    append_u16le(out, 1);
-    append_u16le(out, 0x20);           // function
-    append_u8(out, program->functions[i].is_exported ? 2 : 3);
-    append_u8(out, 0);
+    symbols[i] = (ZCoffSymbol){
+      .name = program->functions[i].name ? program->functions[i].name : "zero_fn",
+      .value = (uint32_t)offsets[i],
+      .section_number = 1,
+      .type = 0x20,
+      .storage_class = program->functions[i].is_exported ? Z_COFF_SYMBOL_EXTERNAL : Z_COFF_SYMBOL_STATIC
+    };
   }
-
   if (ctx.world_write_patch_len > 0) {
-    append_symbol_name(out, "zero_world_write", &strings);
-    append_u32le(out, 0);
-    append_u16le(out, 0);              // undefined external
-    append_u16le(out, 0x20);           // function
-    append_u8(out, 2);                 // IMAGE_SYM_CLASS_EXTERNAL
-    append_u8(out, 0);
+    symbols[program->function_len] = (ZCoffSymbol){
+      .name = "zero_world_write",
+      .section_number = 0,
+      .type = 0x20,
+      .storage_class = Z_COFF_SYMBOL_EXTERNAL
+    };
   }
-
-  append_u32le(out, (uint32_t)strings.len + 4);
-  if (strings.data) append_bytes(out, strings.data, strings.len);
-  if (strings.len == 0) append_zeros(out, 0);
+  ZCoffObjectImage image = {
+    .machine = Z_COFF_MACHINE_AMD64,
+    .text = &text,
+    .rodata = has_rodata ? &rodata : NULL,
+    .text_relocs = &relocs,
+    .text_reloc_count = (uint16_t)(ctx.call_patch_len + ctx.rodata_patch_len + ctx.world_write_patch_len),
+    .symbols = symbols,
+    .symbol_len = symbol_len
+  };
+  z_coff_write_object(out, &image);
 
   free(ctx.world_write_patches);
   free(ctx.rodata_patches);
   free(ctx.call_patches);
   free(offsets);
-  zbuf_free(&strings);
+  free(symbols);
   zbuf_free(&relocs);
   zbuf_free(&rodata);
   zbuf_free(&text);
   return true;
 }
-
-typedef struct {
-  size_t patch_offset;
-  unsigned import_index;
-} CoffImportPatch;
-
-typedef struct {
-  uint32_t import_directory_rva;
-  uint32_t import_directory_size;
-  uint32_t iat_rva;
-  uint32_t iat_size;
-  uint32_t iat_offsets[3];
-} CoffImportLayout;
-
-enum {
-  COFF_IMPORT_EXIT_PROCESS = 0,
-  COFF_IMPORT_GET_STD_HANDLE = 1,
-  COFF_IMPORT_WRITE_FILE = 2,
-  COFF_IMPORT_COUNT = 3
-};
 
 static const IrFunction *coff_find_executable_main(const IrProgram *program, ZDiag *diag, unsigned *out_index) {
   const IrFunction *fun = NULL;
@@ -1137,37 +922,32 @@ static const IrFunction *coff_find_executable_main(const IrProgram *program, ZDi
   return fun;
 }
 
-static void coff_patch_rel32_to_va(ZBuf *text, size_t patch_offset, uint64_t text_base_va, uint64_t target_va) {
-  int64_t rel = (int64_t)target_va - (int64_t)(text_base_va + patch_offset + 4);
-  patch_u32le(text, patch_offset, (uint32_t)(int32_t)rel);
-}
-
-static void coff_emit_import_call(ZBuf *text, CoffImportPatch *patches, size_t *patch_len, unsigned import_index) {
+static void coff_emit_import_call(ZBuf *text, ZCoffImportPatch *patches, size_t *patch_len, unsigned import_index) {
   append_u8(text, 0xff);
   append_u8(text, 0x15);
   size_t patch = text->len;
   append_u32le(text, 0);
   if (patches && patch_len && *patch_len < 8) {
-    patches[*patch_len] = (CoffImportPatch){.patch_offset = patch, .import_index = import_index};
+    patches[*patch_len] = (ZCoffImportPatch){.patch_offset = patch, .import_index = import_index};
     *patch_len += 1;
   }
 }
 
-static size_t coff_emit_exe_start_stub(ZBuf *text, CoffImportPatch *import_patches, size_t *import_patch_len) {
-  coff_emit_sub_rsp(text, 40);
+static size_t coff_emit_exe_start_stub(ZBuf *text, ZCoffImportPatch *import_patches, size_t *import_patch_len) {
+  z_x64_emit_sub_rsp(text, 40);
   append_u8(text, 0xe8);
   size_t main_patch = text->len;
   append_u32le(text, 0);
   append_u8(text, 0x89);
   append_u8(text, 0xc1); // mov ecx, eax
-  coff_emit_import_call(text, import_patches, import_patch_len, COFF_IMPORT_EXIT_PROCESS);
+  coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_EXIT_PROCESS);
   append_u8(text, 0xcc);
   return main_patch;
 }
 
-static size_t coff_emit_exe_world_write(ZBuf *text, CoffImportPatch *import_patches, size_t *import_patch_len) {
+static size_t coff_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import_patches, size_t *import_patch_len) {
   size_t offset = text->len;
-  coff_emit_sub_rsp(text, 72);
+  z_x64_emit_sub_rsp(text, 72);
   append_u8(text, 0x48);
   append_u8(text, 0x89);
   append_u8(text, 0x54);
@@ -1192,7 +972,7 @@ static size_t coff_emit_exe_world_write(ZBuf *text, CoffImportPatch *import_patc
   append_u8(text, 0x05); // jne after stderr handle
   append_u8(text, 0xb9);
   append_u32le(text, 0xfffffff4u); // STD_ERROR_HANDLE
-  coff_emit_import_call(text, import_patches, import_patch_len, COFF_IMPORT_GET_STD_HANDLE);
+  coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_GET_STD_HANDLE);
   append_u8(text, 0x48);
   append_u8(text, 0x89);
   append_u8(text, 0xc1); // mov rcx, rax
@@ -1217,55 +997,12 @@ static size_t coff_emit_exe_world_write(ZBuf *text, CoffImportPatch *import_patc
   append_u8(text, 0x24);
   append_u8(text, 0x20);
   append_u32le(text, 0); // lpOverlapped = NULL
-  coff_emit_import_call(text, import_patches, import_patch_len, COFF_IMPORT_WRITE_FILE);
+  coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_WRITE_FILE);
   append_u8(text, 0x31);
   append_u8(text, 0xc0); // xor eax, eax
-  coff_emit_add_rsp(text, 72);
+  z_x64_emit_add_rsp(text, 72);
   append_u8(text, 0xc3);
   return offset;
-}
-
-static void coff_pad_to(ZBuf *buf, size_t offset) {
-  while (buf->len < offset) append_u8(buf, 0);
-}
-
-static void coff_append_import_table(ZBuf *rdata, uint32_t rdata_rva, CoffImportLayout *layout) {
-  static const char *names[COFF_IMPORT_COUNT] = {"ExitProcess", "GetStdHandle", "WriteFile"};
-  coff_pad_to(rdata, coff_align(rdata->len, 4));
-  uint32_t descriptor_offset = (uint32_t)rdata->len;
-  append_zeros(rdata, 40); // one IMAGE_IMPORT_DESCRIPTOR plus terminator
-  coff_pad_to(rdata, coff_align(rdata->len, 8));
-  uint32_t int_offset = (uint32_t)rdata->len;
-  append_zeros(rdata, (COFF_IMPORT_COUNT + 1) * 8);
-  coff_pad_to(rdata, coff_align(rdata->len, 8));
-  uint32_t iat_offset = (uint32_t)rdata->len;
-  append_zeros(rdata, (COFF_IMPORT_COUNT + 1) * 8);
-  uint32_t dll_name_offset = (uint32_t)rdata->len;
-  append_bytes(rdata, "KERNEL32.dll", strlen("KERNEL32.dll") + 1);
-
-  uint32_t hint_name_offsets[COFF_IMPORT_COUNT];
-  for (unsigned i = 0; i < COFF_IMPORT_COUNT; i++) {
-    coff_pad_to(rdata, coff_align(rdata->len, 2));
-    hint_name_offsets[i] = (uint32_t)rdata->len;
-    append_u16le(rdata, 0);
-    append_bytes(rdata, names[i], strlen(names[i]) + 1);
-  }
-
-  patch_u32le(rdata, descriptor_offset + 0, rdata_rva + int_offset);
-  patch_u32le(rdata, descriptor_offset + 12, rdata_rva + dll_name_offset);
-  patch_u32le(rdata, descriptor_offset + 16, rdata_rva + iat_offset);
-  for (unsigned i = 0; i < COFF_IMPORT_COUNT; i++) {
-    uint64_t thunk = rdata_rva + hint_name_offsets[i];
-    patch_u64le(rdata, int_offset + i * 8, thunk);
-    patch_u64le(rdata, iat_offset + i * 8, thunk);
-    if (layout) layout->iat_offsets[i] = iat_offset + i * 8;
-  }
-  if (layout) {
-    layout->import_directory_rva = rdata_rva + descriptor_offset;
-    layout->import_directory_size = 40;
-    layout->iat_rva = rdata_rva + iat_offset;
-    layout->iat_size = (COFF_IMPORT_COUNT + 1) * 8;
-  }
 }
 
 bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
@@ -1302,7 +1039,7 @@ bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
     .function_count = program->function_len,
     .rodata_base_offset = rodata_base_offset
   };
-  CoffImportPatch import_patches[8];
+  ZCoffImportPatch import_patches[8];
   size_t import_patch_len = 0;
   size_t start_main_patch = coff_emit_exe_start_stub(&text, import_patches, &import_patch_len);
   while (text.len % 16 != 0) append_u8(&text, 0x90);
@@ -1325,153 +1062,29 @@ bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
     world_write_offset = coff_emit_exe_world_write(&text, import_patches, &import_patch_len);
   }
 
-  coff_patch_rel32(&text, start_main_patch, offsets[main_index]);
+  z_x64_patch_rel32(&text, start_main_patch, offsets[main_index]);
   for (size_t i = 0; i < ctx.call_patch_len; i++) {
     const CoffCallPatch *patch = &ctx.call_patches[i];
-    coff_patch_rel32(&text, patch->patch_offset, offsets[patch->callee_index]);
+    z_x64_patch_rel32(&text, patch->patch_offset, offsets[patch->callee_index]);
   }
   for (size_t i = 0; i < ctx.world_write_patch_len; i++) {
-    coff_patch_rel32(&text, ctx.world_write_patches[i].patch_offset, world_write_offset);
+    z_x64_patch_rel32(&text, ctx.world_write_patches[i].patch_offset, world_write_offset);
   }
 
-  const uint64_t image_base = 0x140000000ull;
-  const uint32_t section_alignment = 0x1000;
-  const uint32_t file_alignment = 0x200;
-  const uint32_t dos_header_size = 0x80;
-  const uint16_t section_count = 2;
-  const uint32_t optional_header_size = 240;
-  const uint32_t pe_header_offset = dos_header_size;
-  const uint32_t headers_unaligned = pe_header_offset + 4 + 20 + optional_header_size + section_count * 40;
-  const uint32_t headers_size = (uint32_t)coff_align(headers_unaligned, file_alignment);
-  const uint32_t text_rva = section_alignment;
-  const uint32_t text_raw_offset = headers_size;
-  const uint32_t text_raw_size = (uint32_t)coff_align(text.len, file_alignment);
-  const uint32_t rdata_rva = (uint32_t)coff_align(text_rva + text.len, section_alignment);
-  CoffImportLayout imports = {0};
-  coff_append_import_table(&rdata, rdata_rva, &imports);
-  const uint32_t rdata_raw_offset = text_raw_offset + text_raw_size;
-  const uint32_t rdata_raw_size = (uint32_t)coff_align(rdata.len, file_alignment);
-  const uint32_t size_of_image = (uint32_t)coff_align(rdata_rva + rdata.len, section_alignment);
-
-  for (size_t i = 0; i < ctx.rodata_patch_len; i++) {
-    const CoffRodataPatch *patch = &ctx.rodata_patches[i];
-    uint64_t addr = image_base + rdata_rva + (patch->data_offset - rodata_base_offset);
-    patch_u64le(&text, patch->patch_offset, addr);
-  }
-  for (size_t i = 0; i < import_patch_len; i++) {
-    const CoffImportPatch *patch = &import_patches[i];
-    uint64_t target = image_base + rdata_rva + imports.iat_offsets[patch->import_index];
-    coff_patch_rel32_to_va(&text, patch->patch_offset, image_base + text_rva, target);
-  }
-
-  zbuf_init(out);
-  append_u8(out, 'M');
-  append_u8(out, 'Z');
-  append_zeros(out, 0x3a);
-  append_u32le(out, pe_header_offset);
-  coff_pad_to(out, dos_header_size);
-
-  append_u8(out, 'P');
-  append_u8(out, 'E');
-  append_u8(out, 0);
-  append_u8(out, 0);
-  append_u16le(out, 0x8664);           // IMAGE_FILE_MACHINE_AMD64
-  append_u16le(out, section_count);
-  append_u32le(out, 0);
-  append_u32le(out, 0);
-  append_u32le(out, 0);
-  append_u16le(out, optional_header_size);
-  append_u16le(out, 0x0022);           // executable | large-address-aware
-
-  append_u16le(out, 0x20b);            // PE32+
-  append_u8(out, 0);
-  append_u8(out, 1);
-  append_u32le(out, text_raw_size);
-  append_u32le(out, rdata_raw_size);
-  append_u32le(out, 0);
-  append_u32le(out, text_rva);
-  append_u32le(out, text_rva);
-  append_u64le(out, image_base);
-  append_u32le(out, section_alignment);
-  append_u32le(out, file_alignment);
-  append_u16le(out, 6);
-  append_u16le(out, 0);
-  append_u16le(out, 0);
-  append_u16le(out, 0);
-  append_u16le(out, 6);
-  append_u16le(out, 0);
-  append_u32le(out, 0);
-  append_u32le(out, size_of_image);
-  append_u32le(out, headers_size);
-  append_u32le(out, 0);
-  append_u16le(out, 3);                // Windows CUI subsystem
-  append_u16le(out, 0x0100);           // NX compatible; fixed image has no reloc section
-  append_u64le(out, 0x100000);
-  append_u64le(out, 0x1000);
-  append_u64le(out, 0x100000);
-  append_u64le(out, 0x1000);
-  append_u32le(out, 0);
-  append_u32le(out, 16);
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // export table
-  append_u32le(out, imports.import_directory_rva);
-  append_u32le(out, imports.import_directory_size);
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // resource
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // exception
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // cert
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // reloc
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // debug
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // architecture
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // global ptr
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // TLS
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // load config
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // bound import
-  append_u32le(out, imports.iat_rva);
-  append_u32le(out, imports.iat_size);
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // delay import
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // CLR
-  append_u32le(out, 0);
-  append_u32le(out, 0);                // reserved
-
-  append_coff_name(out, ".text");
-  append_u32le(out, (uint32_t)text.len);
-  append_u32le(out, text_rva);
-  append_u32le(out, text_raw_size);
-  append_u32le(out, text_raw_offset);
-  append_u32le(out, 0);
-  append_u32le(out, 0);
-  append_u16le(out, 0);
-  append_u16le(out, 0);
-  append_u32le(out, 0x60000020u);
-
-  append_coff_name(out, ".rdata");
-  append_u32le(out, (uint32_t)rdata.len);
-  append_u32le(out, rdata_rva);
-  append_u32le(out, rdata_raw_size);
-  append_u32le(out, rdata_raw_offset);
-  append_u32le(out, 0);
-  append_u32le(out, 0);
-  append_u16le(out, 0);
-  append_u16le(out, 0);
-  append_u32le(out, 0x40000040u);
-
-  coff_pad_to(out, headers_size);
-  if (text.data) append_bytes(out, text.data, text.len);
-  coff_pad_to(out, text_raw_offset + text_raw_size);
-  if (rdata.data) append_bytes(out, rdata.data, rdata.len);
-  coff_pad_to(out, rdata_raw_offset + rdata_raw_size);
+  ZCoffExecutableImage image = {
+    .machine = Z_COFF_MACHINE_AMD64,
+    .image_base = 0x140000000ull,
+    .section_alignment = 0x1000,
+    .file_alignment = 0x200,
+    .text = &text,
+    .rdata = &rdata,
+    .rodata_base_offset = rodata_base_offset,
+    .rodata_patches = ctx.rodata_patches,
+    .rodata_patch_len = ctx.rodata_patch_len,
+    .import_patches = import_patches,
+    .import_patch_len = import_patch_len
+  };
+  z_coff_write_pe64_executable(out, &image);
 
   free(ctx.world_write_patches);
   free(ctx.rodata_patches);
