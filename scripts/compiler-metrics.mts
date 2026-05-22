@@ -54,7 +54,7 @@ const fileBudgets = {
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.c": { maxLines: 590, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 610, maxStrcmpCalls: 0 },
   "native/zero-c/src/x64_emit.h": { maxLines: 95, maxStrcmpCalls: 0 },
 };
 
