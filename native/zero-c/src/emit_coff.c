@@ -406,8 +406,7 @@ static bool coff_emit_world_write(ZBuf *text, const IrFunction *fun, const IrIns
   if (!coff_emit_byte_view_len(text, fun, instr->value, ctx, diag)) return false;
   z_x64_emit_mov_reg_from_rax(text, 8, false);
   z_x64_emit_pop_reg64(text, 2);
-  z_x64_append_u8(text, 0xb9);
-  z_x64_append_u32(text, instr->field_offset == 2 ? 2u : 1u); // ecx = fd
+  z_x64_emit_mov_reg_u32(text, 1, instr->field_offset == 2 ? 2u : 1u); // ecx = fd
   z_x64_emit_sub_rsp(text, 32);
   size_t patch = z_x64_emit_call32_placeholder(text);
   z_x64_emit_add_rsp(text, 32);
@@ -458,8 +457,7 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       coff_emit_load_local_slot_eax(text, fun, instr->value->local_index, 12);
       coff_emit_load_local_slot_reg(text, fun, instr->value->local_index, 8, 1, false);
       z_x64_emit_pop_rax(text);
-      z_x64_append_u8(text, 0x89);
-      z_x64_append_u8(text, 0xc2);
+      z_x64_emit_mov_reg_from_reg(text, 2, 0, false);
       z_x64_emit_add_rax_rcx(text, false);
       z_x64_emit_cmp_rax_rcx(text, false);
       size_t ok_patch = z_x64_emit_jcc32_placeholder(text, 0x86);
@@ -476,8 +474,7 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       z_x64_append_u8(text, 0x01);
       z_x64_append_u8(text, 0xd2);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 2, 8, true);
-      z_x64_append_u8(text, 0x89);
-      z_x64_append_u8(text, 0xd0);
+      z_x64_emit_mov_reg_from_reg(text, 0, 2, false);
       coff_emit_store_local_slot_from_reg(text, fun, instr->local_index, 0, 16, false);
       z_x64_emit_mov_eax_from_ecx(text);
       coff_emit_store_local_slot_from_reg(text, fun, instr->value->local_index, 0, 12, false);
@@ -790,12 +787,10 @@ static size_t coff_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import_pat
   z_x64_append_u8(text, 0x83);
   z_x64_append_u8(text, 0xf9);
   z_x64_append_u8(text, 0x02); // cmp ecx, 2
-  z_x64_append_u8(text, 0xb9);
-  z_x64_append_u32(text, 0xfffffff5u); // STD_OUTPUT_HANDLE
+  z_x64_emit_mov_reg_u32(text, 1, 0xfffffff5u); // STD_OUTPUT_HANDLE
   z_x64_append_u8(text, 0x75);
   z_x64_append_u8(text, 0x05); // jne after stderr handle
-  z_x64_append_u8(text, 0xb9);
-  z_x64_append_u32(text, 0xfffffff4u); // STD_ERROR_HANDLE
+  z_x64_emit_mov_reg_u32(text, 1, 0xfffffff4u); // STD_ERROR_HANDLE
   coff_emit_import_call(text, import_patches, import_patch_len, Z_COFF_IMPORT_GET_STD_HANDLE);
   z_x64_emit_mov_rcx_from_rax(text, true);
   z_x64_emit_load_rsp_offset_reg(text, 2, 40, true);
