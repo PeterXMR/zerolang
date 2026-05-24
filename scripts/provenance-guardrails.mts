@@ -25,6 +25,18 @@ function assertIncludes(label, text, needle) {
   if (!text.includes(needle)) fail(`${label}: missing ${needle}`);
 }
 
+function assertNotIncludes(label, text, needle) {
+  if (text.includes(needle)) fail(`${label}: unexpected ${needle}`);
+}
+
+function assertBefore(label, text, first, second) {
+  const firstIndex = text.indexOf(first);
+  const secondIndex = text.indexOf(second);
+  if (firstIndex < 0) fail(`${label}: missing ${first}`);
+  if (secondIndex < 0) fail(`${label}: missing ${second}`);
+  if (firstIndex >= 0 && secondIndex >= 0 && firstIndex > secondIndex) fail(`${label}: ${first} must appear before ${second}`);
+}
+
 function assertMatches(label, text, pattern) {
   if (!pattern.test(text)) fail(`${label}: missing ${pattern}`);
 }
@@ -253,9 +265,16 @@ const requiredFunctions = [
   "choice_constructor_value_provenance",
   "register_match_payload_binding_provenance",
   "apply_checked_call_storage_effects",
+  "check_call_expr_expected",
   "check_named_function_call_expected",
   "check_stdlib_table_arg_range_expected",
   "check_receiver_shape_call_expected",
+  "finish_shape_method_provenance_call",
+  "resolve_shape_namespace_provenance_call",
+  "resolve_concrete_constrained_shape_provenance_call",
+  "resolve_named_provenance_call",
+  "resolve_constrained_interface_provenance_call",
+  "resolve_receiver_shape_provenance_call",
   "call_resolution_record_bindings",
   "call_resolution_record_param_facts",
   "call_resolution_param_type_text",
@@ -304,8 +323,51 @@ assertIncludes("call result provenance", callResultBody, "function_return_value_
 assertIncludes("call result provenance", callResultBody, "instantiate_call_provenance_entry");
 assertIncludes("call result provenance", callResultBody, "resolved_call_param_type_text");
 
-const namedCallBody = sliceBetween(checker, "static bool check_named_function_call_expected", "static bool check_stdlib_table_arg_range_expected");
+const shapeMethodProvenanceBody = sliceBetween(checker, "static bool finish_shape_method_provenance_call", "static bool resolve_shape_namespace_provenance_call");
+assertIncludes("shape method provenance facts", shapeMethodProvenanceBody, "build_shape_method_bindings");
+assertIncludes("shape method provenance facts", shapeMethodProvenanceBody, "provenance_context_substitute_bindings");
+assertIncludes("shape method provenance facts", shapeMethodProvenanceBody, "call_resolution_record_bindings");
+assertIncludes("shape method provenance facts", shapeMethodProvenanceBody, "call_resolution_record_param_facts");
+
+const shapeNamespaceProvenanceBody = sliceBetween(checker, "static bool resolve_shape_namespace_provenance_call", "static bool resolve_concrete_constrained_shape_provenance_call");
+assertIncludes("shape namespace provenance resolver", shapeNamespaceProvenanceBody, "resolve_shape_namespace_call");
+assertIncludes("shape namespace provenance resolver", shapeNamespaceProvenanceBody, "finish_shape_method_provenance_call");
+
+const concreteConstrainedShapeProvenanceBody = sliceBetween(checker, "static bool resolve_concrete_constrained_shape_provenance_call", "static bool resolve_named_provenance_call");
+assertIncludes("concrete constrained-shape provenance resolver", concreteConstrainedShapeProvenanceBody, "resolve_concrete_constrained_shape_call");
+assertIncludes("concrete constrained-shape provenance resolver", concreteConstrainedShapeProvenanceBody, "finish_shape_method_provenance_call");
+
+const namedProvenanceBody = sliceBetween(checker, "static bool resolve_named_provenance_call", "static bool resolve_constrained_interface_provenance_call");
+assertIncludes("named provenance resolver", namedProvenanceBody, "resolve_named_function_call");
+assertIncludes("named provenance resolver", namedProvenanceBody, "generic_call_bindings_from_checked_call");
+assertIncludes("named provenance resolver", namedProvenanceBody, "provenance_context_substitute_bindings");
+assertIncludes("named provenance resolver", namedProvenanceBody, "call_resolution_record_bindings");
+assertIncludes("named provenance resolver", namedProvenanceBody, "call_resolution_record_param_facts");
+
+const constrainedInterfaceProvenanceBody = sliceBetween(checker, "static bool resolve_constrained_interface_provenance_call", "static bool resolve_receiver_shape_provenance_call");
+assertIncludes("constrained interface provenance resolver", constrainedInterfaceProvenanceBody, "resolve_constrained_interface_call");
+assertIncludes("constrained interface provenance resolver", constrainedInterfaceProvenanceBody, "build_constrained_interface_method_bindings");
+assertIncludes("constrained interface provenance resolver", constrainedInterfaceProvenanceBody, "call_resolution_record_bindings");
+assertIncludes("constrained interface provenance resolver", constrainedInterfaceProvenanceBody, "call_resolution_record_param_facts");
+
+const receiverProvenanceBody = sliceBetween(checker, "static bool resolve_receiver_shape_provenance_call", "static bool resolve_provenance_call");
+assertIncludes("receiver provenance resolver", receiverProvenanceBody, "resolve_receiver_shape_call");
+assertIncludes("receiver provenance resolver", receiverProvenanceBody, "build_receiver_shape_method_bindings");
+assertIncludes("receiver provenance resolver", receiverProvenanceBody, "call_resolution_record_bindings");
+assertIncludes("receiver provenance resolver", receiverProvenanceBody, "call_resolution_record_param_facts");
+
+const provenanceCallBody = sliceBetween(checker, "static bool resolve_provenance_call", "static bool function_return_value_provenance");
+assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_named_provenance_call");
+assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_shape_namespace_provenance_call");
+assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_concrete_constrained_shape_provenance_call");
+assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_constrained_interface_provenance_call");
+assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_receiver_shape_provenance_call");
+assertBefore("provenance call resolver order", provenanceCallBody, "resolve_concrete_constrained_shape_provenance_call", "resolve_constrained_interface_provenance_call");
+
+const namedCallBody = sliceBetween(checker, "static bool build_named_call_bindings_expected", "static bool check_stdlib_table_arg_range_expected");
 assertIncludes("named call checking argument facts", namedCallBody, "resolve_named_function_call");
+assertIncludes("named call checking argument facts", namedCallBody, "build_named_call_bindings_expected");
+assertIncludes("named call checking argument facts", namedCallBody, "check_named_call_args_expected");
 assertIncludes("named call checking argument facts", namedCallBody, "call_resolution_record_param_facts");
 assertIncludes("named call checking argument facts", namedCallBody, "call_resolution_param_type_text");
 assertIncludes("named call checking storage effects", namedCallBody, "apply_checked_call_storage_effects");
@@ -340,13 +402,26 @@ assertIncludes("constrained interface call checking argument facts", constrained
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "call_resolution_param_type_text");
 assertIncludes("constrained interface call checking storage effects", constrainedInterfaceCallBody, "apply_checked_call_storage_effects");
 
+const callExprBody = sliceBetween(checker, "static bool check_call_expr_expected", "static bool check_expr_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_choice_constructor_call_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_shape_namespace_call_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_receiver_shape_call_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_constrained_interface_call_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_named_function_call_expected");
+assertIncludes("call expression checking dispatch", callExprBody, "check_stdlib_call_expected");
+
+const callCalleeBody = sliceBetween(checker, "static bool check_call_callee", "static bool build_named_call_bindings_expected");
+assertIncludes("call callee precheck", callCalleeBody, "member_call_skips_callee_expr_check");
+assertNotIncludes("call callee precheck", callCalleeBody, "resolve_shape_namespace_call");
+assertNotIncludes("call callee precheck", callCalleeBody, "resolve_constrained_interface_call");
+assertNotIncludes("call callee precheck", callCalleeBody, "resolve_stdlib_call");
+
 const checkCallBody = sliceBetween(
   checker,
   "static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {",
   "case EXPR_CAST:"
 );
-assertIncludes("call checking receiver dispatch", checkCallBody, "check_receiver_shape_call_expected");
-assertIncludes("call checking constrained interface dispatch", checkCallBody, "check_constrained_interface_call_expected");
+assertIncludes("call checking dispatch", checkCallBody, "check_call_expr_expected");
 
 const checkedCallBody = sliceBetween(checker, "static bool apply_checked_call_storage_effects", "static bool apply_resolved_call_storage_effects");
 assertIncludes("checked call storage effects", checkedCallBody, "resolve_provenance_call");
@@ -383,8 +458,7 @@ const checkExprExpectedBody = sliceBetween(
   "static bool check_expr(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {"
 );
 const callCase = sliceBetween(checkExprExpectedBody, "case EXPR_CALL:", "case EXPR_CAST:");
-assertIncludes("call checking stdlib table facts", callCase, "check_stdlib_call_expected");
-assertIncludes("call checking choice argument facts", callCase, "check_choice_constructor_call_expected");
+assertIncludes("call checking dispatcher", callCase, "check_call_expr_expected");
 const callCaseStorageApplications = (callCase.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const namedCallStorageApplications = (namedCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 const shapeNamespaceCallStorageApplications = (shapeNamespaceCallBody.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;

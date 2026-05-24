@@ -5201,6 +5201,16 @@ static bool type_static_value_mismatch(const Program *program, const char *expec
   return mismatch;
 }
 
+static bool member_call_skips_callee_expr_check(const Expr *callee, Scope *scope) {
+  if (!callee || callee->kind != EXPR_MEMBER) return false;
+  ZBuf name;
+  zbuf_init(&name);
+  member_name_buf(callee, &name);
+  bool std_namespace = strncmp(name.data, "std.", strlen("std.")) == 0;
+  zbuf_free(&name);
+  return std_namespace || is_world_stream_write_callee(callee, scope);
+}
+
 static bool check_call_callee(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, ZDiag *diag) {
   diag = check_context_diag(ctx, diag);
   const Expr *callee = call && call->kind == EXPR_CALL ? call->left : call;
@@ -5215,22 +5225,52 @@ static bool check_call_callee(CheckContext *ctx, const Program *program, const E
     return check_expr(ctx, program, callee, scope, diag);
   }
   if (callee->kind == EXPR_MEMBER) {
-    ZCallResolution resolution = {0};
-    if (resolve_shape_namespace_call(program, call, &resolution) ||
-        resolve_constrained_interface_call(program, ctx ? ctx->function : NULL, call, &resolution) ||
-        resolve_stdlib_call(call, &resolution)) {
-      z_call_resolution_free(&resolution);
-      return true;
-    }
-    ZBuf name;
-    zbuf_init(&name);
-    member_name_buf(callee, &name);
-    bool std_namespace = strncmp(name.data, "std.", strlen("std.")) == 0;
-    zbuf_free(&name);
-    if (std_namespace || is_world_stream_write_callee(callee, scope)) return true;
+    if (member_call_skips_callee_expr_check(callee, scope)) return true;
     return check_expr(ctx, program, callee, scope, diag);
   }
   return check_expr(ctx, program, callee, scope, diag);
+}
+
+static bool build_named_call_bindings_expected(CheckContext *ctx, const Program *program, const Function *fun, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected, GenericBinding **out_bindings, size_t *out_len) {
+  if (out_bindings) *out_bindings = NULL;
+  if (out_len) *out_len = 0;
+  if (!function_is_generic(fun)) return true;
+  size_t binding_len = fun->type_params.len;
+  GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
+  generic_bindings_init_from_params(bindings, &fun->type_params, 0);
+  if (!build_generic_bindings(ctx, program, fun, expr, scope, diag, bindings, binding_len, expected) ||
+      !validate_recursive_generic_call_bindings(ctx, program, fun, expr, diag, bindings, binding_len) ||
+      !validate_generic_constraints(program, fun, expr, diag, bindings, binding_len)) {
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+    return false;
+  }
+  if (out_bindings) *out_bindings = bindings;
+  if (out_len) *out_len = binding_len;
+  return true;
+}
+
+static bool check_named_call_args_expected(CheckContext *ctx, const Program *program, const Function *fun, const Expr *expr, Scope *scope, ZDiag *diag, bool generic, ZCallResolution *resolution) {
+  for (size_t i = 0; i < expr->args.len; i++) {
+    char *expected_type = call_resolution_param_type_text(resolution, i);
+    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
+      free(expected_type);
+      return false;
+    }
+    const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
+    if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
+      char message[256];
+      snprintf(message, sizeof(message), generic ? "argument %zu to generic '%s' has incompatible type" : "argument %zu to '%s' has incompatible type", i + 1, fun->name);
+      bool ok = generic && type_static_value_mismatch(program, expected_type, actual)
+        ? set_diag_detail(diag, 3045, "static value argument does not match the annotated value", expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass the same static value or remove the conflicting explicit argument")
+        : set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, generic ? "pass a value matching the resolved generic parameter" : "pass a compatible value");
+      free(expected_type);
+      return ok;
+    }
+    mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
+    free(expected_type);
+  }
+  return true;
 }
 
 static bool check_named_function_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected, bool *handled) {
@@ -5256,56 +5296,18 @@ static bool check_named_function_call_expected(CheckContext *ctx, const Program 
 
   GenericBinding *bindings = NULL;
   size_t binding_len = 0;
-  if (generic) {
-    binding_len = fun->type_params.len;
-    bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
-    generic_bindings_init_from_params(bindings, &fun->type_params, 0);
-    if (!build_generic_bindings(ctx, program, fun, expr, scope, diag, bindings, binding_len, expected)) {
-      generic_bindings_free(bindings, binding_len);
-      free(bindings);
-      z_call_resolution_free(&resolution);
-      return false;
-    }
-    if (!validate_recursive_generic_call_bindings(ctx, program, fun, expr, diag, bindings, binding_len)) {
-      generic_bindings_free(bindings, binding_len);
-      free(bindings);
-      z_call_resolution_free(&resolution);
-      return false;
-    }
-    if (!validate_generic_constraints(program, fun, expr, diag, bindings, binding_len)) {
-      generic_bindings_free(bindings, binding_len);
-      free(bindings);
-      z_call_resolution_free(&resolution);
-      return false;
-    }
+  if (!build_named_call_bindings_expected(ctx, program, fun, expr, scope, diag, expected, &bindings, &binding_len)) {
+    z_call_resolution_free(&resolution);
+    return false;
   }
   call_resolution_record_bindings(&resolution, bindings, binding_len);
   call_resolution_record_param_facts(ctx, program, fun, expr, NULL, 0, scope, bindings, binding_len, &resolution);
 
-  for (size_t i = 0; i < expr->args.len; i++) {
-    char *expected_type = call_resolution_param_type_text(&resolution, i);
-    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
-      free(expected_type);
-      generic_bindings_free(bindings, binding_len);
-      free(bindings);
-      z_call_resolution_free(&resolution);
-      return false;
-    }
-    const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
-    if (!types_compatible_in_scope(program, scope, expected_type, actual)) {
-      char message[256];
-      snprintf(message, sizeof(message), generic ? "argument %zu to generic '%s' has incompatible type" : "argument %zu to '%s' has incompatible type", i + 1, fun->name);
-      bool ok = generic && type_static_value_mismatch(program, expected_type, actual)
-        ? set_diag_detail(diag, 3045, "static value argument does not match the annotated value", expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass the same static value or remove the conflicting explicit argument")
-        : set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, generic ? "pass a value matching the resolved generic parameter" : "pass a compatible value");
-      free(expected_type);
-      generic_bindings_free(bindings, binding_len);
-      free(bindings);
-      z_call_resolution_free(&resolution);
-      return ok;
-    }
-    mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
-    free(expected_type);
+  if (!check_named_call_args_expected(ctx, program, fun, expr, scope, diag, generic, &resolution)) {
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+    z_call_resolution_free(&resolution);
+    return false;
   }
   if (generic) set_expr_checked_type_args(expr, bindings, binding_len);
 
@@ -5939,6 +5941,52 @@ static bool check_unchecked_fallible_call_expected(CheckContext *ctx, const Prog
   return true;
 }
 
+static bool check_call_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {
+  diag = check_context_diag(ctx, diag);
+  if (!expr || expr->kind != EXPR_CALL) return true;
+  if (expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) {
+    if (expr->args.len != 1) return set_diag_detail(diag, 3004, "expect requires one Bool argument", expr->line, expr->column, "expect(condition)", "wrong argument count", "pass exactly one Bool condition");
+    if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "Bool")) return false;
+    const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
+    if (!is_bool_type(actual)) return set_diag_detail(diag, 3005, "expect argument must be Bool", expr->args.items[0]->line, expr->args.items[0]->column, "Bool", actual, "compare explicitly before calling expect");
+    set_expr_resolved_type(expr, "Void");
+    return true;
+  }
+  if (expr->left && expr->left->kind == EXPR_MEMBER && strcmp(expr->left->text, "drop") == 0) {
+    return set_diag_detail(diag, 3014, "drop methods are specified but not enforced by this compiler", expr->line, expr->column, "simple defer cleanup expression", "drop method call", "use an explicit cleanup function with defer until owned drop checking lands");
+  }
+  bool choice_call_handled = false;
+  if (!check_choice_constructor_call_expected(ctx, program, expr, scope, diag, &choice_call_handled)) return false;
+  if (choice_call_handled) return true;
+  if (expr->left && expr->left->kind == EXPR_MEMBER) {
+    bool shape_namespace_call_handled = false;
+    if (!check_shape_namespace_call_expected(ctx, program, expr, scope, diag, expected, &shape_namespace_call_handled)) return false;
+    if (shape_namespace_call_handled) return true;
+    bool receiver_shape_call_handled = false;
+    if (!check_receiver_shape_call_expected(ctx, program, expr, scope, diag, &receiver_shape_call_handled)) return false;
+    if (receiver_shape_call_handled) return true;
+    bool constrained_interface_call_handled = false;
+    if (!check_constrained_interface_call_expected(ctx, program, expr, scope, diag, expected, &constrained_interface_call_handled)) return false;
+    if (constrained_interface_call_handled) return true;
+  }
+  if (!check_call_callee(ctx, program, expr, scope, diag)) return false;
+  bool named_call_handled = false;
+  if (!check_named_function_call_expected(ctx, program, expr, scope, diag, expected, &named_call_handled)) return false;
+  if (named_call_handled) return true;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (!check_expr(ctx, program, expr->args.items[i], scope, diag)) return false;
+  }
+  bool world_stream_write_handled = false;
+  if (!check_world_stream_write_call_expected(ctx, program, expr, scope, diag, &world_stream_write_handled)) return false;
+  if (world_stream_write_handled) return true;
+  if (!check_unchecked_fallible_call_expected(ctx, program, expr, diag)) return false;
+  bool std_call_handled = false;
+  if (!check_stdlib_call_expected(ctx, program, expr, scope, diag, &std_call_handled)) return false;
+  if (std_call_handled) return true;
+  if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
+  return true;
+}
+
 static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {
   diag = check_context_diag(ctx, diag);
   if (!expr) return true;
@@ -6211,47 +6259,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
       return true;
     }
     case EXPR_CALL:
-      if (expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) {
-        if (expr->args.len != 1) return set_diag_detail(diag, 3004, "expect requires one Bool argument", expr->line, expr->column, "expect(condition)", "wrong argument count", "pass exactly one Bool condition");
-        if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "Bool")) return false;
-        const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-        if (!is_bool_type(actual)) return set_diag_detail(diag, 3005, "expect argument must be Bool", expr->args.items[0]->line, expr->args.items[0]->column, "Bool", actual, "compare explicitly before calling expect");
-        set_expr_resolved_type(expr, "Void");
-        return true;
-      }
-      if (expr->left && expr->left->kind == EXPR_MEMBER && strcmp(expr->left->text, "drop") == 0) {
-        return set_diag_detail(diag, 3014, "drop methods are specified but not enforced by this compiler", expr->line, expr->column, "simple defer cleanup expression", "drop method call", "use an explicit cleanup function with defer until owned drop checking lands");
-      }
-      bool choice_call_handled = false;
-      if (!check_choice_constructor_call_expected(ctx, program, expr, scope, diag, &choice_call_handled)) return false;
-      if (choice_call_handled) return true;
-      if (expr->left && expr->left->kind == EXPR_MEMBER) {
-        bool shape_namespace_call_handled = false;
-        if (!check_shape_namespace_call_expected(ctx, program, expr, scope, diag, expected, &shape_namespace_call_handled)) return false;
-        if (shape_namespace_call_handled) return true;
-        bool receiver_shape_call_handled = false;
-        if (!check_receiver_shape_call_expected(ctx, program, expr, scope, diag, &receiver_shape_call_handled)) return false;
-        if (receiver_shape_call_handled) return true;
-        bool constrained_interface_call_handled = false;
-        if (!check_constrained_interface_call_expected(ctx, program, expr, scope, diag, expected, &constrained_interface_call_handled)) return false;
-        if (constrained_interface_call_handled) return true;
-      }
-      if (!check_call_callee(ctx, program, expr, scope, diag)) return false;
-      bool named_call_handled = false;
-      if (!check_named_function_call_expected(ctx, program, expr, scope, diag, expected, &named_call_handled)) return false;
-      if (named_call_handled) return true;
-      for (size_t i = 0; i < expr->args.len; i++) {
-        if (!check_expr(ctx, program, expr->args.items[i], scope, diag)) return false;
-      }
-      bool world_stream_write_handled = false;
-      if (!check_world_stream_write_call_expected(ctx, program, expr, scope, diag, &world_stream_write_handled)) return false;
-      if (world_stream_write_handled) return true;
-      if (!check_unchecked_fallible_call_expected(ctx, program, expr, diag)) return false;
-      bool std_call_handled = false;
-      if (!check_stdlib_call_expected(ctx, program, expr, scope, diag, &std_call_handled)) return false;
-      if (std_call_handled) return true;
-      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
-      return true;
+      return check_call_expr_expected(ctx, program, expr, scope, diag, expected);
     case EXPR_CAST: {
       if (!validate_type_form(expr->text, diag, expr->line, expr->column)) return false;
       if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
@@ -6741,77 +6749,75 @@ static char *resolved_call_param_type_text(const Program *program, const Resolve
   return call_param_type_text(program, resolved->resolution.callee, param_index, resolved->bindings, resolved->binding_len);
 }
 
-static bool resolve_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *expected_return, const Function *context_fun, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
-  if (!out) return false;
-  *out = (ResolvedProvenanceCall){0};
-  if (!program || !call || call->kind != EXPR_CALL || !call->left || !scope) return false;
-  context_fun = context_fun ? context_fun : (ctx ? ctx->function : NULL);
-  const char *return_type = expected_return ? expected_return : expr_type(ctx, program, call, scope);
-
-  if (call->left->kind == EXPR_IDENT) {
-    if (!resolve_named_function_call(program, call, &out->resolution)) return false;
-    const Function *callee = out->resolution.callee;
-    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
-    if (function_is_generic(callee)) {
-      if (!generic_call_bindings_from_checked_call(ctx, program, callee, call, scope, out->resolution.return_type, &out->bindings, &out->binding_len)) {
-        resolved_provenance_call_free(out);
-        return false;
-      }
-      provenance_context_substitute_bindings(ctx, program, out->bindings, out->binding_len, context_bindings, context_binding_len);
-      call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
-    }
-    call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
-    return true;
+static bool finish_shape_method_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
+  const Function *callee = out->resolution.callee;
+  const Shape *shape = out->resolution.shape;
+  if (!callee || !shape) {
+    resolved_provenance_call_free(out);
+    return false;
   }
+  z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+  ZDiag ignored = {0};
+  if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->resolution.return_type, &ignored, &out->bindings, &out->binding_len)) {
+    resolved_provenance_call_free(out);
+    return false;
+  }
+  provenance_context_substitute_bindings(ctx, program, out->bindings, out->binding_len, context_bindings, context_binding_len);
+  call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
+  call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
+  return true;
+}
 
-  if (call->left->kind != EXPR_MEMBER) return false;
+static bool resolve_shape_namespace_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out, bool *handled) {
+  if (handled) *handled = false;
+  if (!resolve_shape_namespace_call(program, call, &out->resolution)) return true;
+  if (handled) *handled = true;
+  return finish_shape_method_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out);
+}
 
-  if (resolve_shape_namespace_call(program, call, &out->resolution)) {
-    const Function *callee = out->resolution.callee;
-    const Shape *shape = out->resolution.shape;
-    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
-    ZDiag ignored = {0};
-    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->resolution.return_type, &ignored, &out->bindings, &out->binding_len)) {
+static bool resolve_concrete_constrained_shape_provenance_call(CheckContext *ctx, const Program *program, const Function *context_fun, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out, bool *handled) {
+  if (handled) *handled = false;
+  if (!resolve_concrete_constrained_shape_call(ctx, program, context_fun, context_bindings, context_binding_len, call, &out->resolution)) return true;
+  if (handled) *handled = true;
+  return finish_shape_method_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out);
+}
+
+static bool resolve_named_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
+  if (!resolve_named_function_call(program, call, &out->resolution)) return false;
+  const Function *callee = out->resolution.callee;
+  z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
+  if (function_is_generic(callee)) {
+    if (!generic_call_bindings_from_checked_call(ctx, program, callee, call, scope, out->resolution.return_type, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
     provenance_context_substitute_bindings(ctx, program, out->bindings, out->binding_len, context_bindings, context_binding_len);
     call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
-    call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
-    return true;
   }
+  call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
+  return true;
+}
 
-  if (resolve_concrete_constrained_shape_call(ctx, program, context_fun, context_bindings, context_binding_len, call, &out->resolution)) {
-    const Function *callee = out->resolution.callee;
-    const Shape *shape = out->resolution.shape;
-    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
-    ZDiag ignored = {0};
-    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->resolution.return_type, &ignored, &out->bindings, &out->binding_len)) {
-      resolved_provenance_call_free(out);
-      return false;
-    }
-    provenance_context_substitute_bindings(ctx, program, out->bindings, out->binding_len, context_bindings, context_binding_len);
-    call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
-    call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
-    return true;
+static bool resolve_constrained_interface_provenance_call(CheckContext *ctx, const Program *program, const Function *context_fun, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out, bool *handled) {
+  if (handled) *handled = false;
+  if (!resolve_constrained_interface_call(program, context_fun, call, &out->resolution)) return true;
+  if (handled) *handled = true;
+  const Function *callee = out->resolution.callee;
+  const InterfaceDecl *interface = out->resolution.interface;
+  ZDiag ignored = {0};
+  if (!build_constrained_interface_method_bindings(ctx, program, context_fun, call, scope, interface, callee, return_type, context_bindings, context_binding_len, &ignored, &out->bindings, &out->binding_len)) {
+    resolved_provenance_call_free(out);
+    return false;
   }
+  char *substituted_return = type_substitute_generic_signature(program, callee->return_type, out->bindings, out->binding_len);
+  z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : substituted_return);
+  free(substituted_return);
+  call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
+  call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
+  return true;
+}
 
-  if (resolve_constrained_interface_call(program, context_fun, call, &out->resolution)) {
-    const Function *callee = out->resolution.callee;
-    const InterfaceDecl *interface = out->resolution.interface;
-    ZDiag ignored = {0};
-    if (!build_constrained_interface_method_bindings(ctx, program, context_fun, call, scope, interface, callee, return_type, context_bindings, context_binding_len, &ignored, &out->bindings, &out->binding_len)) {
-      resolved_provenance_call_free(out);
-      return false;
-    }
-    char *substituted_return = type_substitute_generic_signature(program, callee->return_type, out->bindings, out->binding_len);
-    z_call_resolution_set_return_type(&out->resolution, return_type ? return_type : substituted_return);
-    free(substituted_return);
-    call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
-    call_resolution_record_param_facts(ctx, program, callee, call, NULL, 0, scope, out->bindings, out->binding_len, &out->resolution);
-    return true;
-  }
-
+static bool resolve_receiver_shape_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
   if (!resolve_receiver_shape_call(ctx, program, call, scope, NULL, &out->resolution)) return false;
   const Function *callee = out->resolution.callee;
   const Shape *receiver_shape = out->resolution.shape;
@@ -6833,6 +6839,32 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   call_resolution_record_bindings(&out->resolution, out->bindings, out->binding_len);
   call_resolution_record_param_facts(ctx, program, callee, call, out->resolution.receiver_expr, out->resolution.param_offset, scope, out->bindings, out->binding_len, &out->resolution);
   return true;
+}
+
+static bool resolve_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *expected_return, const Function *context_fun, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
+  if (!out) return false;
+  *out = (ResolvedProvenanceCall){0};
+  if (!program || !call || call->kind != EXPR_CALL || !call->left || !scope) return false;
+  context_fun = context_fun ? context_fun : (ctx ? ctx->function : NULL);
+  const char *return_type = expected_return ? expected_return : expr_type(ctx, program, call, scope);
+
+  if (call->left->kind == EXPR_IDENT) {
+    return resolve_named_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out);
+  }
+
+  if (call->left->kind != EXPR_MEMBER) return false;
+
+  bool handled = false;
+  if (!resolve_shape_namespace_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;
+  if (handled) return true;
+
+  if (!resolve_concrete_constrained_shape_provenance_call(ctx, program, context_fun, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;
+  if (handled) return true;
+
+  if (!resolve_constrained_interface_provenance_call(ctx, program, context_fun, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;
+  if (handled) return true;
+
+  return resolve_receiver_shape_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out);
 }
 
 static bool function_return_value_provenance(CheckContext *ctx, const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ValueProvenance *origins, bool *may_return);

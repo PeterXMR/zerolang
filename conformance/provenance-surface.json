@@ -110,7 +110,7 @@
     {
       "surface": "Plain calls",
       "action": "Resolve through the shared call resolver, instantiate return provenance, and replay storage effects",
-      "owners": ["resolve_provenance_call", "call_result_value_provenance", "apply_checked_call_storage_effects"],
+      "owners": ["resolve_provenance_call", "resolve_named_provenance_call", "call_result_value_provenance", "apply_checked_call_storage_effects"],
       "fixtures": {
         "fail": ["conformance/native/fail/aggregate-call-reference-borrow-origin.0"],
         "pass": ["conformance/native/pass/function-mutref-reference-store.0"]
@@ -119,7 +119,7 @@
     {
       "surface": "Generic calls",
       "action": "Resolve generic bindings once and use the same summary pipeline",
-      "owners": ["resolve_provenance_call", "call_result_value_provenance", "function_provenance_summary"],
+      "owners": ["resolve_provenance_call", "resolve_named_provenance_call", "call_result_value_provenance", "function_provenance_summary"],
       "fixtures": {
         "fail": ["conformance/native/fail/generic-reference-borrow-origin.0", "conformance/native/fail/nested-generic-mutref-reference-origin.0"],
         "pass": ["conformance/native/pass/generic-mutref-reference-store.0"]
@@ -128,7 +128,7 @@
     {
       "surface": "Shape namespace calls",
       "action": "Resolve static shape methods through the shared call resolver",
-      "owners": ["resolve_provenance_call", "build_shape_method_bindings", "apply_checked_call_storage_effects"],
+      "owners": ["resolve_provenance_call", "finish_shape_method_provenance_call", "build_shape_method_bindings", "apply_checked_call_storage_effects"],
       "fixtures": {
         "fail": ["conformance/native/fail/local-reference-escape-method.0"],
         "pass": ["conformance/native/pass/static-method-namespace.0"]
@@ -137,7 +137,7 @@
     {
       "surface": "Receiver calls",
       "action": "Treat self as parameter zero and replay receiver storage effects",
-      "owners": ["resolve_provenance_call", "collect_effect_target_places", "apply_checked_call_storage_effects"],
+      "owners": ["resolve_provenance_call", "resolve_receiver_shape_provenance_call", "collect_effect_target_places", "apply_checked_call_storage_effects"],
       "fixtures": {
         "fail": ["conformance/native/fail/receiver-method-side-effect-reference-origin.0", "conformance/native/fail/receiver-method-local-reference-escape.0"],
         "pass": ["conformance/native/pass/receiver-method-reference-store.0"]
@@ -145,8 +145,8 @@
     },
     {
       "surface": "Static interface calls",
-      "action": "Resolve constrained interface calls through the same summary/effect path",
-      "owners": ["resolve_provenance_call", "build_constrained_interface_method_bindings", "apply_checked_call_storage_effects"],
+      "action": "Resolve constrained interface calls and concrete shape instantiations through the same summary/effect path",
+      "owners": ["resolve_provenance_call", "resolve_concrete_constrained_shape_provenance_call", "resolve_constrained_interface_provenance_call", "finish_shape_method_provenance_call", "build_constrained_interface_method_bindings", "apply_checked_call_storage_effects"],
       "fixtures": {
         "fail": ["conformance/native/fail/static-interface-mutref-reference-origin.0", "conformance/native/fail/static-interface-return-reference-origin.0"],
         "pass": ["conformance/native/pass/static-interface-return-reference-origin.0", "conformance/native/pass/static-interface-mutref-reference-store.0"]
