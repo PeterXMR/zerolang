@@ -2550,7 +2550,7 @@ const stdFsErrorMismatchJson = await execFileAsync(zero, ["check", "--json", "co
 assert.notEqual(stdFsErrorMismatchJson.code, 0);
 const stdFsErrorMismatchBody = JSON.parse(stdFsErrorMismatchJson.stdout);
 assert.equal(stdFsErrorMismatchBody.diagnostics[0].code, "ERR002");
-assert.match(stdFsErrorMismatchBody.diagnostics[0].actual, /std fs call may raise/);
+assert.match(stdFsErrorMismatchBody.diagnostics[0].actual, /std call may raise/);
 
 const stdFsCreateErrorMismatchJson = await execFileAsync(zero, ["check", "--json", "conformance/native/fail/std-fs-create-error-set-mismatch.0"]).catch((error) => error);
 assert.notEqual(stdFsCreateErrorMismatchJson.code, 0);

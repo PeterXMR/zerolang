@@ -7,11 +7,13 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const checkerPath = path.join(repoRoot, "native/zero-c/src/checker.c");
 const callResolvePath = path.join(repoRoot, "native/zero-c/src/call_resolve.h");
+const stdSigPath = path.join(repoRoot, "native/zero-c/src/std_sig.h");
 const matrixPath = path.join(repoRoot, "conformance/provenance-surface.json");
 const conformancePath = path.join(repoRoot, "conformance/run.mjs");
 
 const checker = readFileSync(checkerPath, "utf8");
 const callResolve = readFileSync(callResolvePath, "utf8");
+const stdSig = readFileSync(stdSigPath, "utf8");
 const surfaceSpec = JSON.parse(readFileSync(matrixPath, "utf8"));
 const conformance = readFileSync(conformancePath, "utf8");
 
@@ -270,6 +272,9 @@ const requiredFunctions = [
   "check_stdlib_table_arg_range_expected",
   "check_receiver_shape_call_expected",
   "fallible_callee_in_context",
+  "resolve_stdlib_fallible_call",
+  "stdlib_call_error_sets_covered",
+  "function_error_sets_include_stdlib_resolution",
   "find_shape_owning_method",
   "finish_shape_method_provenance_call",
   "resolve_shape_namespace_provenance_call",
@@ -318,13 +323,24 @@ for (const kind of [
 for (const needle of [
   "ZCallArgument",
   "ZCallBinding",
+  "ZCallError",
   "z_call_resolution_add_arg",
+  "z_call_resolution_expected_arg_count",
   "z_call_resolution_param_type",
   "z_call_resolution_add_binding",
   "z_call_resolution_binding_type",
+  "z_call_resolution_add_error",
+  "z_call_resolution_error_set_text",
 ]) {
   assertIncludes("shared call argument facts", callResolve, needle);
 }
+
+assertIncludes("shared stdlib error facts", stdSig, "Z_STD_HELPER_MAX_ERRORS");
+assertIncludes("shared stdlib error facts", stdSig, "error_names");
+assertIncludes("shared stdlib error facts", stdSig, "z_std_helper_error_name");
+assertIncludes("shared stdlib error facts", stdSig, "z_std_helper_error_set_text");
+assertNotIncludes("shared stdlib fallibility facts", checker, "is_builtin_fallible_call");
+assertNotIncludes("shared stdlib fallibility facts", checker, "builtin_fallible_return_type");
 
 const callResultBody = sliceBetween(checker, "static bool call_result_value_provenance", "static bool expr_reference_provenance");
 assertIncludes("call result provenance", callResultBody, "resolve_provenance_call");
@@ -399,6 +415,7 @@ assertIncludes("named call checking argument facts", namedCallBody, "check_call_
 assertIncludes("named call checking argument facts", namedCallBody, "check_named_call_fallibility_expected");
 assertIncludes("named call checking argument facts", namedCallBody, "prepare_named_call_return_and_storage_expected");
 assertIncludes("named call checking argument facts", namedCallBody, "finish_named_call_return_expected");
+assertIncludes("named call checking argument facts", namedCallBody, "z_call_resolution_expected_arg_count");
 assertIncludes("named call checking argument facts", namedCallBody, "call_resolution_record_param_facts");
 assertIncludes("named call checking argument facts", namedCallBody, "call_resolution_param_type_text");
 assertIncludes("named call checking storage effects", namedCallBody, "apply_checked_call_storage_effects");
@@ -420,11 +437,13 @@ const choiceCallBody = sliceBetween(checker, "static bool check_choice_construct
 assertIncludes("choice call checking argument facts", choiceCallBody, "resolve_choice_constructor_call");
 assertIncludes("choice call checking argument facts", choiceCallBody, "z_call_resolution_add_arg(&choice_resolution");
 assertIncludes("choice call checking argument facts", choiceCallBody, "call_resolution_param_type_text(&choice_resolution");
+assertIncludes("choice call checking argument facts", choiceCallBody, "z_call_resolution_expected_arg_count");
 assertBefore("choice call resolution order", choiceCallBody, "resolve_choice_constructor_call", "find_choice(program");
 
 const shapeNamespaceCallBody = sliceBetween(checker, "static bool check_shape_namespace_call_expected", "static bool receiver_member_call_should_resolve");
 assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "call_resolution_record_param_facts");
 assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "check_call_resolution_args_expected");
+assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "z_call_resolution_expected_arg_count");
 assertIncludes("shape namespace call checking argument facts", shapeNamespaceCallBody, "set_expr_checked_type_args");
 assertIncludes("shape namespace call checking storage effects", shapeNamespaceCallBody, "apply_checked_call_storage_effects");
 
@@ -432,12 +451,14 @@ const receiverCallBody = sliceBetween(checker, "static bool check_receiver_metho
 assertIncludes("receiver call checking argument facts", receiverCallBody, "resolve_receiver_shape_call");
 assertIncludes("receiver call checking argument facts", receiverCallBody, "call_resolution_record_param_facts");
 assertIncludes("receiver call checking argument facts", receiverCallBody, "check_call_resolution_args_expected");
+assertIncludes("receiver call checking argument facts", receiverCallBody, "z_call_resolution_expected_arg_count");
 assertIncludes("receiver call checking argument facts", receiverCallBody, "set_expr_checked_type_args");
 assertIncludes("receiver call checking storage effects", receiverCallBody, "apply_checked_call_storage_effects");
 
 const constrainedInterfaceCallBody = sliceBetween(checker, "static bool check_constrained_interface_call_expected", "static bool check_world_stream_write_call_expected");
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "call_resolution_record_param_facts");
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "check_call_resolution_args_expected");
+assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "z_call_resolution_expected_arg_count");
 assertIncludes("constrained interface call checking argument facts", constrainedInterfaceCallBody, "set_expr_checked_type_args");
 assertIncludes("constrained interface call checking storage effects", constrainedInterfaceCallBody, "apply_checked_call_storage_effects");
 
@@ -453,7 +474,15 @@ const stdlibCallBody = sliceBetween(checker, "static bool check_stdlib_call_expe
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "resolve_stdlib_call");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "check_stdlib_known_call_expected");
 assertIncludes("stdlib call checking dispatch", stdlibCallBody, "z_call_resolution_free");
-assertBefore("stdlib call resolution order", stdlibCallBody, "resolve_stdlib_call", "std_call_arg_count");
+assertIncludes("stdlib call checking dispatch", stdlibCallBody, "z_call_resolution_expected_arg_count");
+assertNotIncludes("stdlib call checking dispatch", stdlibCallBody, "std_call_arg_count");
+
+const stdlibResolverBody = sliceBetween(checker, "static bool resolve_stdlib_callee", "static bool resolve_choice_constructor_call");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_std_helper_find");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_std_helper_error_name");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_call_resolution_add_error");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "resolve_stdlib_fallible_call");
+assertNotIncludes("stdlib call resolver facts", stdlibResolverBody, "std_call_arg_count");
 
 const callFunctionContextBody = sliceBetween(checker, "static const Function *resolve_call_function_in_context", "static bool expr_call_has_error_flow");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_named_function_call");
@@ -472,6 +501,7 @@ assertIncludes("fallible function body context", functionErrorFlowBody, "fun_ctx
 
 const uncheckedFallibleCallBody = sliceBetween(checker, "static bool check_unchecked_fallible_call_expected", "static bool check_call_expr_expected");
 assertIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "fallible_callee_in_context");
+assertIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "resolve_stdlib_fallible_call");
 assertNotIncludes("unchecked fallible call resolver", uncheckedFallibleCallBody, "fallible_callee(ctx");
 
 const callCalleeBody = sliceBetween(checker, "static bool check_call_callee", "static bool build_named_call_bindings_expected");
