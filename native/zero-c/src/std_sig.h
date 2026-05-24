@@ -7,7 +7,7 @@
 #define Z_STD_HELPER_MAX_ARGS 4
 #define Z_STD_HELPER_MAX_ERRORS 4
 
-typedef struct {
+typedef struct ZStdHelperInfo {
   const char *name;
   const char *return_type;
   int arg_count;

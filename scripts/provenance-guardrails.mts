@@ -407,6 +407,33 @@ assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_constr
 assertIncludes("provenance call dispatcher", provenanceCallBody, "resolve_receiver_shape_provenance_call");
 assertBefore("provenance call resolver order", provenanceCallBody, "resolve_concrete_constrained_shape_provenance_call", "resolve_constrained_interface_provenance_call");
 
+const exprCallResolverBody = sliceBetween(checker, "static bool resolve_expr_call_for_type", "static const char *expr_call_return_type");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_named_function_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_shape_namespace_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_concrete_constrained_shape_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_constrained_interface_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_receiver_shape_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_choice_constructor_call");
+assertIncludes("expr call return resolver", exprCallResolverBody, "resolve_stdlib_call");
+
+const exprCallReturnBody = sliceBetween(checker, "static const char *expr_call_return_type", "static const char *expr_type");
+assertIncludes("expr call return facts", exprCallReturnBody, "resolve_expr_call_for_type");
+assertIncludes("expr call return facts", exprCallReturnBody, "resolution.return_type");
+assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_FUNCTION");
+assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_SHAPE_NAMESPACE");
+assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_CONSTRAINED_INTERFACE");
+assertIncludes("expr call return facts", exprCallReturnBody, "Z_CALL_RECEIVER");
+
+const exprTypeCallBody = sliceBetween(
+  checker,
+  "static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {",
+  "case EXPR_INDEX:"
+);
+assertIncludes("expr_type call return dispatch", exprTypeCallBody, "expr_call_return_type");
+assertNotIncludes("expr_type call return dispatch", exprTypeCallBody, "resolve_named_function_call");
+assertNotIncludes("expr_type call return dispatch", exprTypeCallBody, "resolve_shape_namespace_call");
+assertNotIncludes("expr_type call return dispatch", exprTypeCallBody, "resolve_stdlib_call");
+
 const namedCallBody = sliceBetween(checker, "static bool build_named_call_bindings_expected", "static bool check_stdlib_table_arg_range_expected");
 assertIncludes("named call checking argument facts", namedCallBody, "resolve_named_function_call");
 assertIncludes("named call checking argument facts", namedCallBody, "build_named_call_bindings_expected");
@@ -423,7 +450,8 @@ assertIncludes("named call checking storage effects", namedCallBody, "apply_chec
 const stdlibTableCallBody = sliceBetween(checker, "static bool check_stdlib_table_arg_range_expected", "static bool check_stdlib_allocator_arg");
 assertIncludes("stdlib table call checking argument facts", stdlibTableCallBody, "z_call_resolution_add_arg");
 assertIncludes("stdlib table call checking argument facts", stdlibTableCallBody, "call_resolution_param_type_text");
-assertIncludes("stdlib table call checking argument facts", stdlibTableCallBody, "std_call_arg_type");
+assertIncludes("stdlib table call checking argument facts", stdlibTableCallBody, "z_call_resolution_param_type");
+assertNotIncludes("stdlib table call checking argument facts", stdlibTableCallBody, "std_call_arg_type");
 
 const stdlibTableDispatchBody = sliceBetween(checker, "static bool check_stdlib_table_call_expected", "static bool check_stdlib_known_call_expected");
 assertIncludes("stdlib table call checking argument facts", stdlibTableDispatchBody, "check_stdlib_table_arg_range_expected");
@@ -479,6 +507,9 @@ assertNotIncludes("stdlib call checking dispatch", stdlibCallBody, "std_call_arg
 
 const stdlibResolverBody = sliceBetween(checker, "static bool resolve_stdlib_callee", "static bool resolve_choice_constructor_call");
 assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_std_helper_find");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_call_resolution_set_return_type(out, helper->return_type)");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "helper->arg_types");
+assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_call_resolution_add_arg");
 assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_std_helper_error_name");
 assertIncludes("stdlib call resolver facts", stdlibResolverBody, "z_call_resolution_add_error");
 assertIncludes("stdlib call resolver facts", stdlibResolverBody, "resolve_stdlib_fallible_call");
@@ -490,6 +521,10 @@ assertIncludes("fallible call function context resolver", callFunctionContextBod
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_constrained_interface_call");
 assertIncludes("fallible call function context resolver", callFunctionContextBody, "resolve_receiver_shape_call");
 assertNotIncludes("fallible call function context resolver", callFunctionContextBody, "find_shape_method_decl");
+
+const memberCallSkipBody = sliceBetween(checker, "static bool member_call_skips_callee_expr_check", "static bool check_call_callee");
+assertIncludes("member callee precheck", memberCallSkipBody, "member_root_ident_is");
+assertNotIncludes("member callee precheck", memberCallSkipBody, "member_name_buf");
 
 const functionErrorFlowBody = sliceBetween(
   checker,
@@ -510,6 +545,11 @@ assertNotIncludes("call callee precheck", callCalleeBody, "resolve_shape_namespa
 assertNotIncludes("call callee precheck", callCalleeBody, "resolve_constrained_interface_call");
 assertNotIncludes("call callee precheck", callCalleeBody, "resolve_stdlib_call");
 
+const receiverShouldResolveBody = sliceBetween(checker, "static bool receiver_member_call_should_resolve", "static bool check_receiver_method_receiver_access");
+assertIncludes("receiver resolution gate", receiverShouldResolveBody, "member_root_ident_is");
+assertIncludes("receiver resolution gate", receiverShouldResolveBody, "resolve_stdlib_call");
+assertNotIncludes("receiver resolution gate", receiverShouldResolveBody, "member_name_buf");
+
 const checkCallBody = sliceBetween(
   checker,
   "static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {",
@@ -520,6 +560,12 @@ assertIncludes("call checking dispatch", checkCallBody, "check_call_expr_expecte
 const checkedCallBody = sliceBetween(checker, "static bool apply_checked_call_storage_effects", "static bool apply_resolved_call_storage_effects");
 assertIncludes("checked call storage effects", checkedCallBody, "resolve_provenance_call");
 assertIncludes("checked call storage effects", checkedCallBody, "apply_provenance_call_storage_effects");
+
+const stdMemGetProvenanceBody = sliceBetween(checker, "static bool std_mem_get_value_provenance", "static bool value_provenance_add_actual_place");
+assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "resolve_stdlib_call");
+assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "resolution.std_helper");
+assertIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "z_call_resolution_add_arg");
+assertNotIncludes("std.mem.get provenance resolver", stdMemGetProvenanceBody, "member_name_buf");
 
 const summaryBody = sliceBetween(checker, "static bool function_provenance_summary", "static bool function_return_value_provenance");
 assertIncludes("function provenance summary", summaryBody, "collect_return_value_provenance_from_stmt_vec");

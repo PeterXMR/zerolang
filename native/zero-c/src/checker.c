@@ -989,6 +989,13 @@ static void member_name_buf(const Expr *expr, ZBuf *buf) {
   }
 }
 
+static bool member_root_ident_is(const Expr *expr, const char *name) {
+  if (!expr || !name) return false;
+  const Expr *cursor = expr;
+  while (cursor && cursor->kind == EXPR_MEMBER) cursor = cursor->left;
+  return cursor && cursor->kind == EXPR_IDENT && cursor->text && strcmp(cursor->text, name) == 0;
+}
+
 static bool is_world_stream_write_callee(const Expr *callee, Scope *scope) {
   if (!callee || callee->kind != EXPR_MEMBER || !callee->text || strcmp(callee->text, "write") != 0) return false;
   const Expr *stream = callee->left;
@@ -1002,21 +1009,6 @@ static bool is_world_stream_write_callee(const Expr *callee, Scope *scope) {
 
 static bool is_world_stream_write_call(const Expr *expr, Scope *scope) {
   return expr && expr->kind == EXPR_CALL && is_world_stream_write_callee(expr->left, scope);
-}
-
-static const char *std_call_return_type(const Expr *callee) {
-  ZBuf name;
-  zbuf_init(&name);
-  member_name_buf(callee, &name);
-  const ZStdHelperInfo *helper = z_std_helper_find(name.data);
-  const char *result = helper ? helper->return_type : "Unknown";
-  if (name.data && strcmp(name.data, "std.mem.get") == 0) result = "Unknown";
-  zbuf_free(&name);
-  return result;
-}
-
-static const char *std_call_arg_type(const char *name, size_t index) {
-  return z_std_helper_arg_type(name, index);
 }
 
 static bool type_has_generic_arg(const char *type, const char *name, const char **inner, size_t *inner_len) {
@@ -4368,9 +4360,13 @@ static bool resolve_stdlib_callee(const Expr *callee, const Expr *call, ZCallRes
     out->call_expr = call;
     out->callee_expr = callee;
     out->type_args = call_type_args(call);
+    out->std_helper = helper;
     out->param_len = helper->arg_count >= 0 ? (size_t)helper->arg_count : 0;
     z_call_resolution_set_callee_name(out, name.data);
     z_call_resolution_set_return_type(out, helper->return_type);
+    for (size_t i = 0; call && helper->arg_count > 0 && i < (size_t)helper->arg_count && i < Z_STD_HELPER_MAX_ARGS && i < call->args.len; i++) {
+      if (helper->arg_types[i]) z_call_resolution_add_arg(out, i, call->args.items[i], helper->arg_types[i], NULL);
+    }
     for (size_t i = 0; i < Z_STD_HELPER_MAX_ERRORS; i++) {
       const char *error_name = z_std_helper_error_name(helper, i);
       if (!error_name) break;
@@ -4741,6 +4737,84 @@ static bool index_element_type(const char *base_type, char *out, size_t out_len)
   return false;
 }
 
+static bool resolve_expr_call_for_type(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, ZCallResolution *resolution) {
+  if (!program || !call || call->kind != EXPR_CALL || !call->left || !resolution) return false;
+  if (call->left->kind == EXPR_IDENT) return resolve_named_function_call(program, call, resolution);
+  if (call->left->kind != EXPR_MEMBER) return false;
+  return resolve_shape_namespace_call(program, call, resolution) ||
+    resolve_concrete_constrained_shape_call(ctx, program, ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, call, resolution) ||
+    resolve_constrained_interface_call(program, ctx ? ctx->function : NULL, call, resolution) ||
+    resolve_receiver_shape_call(ctx, program, call, scope, NULL, resolution) ||
+    resolve_choice_constructor_call(program, call, resolution) ||
+    resolve_stdlib_call(call, resolution);
+}
+
+static const char *expr_call_return_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {
+  if (!expr || expr->kind != EXPR_CALL || !expr->left) return "Unknown";
+  if (expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) return "Void";
+  if (expr->left->kind == EXPR_MEMBER && is_world_stream_write_callee(expr->left, scope)) return "Void";
+
+  ZCallResolution resolution = {0};
+  if (!resolve_expr_call_for_type(ctx, program, expr, scope, &resolution)) return "Unknown";
+  static char return_type[160];
+  snprintf(return_type, sizeof(return_type), "%s", resolution.return_type ? resolution.return_type : "Unknown");
+
+  if (resolution.kind == Z_CALL_FUNCTION && function_is_generic(resolution.callee)) {
+    GenericBinding *bindings = z_checked_calloc(resolution.callee->type_params.len, sizeof(GenericBinding));
+    generic_bindings_init_from_params(bindings, &resolution.callee->type_params, 0);
+    ZDiag ignored = {0};
+    if (build_generic_bindings(ctx, program, resolution.callee, expr, scope, &ignored, bindings, resolution.callee->type_params.len, NULL)) {
+      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, resolution.callee->type_params.len);
+      snprintf(return_type, sizeof(return_type), "%s", substituted);
+      free(substituted);
+    }
+    generic_bindings_free(bindings, resolution.callee->type_params.len);
+    free(bindings);
+  } else if (resolution.kind == Z_CALL_SHAPE_NAMESPACE || resolution.kind == Z_CALL_CONCRETE_CONSTRAINED_SHAPE) {
+    GenericBinding *bindings = NULL;
+    size_t binding_len = 0;
+    ZDiag ignored = {0};
+    if (build_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, scope, NULL, &ignored, &bindings, &binding_len)) {
+      provenance_context_substitute_bindings(ctx, program, bindings, binding_len, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0);
+      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
+      snprintf(return_type, sizeof(return_type), "%s", substituted);
+      free(substituted);
+    }
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+  } else if (resolution.kind == Z_CALL_CONSTRAINED_INTERFACE) {
+    GenericBinding *bindings = NULL;
+    size_t binding_len = 0;
+    ZDiag ignored = {0};
+    if (build_constrained_interface_method_bindings(ctx, program, ctx ? ctx->function : NULL, expr, scope, resolution.interface, resolution.callee, NULL, NULL, 0, &ignored, &bindings, &binding_len)) {
+      char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
+      snprintf(return_type, sizeof(return_type), "%s", substituted);
+      free(substituted);
+    }
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+  } else if (resolution.kind == Z_CALL_RECEIVER) {
+    bool receiver_requires_mut = false;
+    GenericBinding *bindings = NULL;
+    size_t binding_len = 0;
+    ZDiag ignored = {0};
+    if (shape_method_receiver_info(resolution.callee, &receiver_requires_mut)) {
+      char *self_arg_type = receiver_self_arg_type(expr_type(ctx, program, resolution.receiver_expr, scope), receiver_requires_mut);
+      if (build_receiver_shape_method_bindings(ctx, program, resolution.shape, resolution.callee, expr, self_arg_type, scope, &ignored, &bindings, &binding_len)) {
+        char *substituted = type_substitute_generic_signature(program, resolution.return_type, bindings, binding_len);
+        snprintf(return_type, sizeof(return_type), "%s", substituted);
+        free(substituted);
+      }
+      free(self_arg_type);
+    }
+    generic_bindings_free(bindings, binding_len);
+    free(bindings);
+  }
+
+  z_call_resolution_free(&resolution);
+  return return_type;
+}
+
 static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {
   if (!expr) return "Void";
   const char *resolved_type = expr_resolved_type_for_current_context(ctx, expr);
@@ -4763,93 +4837,7 @@ static const char *expr_type(CheckContext *ctx, const Program *program, const Ex
       const Function *fun = find_function(program, expr->text);
       return fun ? fun->return_type : "Unknown";
     }
-    case EXPR_CALL: {
-      if (expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) return "Void";
-      if (expr->left && expr->left->kind == EXPR_IDENT) {
-        ZCallResolution resolution = {0};
-        if (!resolve_named_function_call(program, expr, &resolution)) return "Unknown";
-        const Function *fun = resolution.callee;
-        if (function_is_generic(fun)) {
-          GenericBinding *bindings = z_checked_calloc(fun->type_params.len, sizeof(GenericBinding));
-          generic_bindings_init_from_params(bindings, &fun->type_params, 0);
-          ZDiag ignored = {0};
-          if (build_generic_bindings(ctx, program, fun, expr, scope, &ignored, bindings, fun->type_params.len, NULL)) {
-            static char generic_return_type[160];
-            char *substituted = type_substitute_generic_signature(program, fun->return_type, bindings, fun->type_params.len);
-            snprintf(generic_return_type, sizeof(generic_return_type), "%s", substituted);
-            free(substituted);
-            generic_bindings_free(bindings, fun->type_params.len);
-            free(bindings);
-            z_call_resolution_free(&resolution);
-            return generic_return_type;
-          }
-          generic_bindings_free(bindings, fun->type_params.len);
-          free(bindings);
-        }
-        const char *return_type = fun->return_type ? fun->return_type : "Void";
-        z_call_resolution_free(&resolution);
-        return return_type;
-      }
-      if (expr->left && expr->left->kind == EXPR_MEMBER) {
-        if (is_world_stream_write_callee(expr->left, scope)) return "Void";
-        ZCallResolution resolution = {0};
-        if (resolve_shape_namespace_call(program, expr, &resolution)) {
-          const Shape *shape = resolution.shape;
-          const Function *method = resolution.callee;
-          GenericBinding *bindings = NULL;
-          size_t binding_len = 0;
-          ZDiag ignored = {0};
-          if (build_shape_method_bindings(ctx, program, shape, method, expr, scope, NULL, &ignored, &bindings, &binding_len)) {
-            static char method_return_type[160];
-            char *substituted = type_substitute_generic_signature(program, method->return_type, bindings, binding_len);
-            snprintf(method_return_type, sizeof(method_return_type), "%s", substituted);
-            free(substituted);
-            generic_bindings_free(bindings, binding_len);
-            free(bindings);
-            z_call_resolution_free(&resolution);
-            return method_return_type;
-          }
-          generic_bindings_free(bindings, binding_len);
-          free(bindings);
-          const char *return_type = method->return_type ? method->return_type : "Void";
-          z_call_resolution_free(&resolution);
-          return return_type;
-        }
-        if (resolve_constrained_interface_call(program, ctx ? ctx->function : NULL, expr, &resolution)) {
-          const InterfaceDecl *interface = resolution.interface;
-          const Function *required = resolution.callee;
-          GenericBinding *interface_bindings = NULL;
-          size_t interface_binding_len = 0;
-          ZDiag ignored = {0};
-          if (!build_constrained_interface_method_bindings(ctx, program, ctx ? ctx->function : NULL, expr, scope, interface, required, NULL, NULL, 0, &ignored, &interface_bindings, &interface_binding_len)) {
-            const char *return_type = required->return_type ? required->return_type : "Void";
-            z_call_resolution_free(&resolution);
-            return return_type;
-          }
-          static char constrained_return_type[160];
-          char *substituted = type_substitute_generic_signature(program, required->return_type, interface_bindings, interface_binding_len);
-          snprintf(constrained_return_type, sizeof(constrained_return_type), "%s", substituted);
-          free(substituted);
-          generic_bindings_free(interface_bindings, interface_binding_len);
-          free(interface_bindings);
-          z_call_resolution_free(&resolution);
-          return constrained_return_type;
-        }
-        if (resolve_choice_constructor_call(program, expr, &resolution)) {
-          const char *return_type = resolution.choice && resolution.choice->name ? resolution.choice->name : "Unknown";
-          z_call_resolution_free(&resolution);
-          return return_type;
-        }
-        if (resolve_stdlib_call(expr, &resolution)) {
-          static char std_return_type[160];
-          snprintf(std_return_type, sizeof(std_return_type), "%s", resolution.return_type ? resolution.return_type : "Unknown");
-          z_call_resolution_free(&resolution);
-          return std_return_type;
-        }
-        return "Unknown";
-      }
-      return "Unknown";
-    }
+    case EXPR_CALL: return expr_call_return_type(ctx, program, expr, scope);
     case EXPR_INDEX: {
       static char element_type[128];
       if (index_element_type(expr_type(ctx, program, expr->left, scope), element_type, sizeof(element_type))) return element_type;
@@ -5249,12 +5237,7 @@ static bool type_static_value_mismatch(const Program *program, const char *expec
 
 static bool member_call_skips_callee_expr_check(const Expr *callee, Scope *scope) {
   if (!callee || callee->kind != EXPR_MEMBER) return false;
-  ZBuf name;
-  zbuf_init(&name);
-  member_name_buf(callee, &name);
-  bool std_namespace = strncmp(name.data, "std.", strlen("std.")) == 0;
-  zbuf_free(&name);
-  return std_namespace || is_world_stream_write_callee(callee, scope);
+  return member_root_ident_is(callee, "std") || is_world_stream_write_callee(callee, scope);
 }
 
 static bool check_call_callee(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, ZDiag *diag) {
@@ -5455,13 +5438,14 @@ static bool check_named_function_call_expected(CheckContext *ctx, const Program 
 
 static bool check_stdlib_table_arg_range_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *name, size_t start_index, bool allow_span_array_arg, ZCallResolution *resolution) {
   diag = check_context_diag(ctx, diag);
-  if (!expr || !name) return true;
+  if (!expr || !name || !resolution) return true;
   for (size_t i = start_index; i < expr->args.len; i++) {
-    const char *raw_expected = std_call_arg_type(name, i);
+    const char *raw_expected = z_call_resolution_param_type(resolution, i);
+    bool has_expected = raw_expected && strcmp(raw_expected, "Unknown") != 0;
     const char *initial_actual = expr_type(ctx, program, expr->args.items[i], scope);
-    if (resolution) z_call_resolution_add_arg(resolution, i, expr->args.items[i], raw_expected, initial_actual);
-    char *expected_type = resolution ? call_resolution_param_type_text(resolution, i) : z_strdup(raw_expected ? raw_expected : "Unknown");
-    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, raw_expected ? expected_type : NULL)) {
+    if (has_expected) z_call_resolution_add_arg(resolution, i, expr->args.items[i], raw_expected, initial_actual);
+    char *expected_type = has_expected ? call_resolution_param_type_text(resolution, i) : z_strdup("Unknown");
+    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, has_expected ? expected_type : NULL)) {
       free(expected_type);
       return false;
     }
@@ -5470,12 +5454,12 @@ static bool check_stdlib_table_arg_range_expected(CheckContext *ctx, const Progr
       const char *scope_actual = scope_type(scope, expr->args.items[i]->text);
       if (scope_actual) actual = scope_actual;
     }
-    if (resolution) z_call_resolution_add_arg(resolution, i, expr->args.items[i], raw_expected ? expected_type : NULL, actual);
+    z_call_resolution_add_arg(resolution, i, expr->args.items[i], has_expected ? expected_type : NULL, actual);
     bool span_array_arg = false;
-    bool expected_span = raw_expected && type_is_named_generic(expected_type, "Span");
-    bool expected_mut_span = raw_expected && type_is_named_generic(expected_type, "MutSpan");
+    bool expected_span = has_expected && type_is_named_generic(expected_type, "Span");
+    bool expected_mut_span = has_expected && type_is_named_generic(expected_type, "MutSpan");
     bool inline_array_literal = expr->args.items[i] && expr->args.items[i]->kind == EXPR_ARRAY_LITERAL;
-    if (allow_span_array_arg && raw_expected && actual && actual[0] == '[' && (expected_span || (expected_mut_span && !inline_array_literal))) {
+    if (allow_span_array_arg && has_expected && actual && actual[0] == '[' && (expected_span || (expected_mut_span && !inline_array_literal))) {
       char expected_element[128];
       char actual_element[128];
       if (span_element_text(expected_type, expected_element, sizeof(expected_element)) &&
@@ -5483,7 +5467,7 @@ static bool check_stdlib_table_arg_range_expected(CheckContext *ctx, const Progr
         span_array_arg = types_compatible_in_scope(program, scope, expected_element, actual_element);
       }
     }
-    if (raw_expected && !span_array_arg && !types_compatible_in_scope(program, scope, expected_type, actual)) {
+    if (has_expected && !span_array_arg && !types_compatible_in_scope(program, scope, expected_type, actual)) {
       char message[256];
       snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, name);
       bool ok = set_diag_detail(diag, 3012, message, expr->args.items[i]->line, expr->args.items[i]->column, expected_type, actual, "pass a compatible value");
@@ -5632,7 +5616,7 @@ static bool check_stdlib_json_parse_call_expected(CheckContext *ctx, const Progr
 
 static bool check_stdlib_table_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name) {
   if (!check_stdlib_table_arg_range_expected(ctx, program, expr, scope, diag, name, 0, true, resolution)) return false;
-  set_expr_resolved_type(expr, resolution && resolution->return_type ? resolution->return_type : std_call_return_type(expr->left));
+  set_expr_resolved_type(expr, resolution && resolution->return_type ? resolution->return_type : "Unknown");
   return true;
 }
 
@@ -5786,16 +5770,12 @@ static bool receiver_member_call_should_resolve(CheckContext *ctx, const Program
   if (!expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER) return false;
   const Expr *receiver = expr->left->left;
   if (!receiver) return false;
-  ZBuf callee_name;
-  zbuf_init(&callee_name);
-  member_name_buf(expr->left, &callee_name);
   ZCallResolution builtin_std_resolution = {0};
   bool stdlib_member_callee = resolve_stdlib_call(expr, &builtin_std_resolution);
   z_call_resolution_free(&builtin_std_resolution);
-  bool builtin_member_callee = strncmp(callee_name.data, "std.", strlen("std.")) == 0 ||
+  bool builtin_member_callee = member_root_ident_is(expr->left, "std") ||
     stdlib_member_callee ||
     is_world_stream_write_callee(expr->left, scope);
-  zbuf_free(&callee_name);
   if (builtin_member_callee) return false;
   if (receiver->kind == EXPR_IDENT && find_shape(program, receiver->text)) return false;
   char **receiver_constraint_args = NULL;
@@ -7131,15 +7111,13 @@ static void register_match_payload_binding_provenance(
 
 static bool std_mem_get_value_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER || expr->args.len < 1) return false;
-  ZBuf callee_name;
-  zbuf_init(&callee_name);
-  member_name_buf(expr->left, &callee_name);
-  bool is_get = strcmp(callee_name.data, "std.mem.get") == 0;
-  zbuf_free(&callee_name);
-  if (!is_get) return false;
+  ZCallResolution resolution = {0};
+  if (!resolve_stdlib_call(expr, &resolution)) return false;
+  bool added = false;
+  if (!resolution.std_helper || !resolution.std_helper->name || strcmp(resolution.std_helper->name, "std.mem.get") != 0) goto done;
 
   const Expr *collection = expr->args.items[0];
-  bool added = false;
+  z_call_resolution_add_arg(&resolution, 0, collection, z_call_resolution_param_type(&resolution, 0), expr_type(ctx, program, collection, scope));
   ValueProvenance collection_provenance = {0};
   if (expr_reference_provenance(ctx, program, collection, scope, &collection_provenance)) {
     ValueProvenance element_provenance = {0};
@@ -7149,16 +7127,17 @@ static bool std_mem_get_value_provenance(CheckContext *ctx, const Program *progr
     value_provenance_free(&element_provenance);
   }
   value_provenance_free(&collection_provenance);
-  if (added) return true;
+  if (added) goto done;
 
-  char root[128];
-  char path[256];
-  if (!expr_binding_path(collection, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
-  char element_type[160];
-  if (!index_element_type(expr_type(ctx, program, collection, scope), element_type, sizeof(element_type))) return false;
+  char root[128], path[256], element_type[160];
+  if (!expr_binding_path(collection, root, sizeof(root), path, sizeof(path)) ||
+      !scope_has(scope, root) ||
+      !index_element_type(expr_type(ctx, program, collection, scope), element_type, sizeof(element_type))) goto done;
   char *element_path = origin_path_join(path, "[*]");
   added = type_value_provenance_from_place(program, element_type, scope, root, scope_binding_scope(scope, root), element_path, "value", origins, 0);
   free(element_path);
+done:
+  z_call_resolution_free(&resolution);
   return added;
 }
 

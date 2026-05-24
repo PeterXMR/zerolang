@@ -80,13 +80,7 @@ const knownLargeFunctionLimits = new Map([
   ["native/zero-c/src/main.c|static int run_tests_direct(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target) {", 151],
 ]);
 
-const knownReturnTypeDivergences = new Map([
-  ["std.mem.get", {
-    helperReturnType: "Maybe<T>",
-    checkerReturnType: "Unknown",
-    reason: "checker resolves the element-specific Maybe<T> return in a dedicated std.mem.get path",
-  }],
-]);
+const knownReturnTypeDivergences = new Map();
 
 const allowedHelpersWithSpecialArgTypeChecks = [
   "std.mem.eqlBytes",
@@ -373,8 +367,9 @@ function parseCheckerReturnTypes(text) {
 }
 
 function checkerUsesSharedReturnTypes(text) {
-  const block = cTextWithoutComments(cBlock(text, "static const char *std_call_return_type"));
-  return /\bz_std_helper_find\s*\(/.test(block) && /->return_type\b/.test(block);
+  const resolver = cTextWithoutComments(cBlock(text, "static bool resolve_stdlib_callee"));
+  return /\bz_std_helper_find\s*\(/.test(resolver) &&
+    /\bz_call_resolution_set_return_type\s*\([^;]*helper->return_type/.test(resolver);
 }
 
 function parseCheckerArgCounts(text) {
@@ -462,8 +457,9 @@ function parseStdHelperErrors(text) {
 }
 
 function checkerUsesSharedArgTypes(text) {
-  const block = cTextWithoutComments(cBlock(text, "static const char *std_call_arg_type"));
-  return /\bz_std_helper_arg_type\s*\(/.test(block);
+  const resolver = cTextWithoutComments(cBlock(text, "static bool resolve_stdlib_callee"));
+  return /\bhelper->arg_types\s*\[/.test(resolver) &&
+    /\bz_call_resolution_add_arg\s*\(/.test(resolver);
 }
 
 function checkerUsesSharedStdlibFallibility(text) {
@@ -692,6 +688,14 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
       names: stdlib.orRaiseHelpersMissingFallibleErrors,
     });
   }
+  if (!stdlib.sharedSignatureLookup.checkerReturnTypes ||
+      !stdlib.sharedSignatureLookup.checkerArgCounts ||
+      !stdlib.sharedSignatureLookup.checkerArgTypes) {
+    violations.push({
+      kind: "stdlib-shared-signature-lookup",
+      sharedSignatureLookup: stdlib.sharedSignatureLookup,
+    });
+  }
   if (!stdlib.sharedFallibilityLookup.checker || !stdlib.sharedFallibilityLookup.graph) {
     violations.push({
       kind: "stdlib-shared-fallibility-lookup",
@@ -907,7 +911,6 @@ if (checkerReturnTypesUseSharedTable) {
   for (const helper of stdHelpers) {
     checkerReturnTypes.set(helper.name, helper.returnType);
   }
-  if (checkerReturnTypes.has("std.mem.get")) checkerReturnTypes.set("std.mem.get", "Unknown");
 }
 if (checkerArgCountsUseSharedTable) {
   for (const helper of stdHelpers) {

@@ -3,6 +3,8 @@
 
 #include "zero.h"
 
+typedef struct ZStdHelperInfo ZStdHelperInfo;
+
 typedef enum {
   Z_CALL_UNKNOWN,
   Z_CALL_FUNCTION,
@@ -41,6 +43,7 @@ typedef struct {
   const Function *callee;
   const Shape *shape;
   const InterfaceDecl *interface;
+  const ZStdHelperInfo *std_helper;
   const Choice *choice;
   const Param *choice_case;
   size_t param_offset;
