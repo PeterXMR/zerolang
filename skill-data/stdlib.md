@@ -25,6 +25,7 @@ Call functions with their module path, such as `std.mem.len(value)`.
 - `std.rand`: explicit deterministic random sources.
 - `std.crypto`: small hash and byte-oriented crypto helpers.
 - `std.json`: explicit-buffer JSON parsing and string writing helpers.
+- `std.str`: byte-span string helpers, including non-overlapping reverse, prefix/suffix, substring, trim, and word counts.
 - `std.io`: buffered reader/writer surfaces over caller-owned storage.
 
 Prefer `Maybe<T>` return checks over assuming an operation succeeded.
@@ -66,6 +67,17 @@ For writable buffers, use caller-owned fixed arrays and `MutSpan<T>`:
 mut storage [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
 let writable MutSpan<u8> storage
 let copied std.mem.copy writable (std.mem.span "zero")
+```
+
+String helpers are byte-oriented and allocation-free. `std.str.reverse` writes
+into caller storage and requires that destination storage does not overlap the
+input text:
+
+```zero
+mut reversed [4]u8 [0, 0, 0, 0]
+let out std.str.reverse reversed "zero"
+if out.has
+  expect (std.mem.eql out.value "orez")
 ```
 
 ## Maybe Pattern

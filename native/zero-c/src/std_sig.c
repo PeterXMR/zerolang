@@ -16,7 +16,7 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.str.contains", "Bool", 2, {"Span<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.str.countByte", "usize", 2, {"Span<u8>", "u8"}, {NULL}, "memory", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.str.endsWith", "Bool", 2, {"Span<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
-  {"std.str.reverse", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes caller buffer", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.str.reverse", "Maybe<Span<u8>>", 2, {"MutSpan<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "writes non-overlapping caller buffer", true, Z_STD_HELPER_KIND_TABLE},
   {"std.str.startsWith", "Bool", 2, {"Span<u8>", "Span<u8>"}, {NULL}, "memory", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.str.trimAscii", "Span<u8>", 1, {"Span<u8>"}, {NULL}, "memory", "target-neutral", "borrows input bytes", true, Z_STD_HELPER_KIND_TABLE},
   {"std.str.wordCountAscii", "usize", 1, {"Span<u8>"}, {NULL}, "memory", "target-neutral", "no allocation", true, Z_STD_HELPER_KIND_TABLE},

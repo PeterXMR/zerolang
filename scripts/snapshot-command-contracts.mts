@@ -286,6 +286,11 @@ assert.equal(languageSkill.success, true);
 assert.match(languageSkill.data[0].content, /# zerolang Language/);
 assert.match(languageSkill.data[0].content, /pub fn main/);
 
+const stdlibSkill = json(["skills", "get", "stdlib", "--json"]).body;
+assert.equal(stdlibSkill.success, true);
+assert.match(stdlibSkill.data[0].content, /std\.str/);
+assert.match(stdlibSkill.data[0].content, /non-overlapping reverse/);
+
 const diagnosticSkill = json(["skills", "get", "diagnostics", "--json"]).body;
 assert.equal(diagnosticSkill.success, true);
 assert.match(diagnosticSkill.data[0].content, /fixSafety/);

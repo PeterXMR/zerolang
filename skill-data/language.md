@@ -211,6 +211,11 @@ let crc u32 std.codec.crc32Bytes bytes
 let hash u32 std.crypto.hash32 bytes
 let hmac u32 std.crypto.hmac32 (std.mem.span "key") (std.mem.span "message")
 
+mut reversed [4]u8 [0, 0, 0, 0]
+let reversed_text std.str.reverse reversed "zero"
+if reversed_text.has
+  expect (std.mem.eql reversed_text.value "orez")
+
 mut rng std.rand.seed 7_u32
 let random u32 std.rand.nextU32 (&mut rng)
 
