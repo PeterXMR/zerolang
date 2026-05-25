@@ -3631,7 +3631,11 @@ static const char *direct_row_symbol_kind(const ZRowTokenVec *tokens, size_t ind
   return NULL;
 }
 
-static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree, const char *module, ZDiag *diag) {
+static bool direct_row_reserved_internal_symbol(const char *name) {
+  return name && strncmp(name, "__zero_", strlen("__zero_")) == 0;
+}
+
+static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree, const char *module, bool allow_internal_names, ZDiag *diag) {
   for (size_t i = 0; input && tokens && tree && i < tree->len; i++) {
     const ZRowNode *node = &tree->items[i];
     if (node->parent != Z_ROW_NO_PARENT) continue;
@@ -3655,6 +3659,17 @@ static bool direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec 
     if (!kind) continue;
     size_t name_index = pos + 1;
     if (name_index >= end || tokens->items[name_index].kind != Z_ROW_TOKEN_WORD) continue;
+    if (!allow_internal_names && direct_row_reserved_internal_symbol(tokens->items[name_index].text)) {
+      diag->code = 3008;
+      diag->line = tokens->items[name_index].line;
+      diag->column = tokens->items[name_index].column;
+      diag->length = tokens->items[name_index].length > 0 ? (int)tokens->items[name_index].length : 1;
+      snprintf(diag->message, sizeof(diag->message), "reserved compiler-internal symbol name");
+      snprintf(diag->expected, sizeof(diag->expected), "top-level %s name without the __zero_ prefix", kind);
+      snprintf(diag->actual, sizeof(diag->actual), "%s", tokens->items[name_index].text);
+      snprintf(diag->help, sizeof(diag->help), "rename the symbol; __zero_ names are reserved for compiler-provided helpers");
+      return false;
+    }
     if (!direct_input_push_symbol(input, module, kind, tokens->items[name_index].text, is_public, diag)) return false;
   }
   return !diag || diag->code == 0;
@@ -3881,7 +3896,7 @@ static bool direct_row_append_std_source(SourceInput *input, ZBuf *combined, con
   }
   direct_input_push_string(&input->source_files, &input->source_file_count, module->path);
   direct_input_push_module(input, module->module, module->path);
-  bool ok = direct_input_add_row_symbols(input, &tokens, &tree, module->module, diag);
+  bool ok = direct_input_add_row_symbols(input, &tokens, &tree, module->module, true, diag);
   if (ok) direct_row_append_source(input, combined, module->path, source);
   z_free_row_tree(&tree);
   z_free_row_tokens(&tokens);
@@ -3983,8 +3998,10 @@ static bool direct_row_resolve_file(const char *path, const char *root, SourceIn
   if (diag->code == 0) {
     direct_input_push_string(&input->source_files, &input->source_file_count, path);
     direct_input_push_module(input, module, path);
-    if (direct_input_add_row_symbols(input, &tokens, &tree, module, diag)) {
+    if (direct_input_add_row_symbols(input, &tokens, &tree, module, false, diag)) {
       direct_row_append_source(input, combined, path, source);
+    } else if (!diag->path) {
+      diag->path = z_strdup(path);
     }
   }
 

@@ -31,7 +31,9 @@ Targets can reject unavailable capabilities. In the current compiler:
 
 ## Lexical Basics
 
-Zero source uses UTF-8 text. Identifiers are case-sensitive. Line comments start with `//`.
+Zero source uses UTF-8 text. Identifiers are case-sensitive. Top-level names
+starting with `__zero_` are reserved for compiler-provided helpers. Line
+comments start with `//`.
 
 Common literal forms include:
 

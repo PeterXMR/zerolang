@@ -8,6 +8,8 @@ pub fn main Void world World !
   mut root_join_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let root_join_base Span<u8> "/x"[..1]
   let root_joined std.path.join root_join_buf root_join_base "main.0"
+  mut empty_abs_join_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let empty_abs_joined std.path.join empty_abs_join_buf "" "/main.0"
   mut rel_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let relative std.path.relative rel_buf "src" "src/main.0"
   mut fallback_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -51,6 +53,11 @@ pub fn main Void world World !
   if root_joined.has
     if == (std.mem.eql root_joined.value "/main.0") false
       set ok false
+  if == empty_abs_joined.has false
+    set ok false
+  if empty_abs_joined.has
+    if == (std.mem.eql empty_abs_joined.value "/main.0") false
+      set ok false
   if == relative.has false
     set ok false
   if relative.has
@@ -91,6 +98,10 @@ pub fn main Void world World !
   if == (std.mem.eql (std.path.basename "src/main.0") "main.0") false
     set ok false
   if == (std.mem.eql (std.path.dirname "src/main.0") "src") false
+    set ok false
+  if == (std.mem.eql (std.path.dirname "/main.0") root_join_base) false
+    set ok false
+  if == (std.mem.eql (std.path.dirname root_join_base) root_join_base) false
     set ok false
   if == (std.mem.eql (std.path.extension "src/main.0") "0") false
     set ok false

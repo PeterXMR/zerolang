@@ -19,10 +19,15 @@ fn __zero_std_path_basename String path String
 
 fn __zero_std_path_dirname String path String
   let end usize __zero_std_path_trim_end path
+  mut root_len usize 0
+  if && (> (std.mem.len path) 0) (__zero_std_path_is_sep path[0])
+    set root_len 1
+  if && (> root_len 0) (== end 0)
+    ret path[..root_len]
   mut split usize end
   while && (> split 0) (== (__zero_std_path_is_sep path[(- split 1)]) false)
     set split - split 1
-  while && (> split 0) (__zero_std_path_is_sep path[(- split 1)])
+  while && (> split root_len) (__zero_std_path_is_sep path[(- split 1)])
     set split - split 1
   ret path[..split]
 
@@ -59,11 +64,14 @@ fn __zero_std_path_join Maybe<String> buffer MutSpan<u8> left String right Strin
   if && (== left_end 0) (&& (> (std.mem.len left) 0) (__zero_std_path_is_sep left[0]))
     set left_end 1
   let left_is_root Bool && (== left_end 1) (__zero_std_path_is_sep left[0])
+  let right_is_root Bool && (> (std.mem.len right) 0) (__zero_std_path_is_sep right[0])
   mut right_start usize 0
   while && (< right_start (std.mem.len right)) (__zero_std_path_is_sep right[right_start])
     set right_start + right_start 1
   let right_len usize - (std.mem.len right) right_start
   mut total usize + left_end right_len
+  if && (== left_end 0) right_is_root
+    set total + total 1
   if && (&& (> left_end 0) (> right_len 0)) (== left_is_root false)
     set total + total 1
   if > total (std.mem.len buffer)
@@ -74,6 +82,9 @@ fn __zero_std_path_join Maybe<String> buffer MutSpan<u8> left String right Strin
       set buffer[out] 47_u8
     else
       set buffer[out] left[out]
+    set out + out 1
+  if && (== left_end 0) right_is_root
+    set buffer[out] 47_u8
     set out + out 1
   if && (&& (> left_end 0) (> right_len 0)) (== left_is_root false)
     set buffer[out] 47_u8

@@ -1350,6 +1350,9 @@ writeFileSync(directStdPathSource, `export c fn main u8
   let parent_normalized std.path.normalize parent "src/a/../main.0"
   mut joined_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let joined std.path.join joined_buf "src/" "/main.0"
+  let root_expected Span<u8> "/x"[..1]
+  mut empty_abs_join_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let empty_abs_joined std.path.join empty_abs_join_buf "" "/main.0"
   mut rel [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let relative std.path.relative rel "src" "src/main.0"
   mut fallback_buf [32]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -1381,6 +1384,11 @@ writeFileSync(directStdPathSource, `export c fn main u8
     set ok false
   if joined.has
     if == (std.mem.eql joined.value "src/main.0") false
+      set ok false
+  if == empty_abs_joined.has false
+    set ok false
+  if empty_abs_joined.has
+    if == (std.mem.eql empty_abs_joined.value "/main.0") false
       set ok false
   if == relative.has false
     set ok false
@@ -1422,6 +1430,10 @@ writeFileSync(directStdPathSource, `export c fn main u8
   if == (std.mem.eql (std.path.basename normalized.value) "main.0") false
     set ok false
   if == (std.mem.eql (std.path.dirname normalized.value) "src") false
+    set ok false
+  if == (std.mem.eql (std.path.dirname "/main.0") root_expected) false
+    set ok false
+  if == (std.mem.eql (std.path.dirname root_expected) root_expected) false
     set ok false
   if == (std.mem.eql (std.path.extension normalized.value) "0") false
     set ok false

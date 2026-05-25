@@ -3162,6 +3162,11 @@ const duplicateFunction = await execFileAsync(zero, ["check", "conformance/nativ
 assert.notEqual(duplicateFunction.code, 0);
 assert.match(duplicateFunction.stderr, /NAM004/);
 
+const internalPrefixDeclaration = await execFileAsync(zero, ["check", "conformance/native/fail/internal-prefix-declaration.0"]).catch((error) => error);
+assert.notEqual(internalPrefixDeclaration.code, 0);
+assert.match(internalPrefixDeclaration.stderr, /NAM004/);
+assert.match(internalPrefixDeclaration.stderr, /reserved compiler-internal symbol name/);
+
 const wrongArity = await execFileAsync(zero, ["check", "conformance/native/fail/wrong-arity.0"]).catch((error) => error);
 assert.notEqual(wrongArity.code, 0);
 assert.match(wrongArity.stderr, /NAM004/);
