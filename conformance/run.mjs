@@ -2588,6 +2588,21 @@ const callResolutionEdgeFacts = JSON.parse(callResolutionEdgeGraph.stdout).callR
 assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "function" && item.calleeName === "add" && item.owner === "constTotal" && item.returnType === "i32"));
 assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.len" && item.owner === "main" && item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "String")));
 
+const programGraphBody = JSON.parse((await execFileAsync(zero, ["graph", "--json", "examples/hello.0"])).stdout).programGraph;
+assert.equal(programGraphBody.schemaVersion, 1);
+assert.equal(programGraphBody.canonicalSource, false);
+assert.equal(programGraphBody.validation.ok, true);
+assert.equal(programGraphBody.validation.state, "shape-valid");
+assert(programGraphBody.counts.nodes > 0);
+assert(programGraphBody.counts.edges > 0);
+assert(programGraphBody.nodes.some((item) => item.kind === "Module" && item.name === "hello"));
+assert(programGraphBody.nodes.some((item) => item.kind === "Function" && item.name === "main" && item.public === true && item.fallible === true));
+assert(programGraphBody.nodes.some((item) => item.kind === "Param" && item.name === "world" && item.type === "World"));
+assert(programGraphBody.nodes.some((item) => item.kind === "Check"));
+assert(programGraphBody.nodes.some((item) => item.kind === "MethodCall"));
+assert(programGraphBody.edges.some((item) => item.kind === "body"));
+assert(programGraphBody.edges.some((item) => item.kind === "statement" && item.order === 0));
+
 const memorySize = await execFileAsync(zero, ["size", "--json", "--target", "linux-musl-x64", "examples/memory-package"]);
 const memorySizeBody = JSON.parse(memorySize.stdout);
 assert.equal(memorySizeBody.target, "linux-musl-x64");

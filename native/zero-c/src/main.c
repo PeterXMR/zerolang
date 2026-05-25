@@ -4,6 +4,7 @@
 
 #include "zero.h"
 #include "buildability.h"
+#include "program_graph.h"
 #include "std_sig.h"
 #include "std_source.h"
 
@@ -8768,6 +8769,9 @@ static void append_graph_json(ZBuf *buf, SourceInput *input, Program *program, c
   zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"callResolution\": ");
   z_append_call_resolution_facts_json(buf, input, program);
+  zbuf_append(buf, ",\n");
+  zbuf_append(buf, "  \"programGraph\": ");
+  z_append_program_graph_json(buf, input, program);
   zbuf_append(buf, ",\n");
   zbuf_append(buf, "  \"cImports\": ");
   append_c_imports_json(buf, program, target);
