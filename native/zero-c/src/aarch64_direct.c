@@ -522,21 +522,25 @@ static bool a64_emit_index_store(ZBuf *text, const IrFunction *fun, const IrInst
   }
   if (local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE)) {
     if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
-    if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 0, ctx, diag)) return false;
+    if (!a64_emit_store_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
+    if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 1, ctx, diag)) return false;
     z_aarch64_emit_movz_w(text, 9, local->array_len);
     a64_emit_u32_bounds_check(text, 8, 9);
     z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, instr->array_index, 0, frame_size));
     z_aarch64_emit_add_x_reg_lsl(text, 9, 9, 8, 2);
+    if (!a64_emit_load_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
     z_aarch64_emit_store_w_imm(text, 10, 9, 0);
     return true;
   }
   if (!local->is_array || (local->element_type != IR_TYPE_U8 && local->element_type != IR_TYPE_BOOL)) return a64_diag(diag, "direct AArch64 indexed store requires [N]u8, [N]Bool, or integer arrays", instr->line, instr->column, "unsupported array local");
   if (!a64_emit_value_to_reg_at(text, fun, instr->value, 10, frame_size, 0, ctx, diag)) return false;
-  if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 0, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
+  if (!instr->index || !a64_emit_value_to_reg_at(text, fun, instr->index, 8, frame_size, 1, ctx, diag)) return false;
   z_aarch64_emit_movz_w(text, 9, local->array_len);
   a64_emit_u32_bounds_check(text, 8, 9);
   z_aarch64_emit_add_x_sp_imm(text, 9, a64_local_slot_offset(fun, instr->array_index, 0, frame_size));
   z_aarch64_emit_add_x_reg(text, 9, 9, 8);
+  if (!a64_emit_load_scratch(text, 10, instr->value ? instr->value->type : local->element_type, 0, instr->value, diag)) return false;
   z_aarch64_emit_store_b_imm(text, 10, 9, 0);
   return true;
 }

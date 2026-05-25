@@ -119,6 +119,7 @@ static size_t coff_a64_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import
   z_aarch64_emit_store_x_sp(text, 1, 0);
   z_aarch64_emit_store_x_sp(text, 2, 8);
   z_aarch64_emit_store_w_sp(text, 31, 16);
+  z_aarch64_emit_store_x_sp(text, 30, 40);
   z_aarch64_emit_movz_w(text, 8, 2);
   z_aarch64_emit_cmp_w(text, 0, 8);
   z_aarch64_emit_movz_w(text, 0, 0xfffffff5u);
@@ -136,6 +137,7 @@ static size_t coff_a64_emit_exe_world_write(ZBuf *text, ZCoffImportPatch *import
   z_aarch64_emit_brk(text);
   z_aarch64_patch_cond19(text, ok_patch, text->len);
   z_aarch64_emit_movz_w(text, 0, 0);
+  z_aarch64_emit_load_x_sp(text, 30, 40);
   z_aarch64_emit_add_sp_imm(text, 48);
   z_aarch64_emit_ret(text);
   return offset;

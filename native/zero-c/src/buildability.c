@@ -129,10 +129,12 @@ static bool build_check_instr(const ZBuildability *ctx, const IrFunction *fun, c
       if (instr->value && !build_check_value(ctx, fun, instr->value, true, 0, diag)) return false;
       return true;
     case IR_INSTR_INDEX_STORE:
-    case IR_INSTR_FIELD_STORE:
+    case IR_INSTR_FIELD_STORE: {
       if (instr->value && !build_check_value(ctx, fun, instr->value, false, 0, diag)) return false;
-      if (instr->index && !build_check_value(ctx, fun, instr->index, false, 0, diag)) return false;
+      unsigned index_scratch_slot = instr->kind == IR_INSTR_INDEX_STORE && z_build_backend_is_aarch64_direct(ctx->backend) ? 1 : 0;
+      if (instr->index && !build_check_value(ctx, fun, instr->index, false, index_scratch_slot, diag)) return false;
       return true;
+    }
     case IR_INSTR_WORLD_WRITE:
       if (ctx->backend == Z_DIRECT_BACKEND_COFF_X64 && instr->value && !z_build_check_coff_byte_view(ctx, fun, instr->value, diag)) return false;
       if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 && instr->value && !z_build_check_macho_x64_byte_view(ctx, fun, instr->value, diag)) return false;

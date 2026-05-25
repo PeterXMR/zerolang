@@ -50,6 +50,13 @@ function repeatBuildHash(args, firstPath, repeatOut, repeatPath = repeatOut) {
   return repeatReport;
 }
 
+function hasAarch64Instruction(bytes, expected) {
+  for (let offset = 0; offset + 4 <= bytes.length; offset++) {
+    if (bytes.readUInt32LE(offset) === expected) return true;
+  }
+  return false;
+}
+
 function assertMachOLoadCommand(bytes, expectedCommand, expectedSize) {
   const ncmds = bytes.readUInt32LE(16);
   for (let offset = 32, i = 0; i < ncmds; i++) {
@@ -1124,6 +1131,8 @@ assert.equal(directCoffArm64HelloReport.generatedCBytes, 0);
 assert.equal(directCoffArm64HelloReport.objectBackend.objectEmission.path, "direct-coff-aarch64-exe");
 assert.equal(directCoffArm64HelloReport.objectBackend.directFacts.runtimeHelperCount, 1);
 assert(directCoffArm64HelloBytes.includes(Buffer.from("hello from zero")));
+assert(hasAarch64Instruction(directCoffArm64HelloBytes, 0xf90017fe));
+assert(hasAarch64Instruction(directCoffArm64HelloBytes, 0xf94017fe));
 const directCoffU8ExePath = join(outDir, "direct-coff-u8-return");
 rmSync(`${directCoffU8ExePath}.exe`, { force: true });
 const directCoffU8ExeReport = json(["build", "--json", "--emit", "exe", "--target", "win32-x64.exe", "examples/direct-string-literal.0", "--out", directCoffU8ExePath]).body;
@@ -1185,6 +1194,20 @@ assert.equal(directArm64ObjReport.objectBackend.targetFacts.status, "native-exe"
 assert.equal(directArm64ObjBytes.readUInt16LE(16), 1);
 assert.equal(directArm64ObjBytes.readUInt16LE(18), 183);
 assert(directArm64ObjBytes.includes(Buffer.from([0x40, 0x05, 0x80, 0x52, 0xc0, 0x03, 0x5f, 0xd6])));
+const directArm64IndexStoreSource = join(outDir, "direct-arm64-index-store-scratch.0");
+const directArm64IndexStoreObjPath = join(outDir, "direct-arm64-index-store-scratch.o");
+writeFileSync(directArm64IndexStoreSource, `export c fn main u32
+  mut values [4]u32 [0, 0, 0, 0]
+  set values[% 5_u32 4_u32] 7_u32
+  ret values[1]
+`);
+rmSync(directArm64IndexStoreObjPath, { force: true });
+const directArm64IndexStoreObjReport = json(["build", "--json", "--emit", "obj", "--target", "linux-arm64", directArm64IndexStoreSource, "--out", directArm64IndexStoreObjPath]).body;
+const directArm64IndexStoreObjBytes = readFileSync(directArm64IndexStoreObjPath);
+assert.equal(directArm64IndexStoreObjReport.compiler, "zero-elf-aarch64");
+assert.equal(directArm64IndexStoreObjReport.generatedCBytes, 0);
+assert(hasAarch64Instruction(directArm64IndexStoreObjBytes, 0xb90003ea));
+assert(hasAarch64Instruction(directArm64IndexStoreObjBytes, 0xb94003ea));
 const directWhilePath = join(outDir, "direct-while-sum");
 rmSync(directWhilePath, { force: true });
 const directWhileReport = json(["build", "--json", "--emit", "exe", "--backend", "zero-elf64", "--target", "linux-musl-x64", "examples/direct-while-sum.0", "--out", directWhilePath]).body;
