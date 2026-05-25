@@ -57,6 +57,19 @@ function hasAarch64Instruction(bytes, expected) {
   return false;
 }
 
+function hasAarch64VoidReturnEpilogue(bytes) {
+  for (let offset = 0; offset + 12 <= bytes.length; offset++) {
+    if (bytes.readUInt32LE(offset) !== 0x52800000) continue;
+    let cursor = offset + 4;
+    const maybeAddSp = bytes.readUInt32LE(cursor);
+    if (((maybeAddSp & 0xffc003ff) >>> 0) === 0x910003ff) cursor += 4;
+    if (cursor + 8 <= bytes.length &&
+        bytes.readUInt32LE(cursor) === 0xa8c17bfd &&
+        bytes.readUInt32LE(cursor + 4) === 0xd65f03c0) return true;
+  }
+  return false;
+}
+
 function assertMachOLoadCommand(bytes, expectedCommand, expectedSize) {
   const ncmds = bytes.readUInt32LE(16);
   for (let offset = 32, i = 0; i < ncmds; i++) {
@@ -1158,6 +1171,18 @@ assert.equal(directAarch64HelloReport.generatedCBytes, 0);
 assert.equal(directAarch64HelloReport.objectBackend.objectEmission.path, "direct-elf-aarch64-exe");
 assert.equal(directAarch64HelloReport.objectBackend.directFacts.runtimeHelperCount, 1);
 assert(directAarch64HelloBytes.includes(Buffer.from("hello from zero")));
+assert(hasAarch64VoidReturnEpilogue(directAarch64HelloBytes));
+const directAarch64VoidImplicitSource = join(outDir, "direct-aarch64-void-implicit.0");
+const directAarch64VoidImplicitPath = join(outDir, "direct-aarch64-void-implicit");
+writeFileSync(directAarch64VoidImplicitSource, `export c fn main Void
+  let ok Bool true
+`);
+rmSync(directAarch64VoidImplicitPath, { force: true });
+const directAarch64VoidImplicitReport = json(["build", "--json", "--emit", "exe", "--target", "linux-musl-arm64", directAarch64VoidImplicitSource, "--out", directAarch64VoidImplicitPath]).body;
+const directAarch64VoidImplicitBytes = readFileSync(directAarch64VoidImplicitPath);
+assert.equal(directAarch64VoidImplicitReport.compiler, "zero-elf-aarch64");
+assert.equal(directAarch64VoidImplicitReport.generatedCBytes, 0);
+assert(hasAarch64VoidReturnEpilogue(directAarch64VoidImplicitBytes));
 assert.equal(directAarch64ExeReport.objectBackend.targetFacts.status, "native-exe");
 assert.equal(directAarch64ExeBytes.readUInt16LE(16), 2);
 assert.equal(directAarch64ExeBytes.readUInt16LE(18), 183);

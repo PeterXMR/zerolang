@@ -492,6 +492,10 @@ static void a64_emit_epilogue(ZBuf *text, unsigned frame_size) {
   z_aarch64_emit_ret(text);
 }
 
+static void a64_emit_void_result(ZBuf *text, const IrFunction *fun) {
+  if (fun && fun->return_type == IR_TYPE_VOID) z_aarch64_emit_movz_w(text, 0, 0);
+}
+
 static bool a64_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *instrs, size_t len, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag);
 
 static bool a64_emit_local_set(ZBuf *text, const IrFunction *fun, const IrInstr *instr, unsigned frame_size, ZAArch64DirectContext *ctx, ZDiag *diag) {
@@ -561,6 +565,7 @@ static bool a64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
   if (instr->kind == IR_INSTR_EXPR) return !instr->value || a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag);
   if (instr->kind == IR_INSTR_RETURN) {
     if (instr->value && !a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
+    a64_emit_void_result(text, fun);
     a64_emit_epilogue(text, frame_size);
     return true;
   }
@@ -618,7 +623,10 @@ static bool a64_emit_function_text(ZBuf *text, const IrFunction *fun, ZAArch64Di
   z_aarch64_emit_mov_x29_sp(text);
   if (frame_size > 0) z_aarch64_emit_sub_sp_imm(text, frame_size);
   if (!a64_emit_instrs(text, fun, fun->instrs, fun->instr_len, frame_size, ctx, diag)) return false;
-  if (fun->instr_len == 0 || fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN) a64_emit_epilogue(text, frame_size);
+  if (fun->instr_len == 0 || fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN) {
+    a64_emit_void_result(text, fun);
+    a64_emit_epilogue(text, frame_size);
+  }
   return true;
 }
 
