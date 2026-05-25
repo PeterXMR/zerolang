@@ -1,6 +1,12 @@
-fn repeatLen usize text Span<u8> times usize
-  ret * (std.mem.len text) times
-
 pub fn main Void world World !
-  if == (repeatLen (std.mem.span "ha") 3) 6
+  let text std.mem.span "ha"
+  mut out [6]u8 [0_u8;6]
+  mut repeat usize 0
+  while < repeat 3
+    mut i usize 0
+    while < i (std.mem.len text)
+      set out[(+ (* repeat (std.mem.len text)) i)] text[i]
+      set i + i 1
+    set repeat + repeat 1
+  if && (&& (== out[0] 104) (== out[1] 97)) (&& (&& (== out[2] 104) (== out[3] 97)) (&& (== out[4] 104) (== out[5] 97)))
     check world.out.write "repeat string ok\n"

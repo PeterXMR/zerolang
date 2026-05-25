@@ -3,6 +3,19 @@ fn upper u8 c u8
     ret - c 32
   ret c
 
+fn lower u8 c u8
+  if && (>= c 65) (<= c 90)
+    ret + c 32
+  ret c
+
 pub fn main Void world World !
-  if == (upper 122) 90
+  let source std.mem.span "Zero"
+  mut uppered [4]u8 [0_u8;4]
+  mut lowered [4]u8 [0_u8;4]
+  mut i usize 0
+  while < i (std.mem.len source)
+    set uppered[i] upper source[i]
+    set lowered[i] lower source[i]
+    set i + i 1
+  if && (&& (== uppered[0] 90) (== uppered[1] 69)) (&& (&& (== lowered[0] 122) (== lowered[1] 101)) (== lowered[3] 111))
     check world.out.write "string case ok\n"

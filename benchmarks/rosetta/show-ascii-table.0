@@ -1,5 +1,10 @@
 pub fn main Void world World !
-  let upperA u8 65
-  let lowerZ u8 122
-  if && (== upperA 65) (== lowerZ 122)
+  mut table [95]u8 [0_u8;95]
+  mut code u8 32
+  mut i usize 0
+  while <= code 126
+    set table[i] code
+    set code + code 1
+    set i + i 1
+  if && (&& (== table[0] 32) (== table[33] 65)) (&& (== table[58] 90) (== table[94] 126))
     check world.out.write "ascii table ok\n"

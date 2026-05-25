@@ -1,3 +1,11 @@
+fn squareDoor Bool door usize
+  mut root usize 1
+  while <= (* root root) door
+    if == (* root root) door
+      ret true
+    set root + root 1
+  ret false
+
 pub fn main Void world World !
   mut doors [101]Bool [false;101]
   mut pass usize 1
@@ -7,5 +15,11 @@ pub fn main Void world World !
       set doors[door] == doors[door] false
       set door + door pass
     set pass + pass 1
-  if && (&& doors[1] doors[4]) (&& doors[81] (== doors[2] false))
+  mut valid Bool true
+  mut checkDoor usize 1
+  while <= checkDoor 100
+    if != doors[checkDoor] (squareDoor checkDoor)
+      set valid false
+    set checkDoor + checkDoor 1
+  if valid
     check world.out.write "100 doors ok\n"

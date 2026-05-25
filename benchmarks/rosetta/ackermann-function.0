@@ -1,6 +1,22 @@
-fn ack2 u32 n u32
-  ret + (* 2 n) 3
+fn pow2 u32 exponent u32
+  mut value u32 1
+  mut i u32 0
+  while < i exponent
+    set value * value 2
+    set i + i 1
+  ret value
+
+fn ackSmall u32 m u32 n u32
+  if == m 0
+    ret + n 1
+  if == m 1
+    ret + n 2
+  if == m 2
+    ret + (* 2 n) 3
+  if == m 3
+    ret - (pow2 (+ n 3)) 3
+  ret 0
 
 pub fn main Void world World !
-  if == (ack2 4) 11
+  if && (&& (== (ackSmall 0 4) 5) (== (ackSmall 1 4) 6)) (&& (== (ackSmall 2 4) 11) (== (ackSmall 3 2) 29))
     check world.out.write "ackermann ok\n"

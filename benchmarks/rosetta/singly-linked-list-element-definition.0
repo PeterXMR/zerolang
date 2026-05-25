@@ -3,6 +3,21 @@ type Node
   next usize
 
 pub fn main Void world World !
-  let node Node . value 42 next 0
-  if == node.value 42
+  let first Node . value 10 next 1
+  let second Node . value 20 next 2
+  let third Node . value 12 next 99
+  mut index usize 0
+  mut total i32 0
+  while != index 99
+    if == index 0
+      set total + total first.value
+      set index first.next
+    else
+      if == index 1
+        set total + total second.value
+        set index second.next
+      else
+        set total + total third.value
+        set index third.next
+  if == total 42
     check world.out.write "list element definition ok\n"

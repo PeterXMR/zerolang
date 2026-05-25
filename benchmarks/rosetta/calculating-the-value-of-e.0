@@ -1,6 +1,13 @@
-fn eScaled u32
-  ret + (+ 100 100) (+ 50 16)
+fn eScaled u32 scale u32 terms u32
+  mut sum u32 scale
+  mut term u32 scale
+  mut divisor u32 1
+  while <= divisor terms
+    set term / term divisor
+    set sum + sum term
+    set divisor + divisor 1
+  ret sum
 
 pub fn main Void world World !
-  if == eScaled() 266
+  if && (> (eScaled 1000000 9) 2718270) (< (eScaled 1000000 9) 2718290)
     check world.out.write "e ok\n"

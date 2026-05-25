@@ -1,6 +1,15 @@
-fn partitions5 u32
-  ret 7
+fn partitionCount u32 n usize
+  mut counts [8]u32 [0_u32;8]
+  set counts[0] 1
+  mut part usize 1
+  while <= part n
+    mut total usize part
+    while <= total n
+      set counts[total] + counts[total] counts[(- total part)]
+      set total + total 1
+    set part + part 1
+  ret counts[n]
 
 pub fn main Void world World !
-  if == partitions5() 7
+  if && (== (partitionCount 5) 7) (== (partitionCount 7) 15)
     check world.out.write "integer partitions ok\n"

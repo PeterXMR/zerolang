@@ -2,9 +2,9 @@ fn balanced Bool text Span<u8>
   mut depth i32 0
   mut i usize 0
   while < i (std.mem.len text)
-    if == text[i] 40
+    if == text[i] 91
       set depth + depth 1
-    if == text[i] 41
+    if == text[i] 93
       set depth - depth 1
     if < depth 0
       ret false
@@ -12,5 +12,5 @@ fn balanced Bool text Span<u8>
   ret == depth 0
 
 pub fn main Void world World !
-  if && (balanced (std.mem.span "(())()")) (== (balanced (std.mem.span "(()")) false)
+  if && (&& (balanced (std.mem.span "[[][]]")) (balanced (std.mem.span "[][]"))) (&& (== (balanced (std.mem.span "[]][[]")) false) (== (balanced (std.mem.span "][][")) false))
     check world.out.write "balanced brackets ok\n"

@@ -2,5 +2,10 @@ fn square u32 n u32
   ret * n n
 
 pub fn main Void world World !
-  if == (square 12) 144
+  mut values [8]u32 [0_u32;8]
+  mut i usize 0
+  while < i 8
+    set values[i] square (i as u32)
+    set i + i 1
+  if && (&& (== values[0] 0) (== values[3] 9)) (&& (== values[5] 25) (== values[7] 49))
     check world.out.write "integer sequence ok\n"

@@ -1,5 +1,10 @@
 pub fn main Void world World !
-  let text String "drawer"
-  let ok && (&& (== text[0] 100) (== text[1] 114)) (&& (== text[4] 101) (== text[5] 114))
-  if ok
+  let source std.mem.span "drawer"
+  mut out [6]u8 [0_u8;6]
+  mut i usize 0
+  while < i (std.mem.len source)
+    let from - (std.mem.len source) (+ i 1)
+    set out[i] source[from]
+    set i + i 1
+  if && (&& (== out[0] 114) (== out[1] 101)) (&& (&& (== out[2] 119) (== out[3] 97)) (&& (== out[4] 114) (== out[5] 100)))
     check world.out.write "reverse string ok\n"
