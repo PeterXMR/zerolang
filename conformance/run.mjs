@@ -999,6 +999,50 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
 assert.equal(directCallArm64ObjBuildDiag.backendBlocker.backend, "zero-elf-aarch64");
 assert.equal(directCallArm64ObjBuildDiag.backendBlocker.stage, "buildability");
 
+let arm64NestedIndexExpr = "values[idx]";
+for (let i = 0; i < 32; i++) arm64NestedIndexExpr = `(+ 0_u32 ${arm64NestedIndexExpr})`;
+const arm64NestedIndexFixture = `${outDir}/aarch64-nested-index-scratch-blocked.0`;
+await writeFile(arm64NestedIndexFixture, `export c fn main u32
+  let values [1]u32 [7]
+  let idx u32 0_u32
+  ret ${arm64NestedIndexExpr}
+`);
+async function assertArm64NestedScratchBlocked(fixture, expectedMessage, outPrefix) {
+  for (const blocked of [["linux-arm64", "zero-elf-aarch64", "linux.o"], ["darwin-arm64", "zero-macho64", "macho.o"], ["win32-arm64.exe", "zero-coff-aarch64", "coff.obj"]]) {
+    const readiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "--target", blocked[0], fixture]);
+    const readinessBody = JSON.parse(readiness.stdout);
+    assert.equal(readinessBody.ok, true);
+    assert.equal(readinessBody.targetReadiness.ok, false);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, blocked[1]);
+    assert.equal(readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+    assert.match(readinessBody.targetReadiness.diagnostics[0].message, expectedMessage);
+    const build = await execFileAsync(zero, ["build", "--json", "--emit", "obj", "--target", blocked[0], fixture, "--out", `${outDir}/${outPrefix}-${blocked[2]}`]).catch((error) => error);
+    assert.notEqual(build.code, 0);
+    assert.equal(JSON.parse(build.stdout).diagnostics[0].backendBlocker.stage, "buildability");
+  }
+}
+await assertArm64NestedScratchBlocked(arm64NestedIndexFixture, /indexed load exceeds scratch register spill capacity/, "aarch64-nested-index");
+let arm64NestedLenExpr = "((std.mem.len text[start..end]) as u32)";
+for (let i = 0; i < 32; i++) arm64NestedLenExpr = `(+ 0_u32 ${arm64NestedLenExpr})`;
+const arm64NestedLenFixture = `${outDir}/aarch64-nested-len-scratch-blocked.0`;
+await writeFile(arm64NestedLenFixture, `export c fn main u32
+  let text String "abcdef"
+  let start usize 1
+  let end usize 4
+  ret ${arm64NestedLenExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedLenFixture, /byte-view length exceeds scratch register spill capacity/, "aarch64-nested-len");
+let arm64NestedEndLenExpr = "((std.mem.len text[1..(+ end 0_usize)]) as u32)";
+for (let i = 0; i < 32; i++) arm64NestedEndLenExpr = `(+ 0_u32 ${arm64NestedEndLenExpr})`;
+const arm64NestedEndLenFixture = `${outDir}/aarch64-nested-end-len-scratch-blocked.0`;
+await writeFile(arm64NestedEndLenFixture, `export c fn main u32
+  let text String "abcdef"
+  let end usize 4
+  ret ${arm64NestedEndLenExpr}
+`);
+await assertArm64NestedScratchBlocked(arm64NestedEndLenFixture, /byte-view length exceeds scratch register spill capacity/, "aarch64-nested-end-len");
+
 const arm64PrivateHelperObj = `${outDir}/aarch64-private-helper-ignored.o`;
 await execFileAsync(zero, [
   "build",

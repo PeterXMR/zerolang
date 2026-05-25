@@ -3,17 +3,31 @@
 #include <stdint.h>
 #include <stdio.h>
 
-enum {
-  BUILD_AARCH64_IMM12_MAX = 4095u
-};
+enum { BUILD_AARCH64_IMM12_MAX = 4095u };
 
-bool z_build_backend_is_aarch64_direct(ZDirectBackend backend) {
-  return backend == Z_DIRECT_BACKEND_ELF_AARCH64 || backend == Z_DIRECT_BACKEND_COFF_AARCH64;
-}
+bool z_build_backend_is_aarch64_direct(ZDirectBackend backend) { return backend == Z_DIRECT_BACKEND_ELF_AARCH64 || backend == Z_DIRECT_BACKEND_COFF_AARCH64; }
 
 static bool build_const_u32_value(const IrValue *value, unsigned *out) {
   if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
   if (out) *out = (unsigned)value->int_value;
+  return true;
+}
+
+static bool build_aarch64_index_load_uses_scratch(const IrFunction *fun, const IrValue *value) {
+  if (!fun || value->kind != IR_VALUE_INDEX_LOAD || value->array_index >= fun->local_len) return true;
+  const IrLocal *local = &fun->locals[value->array_index];
+  unsigned const_index = 0;
+  return !(local->is_array && (local->element_type == IR_TYPE_U32 || local->element_type == IR_TYPE_I32 || local->element_type == IR_TYPE_USIZE) &&
+           build_const_u32_value(value->index, &const_index) && const_index < local->array_len);
+}
+
+static bool build_check_aarch64_byte_view_len_spill(const ZBuildability *ctx, const IrValue *view, unsigned scratch_slot, unsigned slot_count, const char *message, ZDiag *diag) {
+  if (!view || view->kind != IR_VALUE_BYTE_SLICE) return true;
+  unsigned start = 0, end = 0;
+  bool const_start = !view->index || build_const_u32_value(view->index, &start);
+  bool const_end = build_const_u32_value(view->right, &end);
+  if (const_start && const_end && end >= start && end - start <= 65535u) return true;
+  if ((const_start && view->right) || (view->index && view->right)) return scratch_slot < slot_count || z_build_diag(ctx, diag, message, view->line, view->column, "expression too deep");
   return true;
 }
 
@@ -98,7 +112,11 @@ static bool build_aarch64_byte_operation(const ZBuildability *ctx, const IrFunct
     if (!z_build_check_aarch64_byte_view(ctx, fun, value->left, diag)) return false;
     if (!z_build_check_aarch64_byte_view(ctx, fun, value->right, diag)) return false;
   }
+  if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !build_check_aarch64_byte_view_len_spill(ctx, value->left, scratch_slot, BUILD_AARCH64_SCRATCH_SLOT_COUNT, "direct AArch64 byte-view length exceeds scratch register spill capacity", diag)) return false;
   if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_aarch64_byte_view_len(ctx, fun, value->left, diag)) return false;
+  if (value->kind == IR_VALUE_INDEX_LOAD && build_aarch64_index_load_uses_scratch(fun, value) && scratch_slot >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 indexed load exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && scratch_slot >= BUILD_AARCH64_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 byte-view indexed load exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+  if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !build_check_aarch64_byte_view_len_spill(ctx, value->left, scratch_slot + 1, BUILD_AARCH64_SCRATCH_SLOT_COUNT, "direct AArch64 byte-view indexed load exceeds scratch register spill capacity", diag)) return false;
   if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_aarch64_byte_view(ctx, fun, value->left, diag)) return false;
   if (value->kind == IR_VALUE_BYTE_VIEW_LEN || value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD) *skip_left = true;
   return true;
@@ -205,7 +223,11 @@ bool z_build_check_target_value(const ZBuildability *ctx, const IrFunction *fun,
       if (!z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
       if (!z_build_check_macho_byte_view(ctx, fun, value->right, diag)) return false;
     }
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !build_check_aarch64_byte_view_len_spill(ctx, value->left, scratch_slot, BUILD_MACHO_SCRATCH_SLOT_COUNT, "direct AArch64 Mach-O byte-view length exceeds scratch register spill capacity", diag)) return false;
     if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !z_build_check_macho_byte_view_len(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_INDEX_LOAD && build_aarch64_index_load_uses_scratch(fun, value) && scratch_slot >= BUILD_MACHO_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 Mach-O indexed load exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && scratch_slot >= BUILD_MACHO_SCRATCH_SLOT_COUNT) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view indexed load exceeds scratch register spill capacity", value->line, value->column, "expression too deep");
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !build_check_aarch64_byte_view_len_spill(ctx, value->left, scratch_slot + 1, BUILD_MACHO_SCRATCH_SLOT_COUNT, "direct AArch64 Mach-O byte-view indexed load exceeds scratch register spill capacity", diag)) return false;
     if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
     if ((value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
     if ((value->kind == IR_VALUE_JSON_PARSE_BYTES || value->kind == IR_VALUE_JSON_VALIDATE_BYTES || value->kind == IR_VALUE_JSON_STREAM_TOKENS_BYTES) && !z_build_check_macho_byte_view(ctx, fun, value->left, diag)) return false;
