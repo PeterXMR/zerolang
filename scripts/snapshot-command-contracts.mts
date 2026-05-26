@@ -334,6 +334,10 @@ const graphPatchPath = join(outDir, "hello.program-graph.patch");
 const graphPatchedPath = join(outDir, "hello.patched.program-graph");
 const graphUncheckedPatchPath = join(outDir, "hello.unchecked.program-graph.patch");
 const graphUncheckedPath = join(outDir, "hello.unchecked.program-graph");
+const graphBorrowDumpPath = join(outDir, "borrow.program-graph");
+const graphBorrowConflictPatchPath = join(outDir, "borrow-conflict.program-graph.patch");
+const graphBorrowConflictPath = join(outDir, "borrow-conflict.program-graph");
+const graphBorrowConflictViewPath = join(outDir, "borrow-conflict.program-graph.0");
 const graphPatchEmptyPath = join(outDir, "hello.empty.program-graph.patch");
 const graphPatchControlPath = join(outDir, "hello.control.program-graph.patch");
 const graphPatchHighBytePath = join(outDir, "hello.high-byte.program-graph.patch");
@@ -357,6 +361,10 @@ rmSync(graphPatchPath, { force: true });
 rmSync(graphPatchedPath, { force: true });
 rmSync(graphUncheckedPatchPath, { force: true });
 rmSync(graphUncheckedPath, { force: true });
+rmSync(graphBorrowDumpPath, { force: true });
+rmSync(graphBorrowConflictPatchPath, { force: true });
+rmSync(graphBorrowConflictPath, { force: true });
+rmSync(graphBorrowConflictViewPath, { force: true });
 rmSync(graphPatchEmptyPath, { force: true });
 rmSync(graphPatchControlPath, { force: true });
 rmSync(graphPatchHighBytePath, { force: true });
@@ -465,6 +473,24 @@ assert.equal(graphUnchecked.body.check.sourcePath, graphCheckViewPath);
 assert.equal(graphUnchecked.body.saved.path, graphCheckViewPath);
 assert(graphUnchecked.body.diagnostics.length > 0);
 assert.equal(graphUnchecked.body.diagnostics[0].path, graphCheckViewPath);
+assert.equal(zero(["graph", "dump", "--out", graphBorrowDumpPath, "conformance/native/pass/borrow-field-independent-assignment.0"]).stdout, "");
+const graphBorrowDumpJson = json(["graph", "dump", "--json", "conformance/native/pass/borrow-field-independent-assignment.0"]).body;
+assert.equal(graphBorrowDumpJson.graphHash, "graph:2b2e81b82f4687d9");
+writeFileSync(graphBorrowConflictPatchPath, [
+  "zero-program-graph-patch v1",
+  `expect graphHash "${graphBorrowDumpJson.graphHash}"`,
+  `set node="node:000040" field="name" expect="right" value="left"`,
+  "",
+].join("\n"));
+assert.equal(zero(["graph", "patch", "--out", graphBorrowConflictPath, graphBorrowDumpPath, graphBorrowConflictPatchPath]).stdout, "program graph patch ok\n");
+const graphBorrowConflict = json(["graph", "check", "--json", "--out", graphBorrowConflictViewPath, graphBorrowConflictPath], { allowFailure: true });
+assert.notEqual(graphBorrowConflict.code, 0);
+assert.equal(graphBorrowConflict.body.ok, false);
+assert.equal(graphBorrowConflict.body.check.sourcePath, graphBorrowConflictViewPath);
+assert.equal(graphBorrowConflict.body.diagnostics[0].code, "BOR001");
+assert.equal(graphBorrowConflict.body.diagnostics[0].path, graphBorrowConflictViewPath);
+assert.equal(graphBorrowConflict.body.diagnostics[0].borrowTrace.activeBorrows[0].bindingDecl.path, graphBorrowConflictViewPath);
+assert.doesNotMatch(JSON.stringify(graphBorrowConflict.body), /zero-graph-check/);
 writeFileSync(graphPatchEmptyPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

@@ -9567,7 +9567,11 @@ static void graph_roundtrip_cleanup(const char *path, const char *dir) {
 
 static void graph_check_relabel_diag_path(const Command *command, ZDiag *diag) {
   if (!diag) return;
-  diag->path = command && command->out ? command->out : (command ? command->input : diag->path);
+  const char *path = command && command->out ? command->out : (command ? command->input : diag->path);
+  diag->path = path;
+  for (size_t i = 0; i < diag->borrow_trace_count; i++) {
+    if (diag->borrow_traces[i].binding_decl_path) diag->borrow_traces[i].binding_decl_path = path;
+  }
   if (!diag->help[0] && command && !command->out) {
     snprintf(diag->help, sizeof(diag->help), "run zero graph view --out <file.0> %s to inspect the generated source", command->input ? command->input : "<graph-artifact>");
   }
