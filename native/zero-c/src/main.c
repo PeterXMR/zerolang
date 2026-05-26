@@ -9324,6 +9324,21 @@ static void append_graph_patch_operation_json(ZBuf *buf, const ZProgramGraphPatc
   zbuf_append(buf, ", \"columnValue\": ");
   if (op && op->has_column_value) zbuf_appendf(buf, "%d", op->column_value);
   else zbuf_append(buf, "null");
+  zbuf_append(buf, ", \"public\": ");
+  if (op && op->has_public_value) zbuf_append(buf, op->public_value ? "true" : "false");
+  else zbuf_append(buf, "null");
+  zbuf_append(buf, ", \"mutable\": ");
+  if (op && op->has_mutable_value) zbuf_append(buf, op->mutable_value ? "true" : "false");
+  else zbuf_append(buf, "null");
+  zbuf_append(buf, ", \"static\": ");
+  if (op && op->has_static_value) zbuf_append(buf, op->static_value ? "true" : "false");
+  else zbuf_append(buf, "null");
+  zbuf_append(buf, ", \"fallible\": ");
+  if (op && op->has_fallible_value) zbuf_append(buf, op->fallible_value ? "true" : "false");
+  else zbuf_append(buf, "null");
+  zbuf_append(buf, ", \"exportC\": ");
+  if (op && op->has_export_c_value) zbuf_append(buf, op->export_c_value ? "true" : "false");
+  else zbuf_append(buf, "null");
   if (op && !op->ok && op->code[0]) {
     zbuf_append(buf, ", \"code\": ");
     append_json_string(buf, op->code);

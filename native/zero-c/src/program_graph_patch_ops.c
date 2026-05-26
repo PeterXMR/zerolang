@@ -252,42 +252,39 @@ static bool patch_type_value_valid(const char *text) {
   return ok;
 }
 
-static bool patch_validate_text_value(const ZProgramGraphNode *node, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
-  if (patch_text_eq(op->field, "name") && !patch_name_value_valid(op->value)) {
-    patch_op_fail(result, op, "GPH003", "patch name value must be a Zero identifier path or operator", "identifier path or operator", op->value);
+static bool patch_validate_text_field(const ZProgramGraphNode *node, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op, const char *field, const char *value) {
+  if (patch_text_eq(field, "name") && !patch_name_value_valid(value)) {
+    patch_op_fail(result, op, "GPH003", "patch name value must be a Zero identifier path or operator", "identifier path or operator", value);
     return false;
   }
-  if (patch_text_eq(op->field, "type") && !patch_type_value_valid(op->value)) {
-    patch_op_fail(result, op, "GPH003", "patch type value must be valid Zero type syntax", "Zero type syntax", op->value);
+  if (patch_text_eq(field, "type") && !patch_type_value_valid(value)) {
+    patch_op_fail(result, op, "GPH003", "patch type value must be valid Zero type syntax", "Zero type syntax", value);
     return false;
   }
-  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_MATCH_ARM && patch_text_eq(op->field, "value") && !patch_name_value_valid(op->value)) {
-    patch_op_fail(result, op, "GPH003", "patch match payload value must be a Zero identifier path or operator", "identifier path or operator", op->value);
+  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_MATCH_ARM && patch_text_eq(field, "value") && !patch_name_value_valid(value)) {
+    patch_op_fail(result, op, "GPH003", "patch match payload value must be a Zero identifier path or operator", "identifier path or operator", value);
     return false;
   }
-  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_IMPORT && patch_text_eq(op->field, "value") && !patch_identifier_value_valid(op->value)) {
-    patch_op_fail(result, op, "GPH003", "patch import alias value must be a Zero identifier", "identifier", op->value);
+  if (node && node->kind == Z_PROGRAM_GRAPH_NODE_IMPORT && patch_text_eq(field, "value") && !patch_identifier_value_valid(value)) {
+    patch_op_fail(result, op, "GPH003", "patch import alias value must be a Zero identifier", "identifier", value);
     return false;
   }
   return true;
 }
 
+static bool patch_validate_text_value(const ZProgramGraphNode *node, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  return patch_validate_text_field(node, result, op, op->field, op->value);
+}
+
 static bool patch_validate_node_payload(const ZProgramGraphNode *node, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
-  ZProgramGraphPatchOpResult field = *op;
   if (node->name) {
-    field.field = "name";
-    field.value = node->name;
-    if (!patch_validate_text_value(node, result, &field)) return false;
+    if (!patch_validate_text_field(node, result, op, "name", node->name)) return false;
   }
   if (node->type) {
-    field.field = "type";
-    field.value = node->type;
-    if (!patch_validate_text_value(node, result, &field)) return false;
+    if (!patch_validate_text_field(node, result, op, "type", node->type)) return false;
   }
   if (node->kind == Z_PROGRAM_GRAPH_NODE_IMPORT && node->value) {
-    field.field = "value";
-    field.value = node->value;
-    if (!patch_validate_text_value(node, result, &field)) return false;
+    if (!patch_validate_text_field(node, result, op, "value", node->value)) return false;
   }
   return true;
 }
@@ -441,9 +438,7 @@ static bool patch_apply_rename(ZProgramGraph *graph, ZProgramGraphPatchResult *r
     patch_op_fail(result, op, "GPH005", "patch rename precondition failed", op->expected, op->actual);
     return false;
   }
-  ZProgramGraphPatchOpResult field = *op;
-  field.field = "name";
-  if (!patch_validate_text_value(node, result, &field)) return false;
+  if (!patch_validate_text_field(node, result, op, "name", op->value)) return false;
   patch_replace_text(&node->name, op->value);
   op->ok = true;
   return true;

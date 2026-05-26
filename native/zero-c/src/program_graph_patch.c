@@ -549,9 +549,9 @@ bool z_program_graph_apply_patch_file(const char *path, ZProgramGraph *graph, ZP
 
   for (size_t i = 0; i < result->operation_len; i++) {
     if (!z_program_graph_patch_apply_operation(graph, result, &result->operations[i])) return false;
+    z_program_graph_finalize_identities(graph);
   }
 
-  z_program_graph_finalize_identities(graph);
   patch_replace_text(&result->actual_graph_hash, graph->graph_hash);
   ZProgramGraphValidation validation = {0};
   if (!z_program_graph_validate(graph, &validation)) {
