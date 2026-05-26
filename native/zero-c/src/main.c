@@ -3318,7 +3318,7 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
+  printf("  zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
   printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
@@ -3397,11 +3397,13 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
+    printf("Usage: zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
     printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n\nTest usage: zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
     printf("  dump      print or write only the deterministic ProgramGraph\n");
+    printf("  import    convert current Zero source into a deterministic ProgramGraph artifact\n");
+    printf("  inspect   report semantic graph and compiler facts as JSON\n");
     printf("  validate  read a ProgramGraph artifact and optionally write its canonical form\n");
     printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
     printf("  check     typecheck a ProgramGraph artifact through direct graph lowering\n");
@@ -10298,9 +10300,10 @@ static int run_graph_roundtrip_command(const Command *command, SourceInput *inpu
 }
 
 static int run_graph_command(const Command *command, SourceInput *input, Program *program, const ZTargetInfo *target, ZDiag *diag) {
-  bool graph_dump = command->kind && strcmp(command->kind, "dump") == 0;
+  bool graph_dump = command->kind && (strcmp(command->kind, "dump") == 0 || strcmp(command->kind, "import") == 0);
+  bool graph_inspect = command->kind && strcmp(command->kind, "inspect") == 0;
   bool graph_roundtrip = command->kind && strcmp(command->kind, "roundtrip") == 0;
-  if (command->kind && !graph_dump && !graph_roundtrip) {
+  if (command->kind && !graph_dump && !graph_inspect && !graph_roundtrip) {
     fprintf(stderr, "unknown graph mode: %s\n", command->kind);
     return 1;
   }

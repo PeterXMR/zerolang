@@ -36,6 +36,8 @@ zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
 zero graph --json examples/systems-package
 zero graph dump examples/hello.0
 zero graph dump --out .zero/out/hello.graph examples/hello.0
+zero graph import --out .zero/out/hello.graph examples/hello.0
+zero graph inspect --json examples/hello.0
 zero graph validate .zero/out/hello.graph
 zero graph view .zero/out/hello.graph
 zero graph check --json .zero/out/hello.graph
@@ -201,7 +203,7 @@ zero build [--emit exe|obj] [--target <target>] [--profile dev|release] [--out <
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
-zero graph [dump|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
+zero graph [dump|import|inspect|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
 zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>
 zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]
 zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>
