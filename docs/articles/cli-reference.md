@@ -200,7 +200,7 @@ zero build [--emit exe|obj] [--target <target>] [--profile dev|release] [--out <
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
-zero graph [dump|validate|view|check|size|build|run|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
+zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <input> [patch-file]
 zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>
 zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]
 zero doc [--json] [--target <target>] <input>
