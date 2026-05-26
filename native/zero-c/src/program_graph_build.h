@@ -8,10 +8,10 @@ typedef struct {
   char *graph_hash;
   char *module_identity;
   const char *lowering;
-} ZProgramGraphBuildSource;
+} ZProgramGraphArtifactSource;
 
 bool z_program_graph_command_kind_is_known(const char *kind);
-bool z_program_graph_build_source_present(const ZProgramGraphBuildSource *source);
-bool z_program_graph_prepare_build_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphBuildSource *source, ZDiag *diag);
+bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source);
+bool z_program_graph_prepare_artifact_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphArtifactSource *source, ZDiag *diag);
 
 #endif

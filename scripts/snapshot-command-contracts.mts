@@ -335,6 +335,7 @@ const graphObjPath = join(outDir, "hello.program-graph.o");
 const graphRunPath = join(outDir, "hello.program-graph-run");
 const graphArgsDumpPath = join(outDir, "std-args.program-graph");
 const graphArgsRunPath = join(outDir, "std-args.program-graph-run");
+const graphTestDumpPath = join(outDir, "test-blocks.program-graph");
 const graphSizeNoisePatchPath = join(outDir, "hello.program-graph.size-noise.patch");
 const graphSizeNoisePath = join(outDir, "hello.program-graph.size-noise.program-graph");
 const graphRoundtripViewPath = join(outDir, "hello.roundtrip.0");
@@ -403,6 +404,7 @@ rmSync(graphObjPath, { force: true });
 rmSync(graphRunPath, { force: true });
 rmSync(graphArgsDumpPath, { force: true });
 rmSync(graphArgsRunPath, { force: true });
+rmSync(graphTestDumpPath, { force: true });
 rmSync(graphSizeNoisePatchPath, { force: true });
 rmSync(graphSizeNoisePath, { force: true });
 rmSync(graphRoundtripViewPath, { force: true });
@@ -581,6 +583,19 @@ assert.equal(existsSync(graphArgsRunPath), true);
 const graphRunJson = json(["graph", "run", "--json", graphDumpPath], { allowFailure: true });
 assert.equal(graphRunJson.code, 1);
 assert.equal(graphRunJson.body.diagnostics[0].message, "zero graph run does not support --json");
+assert.equal(zero(["graph", "dump", "--out", graphTestDumpPath, "conformance/native/pass/test-blocks.0"]).stdout, "");
+assert.equal(zero(["graph", "test", graphTestDumpPath]).stdout, "1 test(s) ok\n");
+const graphTestJson = json(["graph", "test", "--json", "--filter", "addition", graphTestDumpPath]).body;
+assert.equal(graphTestJson.ok, true);
+assert.equal(graphTestJson.sourceFile, graphTestDumpPath);
+assert.equal(graphTestJson.graph.artifact, graphTestDumpPath);
+assert.equal(graphTestJson.graph.canonicalSource, false);
+assert.equal(graphTestJson.graph.lowering, "direct-program-graph");
+assert.match(graphTestJson.graph.graphHash, /^graph:[0-9a-f]{16}$/);
+assert.equal(graphTestJson.testBackend, "direct-frontend");
+assert.equal(graphTestJson.testDiscovery.filter, "addition");
+assert.equal(graphTestJson.selectedTests, 1);
+assert.equal(graphTestJson.results[0].status, "passed");
 writeFileSync(graphSizeNoisePatchPath, [
   "zero-program-graph-patch v1",
   `expect graphHash "${graphDumpJson.graphHash}"`,

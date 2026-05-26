@@ -57,7 +57,7 @@ typedef struct {
   const char *unknown_flag;
   const char *invalid_emit;
   const char *filter;
-  ZProgramGraphBuildSource graph_source;
+  ZProgramGraphArtifactSource graph_source;
   int run_argc;
   char **run_argv;
   bool json;
@@ -2257,6 +2257,25 @@ static size_t program_test_count(const Program *program, const char *filter) {
   return count;
 }
 
+static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramGraphArtifactSource *source) {
+  if (!z_program_graph_artifact_source_present(source)) return;
+  zbuf_append(buf, ",\n  \"graph\": {\"artifact\":");
+  append_json_string(buf, source->artifact ? source->artifact : "");
+  zbuf_append(buf, ",\"canonicalSource\":false,\"moduleIdentity\":");
+  append_json_string(buf, source->module_identity ? source->module_identity : "");
+  zbuf_append(buf, ",\"graphHash\":");
+  append_json_string(buf, source->graph_hash ? source->graph_hash : "");
+  zbuf_append(buf, ",\"lowering\":");
+  append_json_string(buf, source->lowering ? source->lowering : "direct-program-graph");
+  zbuf_append(buf, "}");
+}
+
+static void append_test_source_json(ZBuf *buf, const SourceInput *input, const Command *command) {
+  zbuf_append(buf, ",\n  \"sourceFile\": ");
+  append_json_string(buf, input ? input->source_file : "");
+  if (command) append_program_graph_artifact_source_json(buf, &command->graph_source);
+}
+
 static void append_c_header_inputs_json(ZBuf *buf, const Program *program) {
   zbuf_append(buf, "[");
   for (size_t i = 0; program && i < program->c_imports.len; i++) {
@@ -3264,8 +3283,8 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
-  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n");
+  printf("  zero graph [dump|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n");
+  printf("  zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n  zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n  zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3343,8 +3362,8 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump|validate|view|check|size|build|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
-    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n\n");
+    printf("Usage: zero graph [dump|validate|view|check|size|build|run|test|patch|roundtrip] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact> [patch-file]\n\n");
+    printf("Build usage: zero graph build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact>\n\nRun usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <graph-artifact> [-- args...]\n\nTest usage: zero graph test [--json] [--filter <name>] [--target <target>] <graph-artifact>\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
     printf("  dump      print or write only the deterministic ProgramGraph\n");
@@ -3352,7 +3371,7 @@ static void print_command_help(const char *command) {
     printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
     printf("  check     typecheck a ProgramGraph artifact through direct graph lowering\n");
     printf("  size      report size, helper, runtime, and backend facts for a ProgramGraph artifact\n");
-    printf("  build     build a ProgramGraph artifact through direct graph lowering\n  run       build and run a ProgramGraph artifact through direct graph lowering\n");
+    printf("  build     build a ProgramGraph artifact through direct graph lowering\n  run       build and run a ProgramGraph artifact through direct graph lowering\n  test      run test blocks from a ProgramGraph artifact through direct graph lowering\n");
     printf("  patch     apply checked edits to a ProgramGraph artifact\n");
     printf("  roundtrip compare graph semantics after generated-view reparse or direct artifact lowering\n");
   } else if (strcmp(command, "doc") == 0) {
@@ -5500,7 +5519,7 @@ static void append_direct_memory_json(ZBuf *buf, const SourceInput *input, const
 static void print_build_json(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const char *emit_kind, const char *artifact_path, long long artifact_bytes, long long generated_c_bytes, long long elapsed_ms) {
   printf("{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
   print_json_string(input->source_file);
-  if (command && z_program_graph_build_source_present(&command->graph_source)) {
+  if (command && z_program_graph_artifact_source_present(&command->graph_source)) {
     printf(",\n  \"graph\": {\"artifact\": ");
     print_json_string(command->graph_source.artifact ? command->graph_source.artifact : input->source_file);
     printf(", \"canonicalSource\": false, \"moduleIdentity\": ");
@@ -5559,14 +5578,14 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   zbuf_append(&extra, ",\n  \"compilerPhases\": ");
   append_compiler_phases_json(&extra, input);
   zbuf_append(&extra, ",\n  \"compilerCaches\": ");
-  if (command && z_program_graph_build_source_present(&command->graph_source)) append_compiler_caches_json_ex(&extra, input, target, command->profile, "program-graph", command->graph_source.graph_hash);
+  if (command && z_program_graph_artifact_source_present(&command->graph_source)) append_compiler_caches_json_ex(&extra, input, target, command->profile, "program-graph", command->graph_source.graph_hash);
   else append_compiler_caches_json(&extra, input, target, command->profile);
   zbuf_append(&extra, ",\n  \"package\": ");
   append_package_metadata_json(&extra, input, target);
   zbuf_append(&extra, ",\n  \"packageCache\": ");
   append_package_cache_audit_json(&extra, input, target, command->profile);
   zbuf_append(&extra, ",\n  \"incrementalInvalidation\": ");
-  if (command && z_program_graph_build_source_present(&command->graph_source)) append_incremental_invalidations_json_ex(&extra, input, target, command->profile, command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
+  if (command && z_program_graph_artifact_source_present(&command->graph_source)) append_incremental_invalidations_json_ex(&extra, input, target, command->profile, command->graph_source.artifact, command->graph_source.graph_hash, command->graph_source.lowering);
   else append_incremental_invalidations_json(&extra, input, target, command->profile);
   zbuf_append(&extra, ",\n  \"profileSemantics\": ");
   append_profile_semantics_json(&extra, command->profile);
@@ -6860,8 +6879,7 @@ static int run_tests_direct(const Command *command, const SourceInput *input, co
     zbuf_init(&buf);
     zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": ");
     zbuf_append(&buf, ok ? "true" : "false");
-    zbuf_append(&buf, ",\n  \"sourceFile\": ");
-    append_json_string(&buf, input ? input->source_file : "");
+    append_test_source_json(&buf, input, command);
     zbuf_append(&buf, ",\n  \"target\": ");
     append_json_string(&buf, target ? target->name : z_host_target());
     zbuf_append(&buf, ",\n  \"testBackend\": \"direct-frontend\",\n  \"generatedCBytes\": 0,\n  \"cBridgeFallback\": false,\n  \"selectedTests\": ");
@@ -10569,9 +10587,10 @@ int main(int argc, char **argv) {
   SourceInput input = {0};
   Program program = {0};
   bool graph_build_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "build") == 0;
-  if (graph_build_command || graph_run_command) {
-    ZProgramGraphBuildSource graph_source = {0};
-    if (!z_program_graph_prepare_build_input(command.input, target, &program, &input, &graph_source, &diag)) {
+  bool graph_test_command = strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "test") == 0;
+  if (graph_build_command || graph_run_command || graph_test_command) {
+    ZProgramGraphArtifactSource graph_source = {0};
+    if (!z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag)) {
       if (command.json) print_diag_json(diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       z_free_program(&program);
@@ -10583,7 +10602,7 @@ int main(int argc, char **argv) {
     input.check_cache_hit = compiler_cache_touch("checked-body", compile_cache_key(&input, target, NULL, "checked-body"));
     input.specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(&input, target, command.profile, "specialization"));
     command.graph_source = graph_source;
-    command.command = graph_run_command ? "run" : "build";
+    command.command = graph_run_command ? "run" : (graph_test_command ? "test" : "build");
     command.kind = NULL;
   } else if (!compile_input(command.input, target, &input, &program, &diag)) {
     if (strcmp(command.command, "fix") == 0) {

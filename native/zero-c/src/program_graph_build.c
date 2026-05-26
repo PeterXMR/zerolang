@@ -7,18 +7,18 @@
 #include <string.h>
 
 bool z_program_graph_command_kind_is_known(const char *kind) {
-  static const char *kinds[] = {"dump", "validate", "view", "check", "size", "build", "run", "patch", "roundtrip"};
+  static const char *kinds[] = {"dump", "validate", "view", "check", "size", "build", "run", "test", "patch", "roundtrip"};
   for (size_t i = 0; kind && i < sizeof(kinds) / sizeof(kinds[0]); i++) {
     if (strcmp(kind, kinds[i]) == 0) return true;
   }
   return false;
 }
 
-bool z_program_graph_build_source_present(const ZProgramGraphBuildSource *source) {
+bool z_program_graph_artifact_source_present(const ZProgramGraphArtifactSource *source) {
   return source && source->graph_hash && source->graph_hash[0];
 }
 
-bool z_program_graph_prepare_build_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphBuildSource *source, ZDiag *diag) {
+bool z_program_graph_prepare_artifact_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, ZProgramGraphArtifactSource *source, ZDiag *diag) {
   ZProgramGraph graph = {0};
   if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
 
