@@ -2595,13 +2595,72 @@ const programGraphDumpAgain = (await execFileAsync(zero, ["graph", "dump", "exam
 const programGraphDumpJson = JSON.parse((await execFileAsync(zero, ["graph", "dump", "--json", "examples/hello.0"])).stdout);
 const programGraphDumpPath = `${outDir}/hello.program-graph`;
 const programGraphCanonicalPath = `${outDir}/hello.canonical.program-graph`;
+const programGraphViewPath = `${outDir}/hello.program-graph.0`;
+const programGraphRichPath = `${outDir}/open-ended-slices.program-graph`;
+const programGraphRichViewPath = `${outDir}/open-ended-slices.program-graph.0`;
+const programGraphCharPath = `${outDir}/float-char-casts.program-graph`;
+const programGraphCharViewPath = `${outDir}/float-char-casts.program-graph.0`;
 await rm(programGraphDumpPath, { force: true });
 await rm(programGraphCanonicalPath, { force: true });
+await rm(programGraphViewPath, { force: true });
+await rm(programGraphRichPath, { force: true });
+await rm(programGraphRichViewPath, { force: true });
+await rm(programGraphCharPath, { force: true });
+await rm(programGraphCharViewPath, { force: true });
 const programGraphDumpOut = await execFileAsync(zero, ["graph", "dump", "--out", programGraphDumpPath, "examples/hello.0"]);
 const programGraphDumpFile = await readFile(programGraphDumpPath, "utf8");
 const programGraphValidate = await execFileAsync(zero, ["graph", "validate", programGraphDumpPath]);
 const programGraphValidateJson = JSON.parse((await execFileAsync(zero, ["graph", "validate", "--json", "--out", programGraphCanonicalPath, programGraphDumpPath])).stdout);
 const programGraphCanonicalFile = await readFile(programGraphCanonicalPath, "utf8");
+const programGraphView = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
+const programGraphViewAgain = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
+const programGraphViewJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", programGraphDumpPath])).stdout);
+const programGraphViewOut = await execFileAsync(zero, ["graph", "view", "--out", programGraphViewPath, programGraphDumpPath]);
+const programGraphViewFile = await readFile(programGraphViewPath, "utf8");
+const programGraphViewOutJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", "--out", programGraphViewPath, programGraphDumpPath])).stdout);
+await execFileAsync(zero, ["graph", "dump", "--out", programGraphRichPath, "conformance/native/pass/open-ended-slices.0"]);
+await execFileAsync(zero, ["graph", "view", "--out", programGraphRichViewPath, programGraphRichPath]);
+const programGraphRichView = await readFile(programGraphRichViewPath, "utf8");
+await execFileAsync(zero, ["check", programGraphRichViewPath]);
+await execFileAsync(zero, ["graph", "dump", "--out", programGraphCharPath, "conformance/native/pass/float-char-casts.0"]);
+await execFileAsync(zero, ["graph", "view", "--out", programGraphCharViewPath, programGraphCharPath]);
+const programGraphCharView = await readFile(programGraphCharViewPath, "utf8");
+await execFileAsync(zero, ["check", programGraphCharViewPath]);
+const programGraphViewCoverage = [
+  ["compile-time-v1", "examples/compile-time-v1.0", [/field_type "i32"/, /readGate<enabled, selected> &gate/]],
+  ["array-repeat-literal", "conformance/native/pass/array-repeat-literal.0", [/\[7_u8;8\]/, /\[0_u8;16\]/]],
+  ["explicit-casts", "conformance/native/pass/explicit-casts.0", [/byte \(big as u8\)/, /signed \(small as isize\)/]],
+  ["generic-multi-specialization", "conformance/native/pass/generic-multi-specialization.0", [/first<i32, u8> 21 7/, /second<i32, u8> a 6/]],
+  ["generic-shape-nested-defaults-alias", "conformance/native/pass/generic-shape-nested-defaults-alias.0", [/left \(Box \. value 42\) right \(Slot \. item 7_u8\)/]],
+  ["float-primitives", "conformance/native/pass/float-primitives.0", [/let precise f64 1\.0e-3/]],
+  ["meta-typed-target-type", "conformance/native/pass/meta-typed-target-type.0", [/const computed usize \+ \(meta 2\) 2/]],
+  ["nested-lvalues", "conformance/native/pass/nested-lvalues.0", [/start \(Point \. x 3 y 4\) end \(Point \. x 5 y 6\)/]],
+  ["radix-suffix-literals", "conformance/native/pass/radix-suffix-literals.0", [/ret 0x20_usize/, /1_024_usize/, /0x2a_u8/]],
+  ["test-blocks", "conformance/native/pass/test-blocks.0", [/test "addition works"/]],
+  ["type-alias-basic", "conformance/native/pass/type-alias-basic.0", [/let count ByteCount 4_usize/]],
+  ["c-abi-export", "conformance/native/pass/c-abi-export.0", [/extern type CPoint/, /export c fn zero_add i32 a i32 b i32/]],
+  ["const-layout", "conformance/native/pass/const-layout.0", [/extern type CPoint/, /packed type Header/]],
+  ["c-header-import", "conformance/check/pass/c-header-import.0", [/extern c "conformance\/c\/simple\.h" as c/]],
+  ["constructors-defaults", "conformance/native/pass/constructors-defaults.0", [/FixedVec\.init<u8, 4>/]],
+  ["direct-call-add", "examples/direct-call-add.0", [/export c fn main i32 a i32 b i32/]],
+  ["generic-static-explicit-shadowing", "conformance/check/pass/generic-static-explicit-shadowing.0", [/Helper\.needsSame<N> left right/]],
+  ["systems-package", "examples/systems-package", [/# Module: helpers/, /# Module: types/, /pub fn main Void world World !/]],
+  ["std-math", "examples/std-math.0", [/pub fn main Void world World !/, /std\.math\.minU32 8 3/]],
+];
+for (const [name, fixture, patterns] of programGraphViewCoverage) {
+  const graphPath = `${outDir}/${name}.program-graph`;
+  const viewPath = `${outDir}/${name}.program-graph.0`;
+  await rm(graphPath, { force: true });
+  await rm(viewPath, { force: true });
+  await execFileAsync(zero, ["graph", "dump", "--out", graphPath, fixture]);
+  await execFileAsync(zero, ["graph", "view", "--out", viewPath, graphPath]);
+  const view = await readFile(viewPath, "utf8");
+  await execFileAsync(zero, ["check", viewPath]);
+  for (const pattern of patterns) assert.match(view, pattern);
+  assert.doesNotMatch(view, /fn __zero_test_/);
+  if (name === "systems-package") assert.doesNotMatch(view, /^use (helpers|types)$/m);
+  if (name === "std-math") assert.doesNotMatch(view, /fn __zero_std_/);
+}
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, false);
 assert.equal(programGraphBody.moduleIdentity, "module:hello");
@@ -2615,6 +2674,17 @@ assert.equal(programGraphValidateJson.ok, true);
 assert.equal(programGraphValidateJson.moduleIdentity, "module:hello");
 assert.equal(programGraphValidateJson.graphHash, programGraphBody.graphHash);
 assert.equal(programGraphValidateJson.saved.path, programGraphCanonicalPath);
+assert.equal(programGraphViewAgain, programGraphView);
+assert.equal(programGraphViewOut.stdout, "");
+assert.equal(programGraphViewFile, programGraphView);
+assert.equal(programGraphViewJson.ok, true);
+assert.equal(programGraphViewJson.canonicalSource, false);
+assert.equal(programGraphViewJson.moduleIdentity, "module:hello");
+assert.equal(programGraphViewJson.graphHash, programGraphBody.graphHash);
+assert.equal(programGraphViewJson.view, programGraphView);
+assert.equal(programGraphViewOutJson.ok, true);
+assert.equal(programGraphViewOutJson.saved.path, programGraphViewPath);
+assert.equal(programGraphViewOutJson.view, null);
 assert.deepEqual(programGraphDumpJson, programGraphBody);
 assert.match(programGraphDump, /^zero-program-graph v1\n/);
 assert.match(programGraphDump, /moduleIdentity "module:hello"/);
@@ -2622,6 +2692,14 @@ assert.match(programGraphDump, /graphHash "graph:[0-9a-f]{16}"/);
 assert.match(programGraphDump, /validation "shape-valid" ok/);
 assert.match(programGraphDump, /node id="node:000001" kind="Module"/);
 assert.match(programGraphDump, /edge from="node:000001" to="node:000002" kind="function" target="node" order=0/);
+assert.match(programGraphView, /^# Generated by zero graph view\. Do not edit\.\n/);
+assert.match(programGraphView, /# Source graph: graph:[0-9a-f]{16}/);
+assert.match(programGraphView, /# canonicalSource false/);
+assert.match(programGraphView, /pub fn main Void world World !/);
+assert.match(programGraphView, /check world\.out\.write "hello from zero\\n"/);
+assert.match(programGraphRichView, /bytesTail\(bytes\)\[1\]/);
+assert.match(programGraphRichView, /numbers\[2\.\.\]/);
+assert.match(programGraphCharView, /== again 'A'/);
 assert.match(programGraphBody.graphHash, /^graph:[0-9a-f]{16}$/);
 assert.equal(programGraphBody.validation.ok, true);
 assert.equal(programGraphBody.validation.state, "shape-valid");

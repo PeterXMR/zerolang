@@ -5,6 +5,7 @@
 #include "zero.h"
 #include "buildability.h"
 #include "program_graph_format.h"
+#include "program_graph_view.h"
 #include "std_sig.h"
 #include "std_source.h"
 
@@ -3164,7 +3165,7 @@ static void print_help(void) {
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
-  printf("  zero graph [dump|validate] [--json] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n");
+  printf("  zero graph [dump|validate|view] [--json] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n");
   printf("  zero doc [--json] <file.0|file.row|project|zero.json>\n");
   printf("  zero size [--json] [--out <artifact>] <file.0|file.row|project|zero.json>\n");
   printf("  zero mem [--json] [--target <target>] <file.0|file.row|project|zero.json>\n");
@@ -3242,11 +3243,12 @@ static void print_command_help(const char *command) {
     printf("Usage: zero abi check|dump [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Check ABI-safe declarations or dump target-aware source layout facts.\n");
   } else if (strcmp(command, "graph") == 0) {
-    printf("Usage: zero graph [dump|validate] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n\n");
+    printf("Usage: zero graph [dump|validate|view] [--json] [--target <target>] [--out <file>] <file.0|file.row|project|zero.json|graph-artifact>\n\n");
     printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph artifacts.\n\n");
     printf("Subcommands:\n");
-    printf("  dump    print or write only the deterministic ProgramGraph\n");
+    printf("  dump      print or write only the deterministic ProgramGraph\n");
     printf("  validate  read a ProgramGraph artifact and optionally write its canonical form\n");
+    printf("  view      render a ProgramGraph artifact as a generated Zero view\n");
   } else if (strcmp(command, "doc") == 0) {
     printf("Usage: zero doc [--json] [--target <target>] <file.0|file.row|project|zero.json>\n\n");
     printf("Emit package API documentation facts without emitting artifacts.\n");
@@ -3386,7 +3388,7 @@ static bool parse_command(int argc, char **argv, Command *command) {
     command->kind = argv[2];
     arg_start = 3;
   }
-  if (is_graph_command && argc >= 3 && (strcmp(argv[2], "dump") == 0 || strcmp(argv[2], "validate") == 0)) {
+  if (is_graph_command && argc >= 3 && (strcmp(argv[2], "dump") == 0 || strcmp(argv[2], "validate") == 0 || strcmp(argv[2], "view") == 0)) {
     command->kind = argv[2];
     arg_start = 3;
   }
@@ -9120,6 +9122,27 @@ static void append_graph_validate_json(ZBuf *buf, const Command *command, const 
   zbuf_append(buf, "\n}\n");
 }
 
+static void append_graph_view_json(ZBuf *buf, const Command *command, const ZProgramGraph *graph, const char *view) {
+  zbuf_append(buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"artifact\": ");
+  append_json_string(buf, command->input);
+  zbuf_append(buf, ",\n  \"canonicalSource\": false,\n  \"moduleIdentity\": ");
+  append_json_string(buf, graph ? graph->module_identity : "");
+  zbuf_append(buf, ",\n  \"graphHash\": ");
+  append_json_string(buf, graph ? graph->graph_hash : "");
+  zbuf_append(buf, ",\n  \"saved\": ");
+  if (command->out) {
+    zbuf_append(buf, "{\"path\": ");
+    append_json_string(buf, command->out);
+    zbuf_append(buf, ", \"byteStable\": true}");
+  } else {
+    zbuf_append(buf, "null");
+  }
+  zbuf_append(buf, ",\n  \"view\": ");
+  if (command->out) zbuf_append(buf, "null");
+  else append_json_string(buf, view);
+  zbuf_append(buf, "\n}\n");
+}
+
 static int run_graph_validate_command(const Command *command, ZDiag *diag) {
   ZProgramGraph graph;
   if (!z_program_graph_load(command->input, &graph, diag)) {
@@ -9144,6 +9167,37 @@ static int run_graph_validate_command(const Command *command, ZDiag *diag) {
   } else {
     printf("program graph ok\n");
   }
+  z_program_graph_free(&graph);
+  return 0;
+}
+
+static int run_graph_view_command(const Command *command, ZDiag *diag) {
+  ZProgramGraph graph;
+  if (!z_program_graph_load(command->input, &graph, diag)) {
+    if (command->json) print_diag_json(diag->path ? diag->path : command->input, diag);
+    else print_diag(diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
+  ZBuf view;
+  zbuf_init(&view);
+  z_program_graph_append_view(&view, &graph);
+  if (command->out && !z_write_file(command->out, view.data ? view.data : "", diag)) {
+    if (command->json) print_diag_json(diag->path ? diag->path : command->out, diag);
+    else print_diag(diag->path ? diag->path : command->out, diag);
+    zbuf_free(&view);
+    z_program_graph_free(&graph);
+    return 1;
+  }
+  if (command->json) {
+    ZBuf json;
+    zbuf_init(&json);
+    append_graph_view_json(&json, command, &graph, view.data ? view.data : "");
+    fputs(json.data, stdout);
+    zbuf_free(&json);
+  } else if (!command->out) {
+    fputs(view.data ? view.data : "", stdout);
+  }
+  zbuf_free(&view);
   z_program_graph_free(&graph);
   return 0;
 }
@@ -9344,6 +9398,9 @@ int main(int argc, char **argv) {
 
   if (strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "validate") == 0) {
     return run_graph_validate_command(&command, &diag);
+  }
+  if (strcmp(command.command, "graph") == 0 && command.kind && strcmp(command.kind, "view") == 0) {
+    return run_graph_view_command(&command, &diag);
   }
 
   if (strcmp(command.command, "fmt") == 0) {

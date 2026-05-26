@@ -19,6 +19,7 @@ try {
     "native/zero-c/src",
     "native/zero-c/src/program_graph.c",
     "native/zero-c/src/program_graph_identity.c",
+    "native/zero-c/src/program_graph_import.c",
     "native/zero-c/src/program_graph_format.c",
     "native/zero-c/tests/program_graph_smoke.c",
     "-o",

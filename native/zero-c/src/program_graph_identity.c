@@ -8,6 +8,7 @@ const char *z_program_graph_node_kind_name(ZProgramGraphNodeKind kind) {
   switch (kind) {
     case Z_PROGRAM_GRAPH_NODE_MODULE: return "Module";
     case Z_PROGRAM_GRAPH_NODE_IMPORT: return "Import";
+    case Z_PROGRAM_GRAPH_NODE_C_IMPORT: return "CImport";
     case Z_PROGRAM_GRAPH_NODE_CONST: return "Const";
     case Z_PROGRAM_GRAPH_NODE_TYPE_ALIAS: return "TypeAlias";
     case Z_PROGRAM_GRAPH_NODE_SHAPE: return "Shape";
@@ -109,6 +110,7 @@ static bool graph_node_declares_symbol(const ZProgramGraphNode *node) {
   switch (node->kind) {
     case Z_PROGRAM_GRAPH_NODE_MODULE:
     case Z_PROGRAM_GRAPH_NODE_CONST:
+    case Z_PROGRAM_GRAPH_NODE_C_IMPORT:
     case Z_PROGRAM_GRAPH_NODE_TYPE_ALIAS:
     case Z_PROGRAM_GRAPH_NODE_SHAPE:
     case Z_PROGRAM_GRAPH_NODE_INTERFACE:
@@ -140,6 +142,7 @@ static uint64_t graph_node_hash_value(const ZProgramGraphNode *node) {
   hash = graph_hash_u64(hash, node->is_mutable ? 1 : 0);
   hash = graph_hash_u64(hash, node->is_static ? 1 : 0);
   hash = graph_hash_u64(hash, node->fallible ? 1 : 0);
+  hash = graph_hash_u64(hash, node->export_c ? 1 : 0);
   return hash;
 }
 

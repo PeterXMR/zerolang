@@ -1,4 +1,5 @@
 #include "program_graph_format.h"
+#include "program_graph_import.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -305,6 +306,8 @@ static bool graph_format_parse_node_line(const char *line, ZProgramGraphNode *ou
             graph_format_parse_bool(&cursor, &node.is_static) &&
             graph_format_parse_literal(&cursor, " fallible=") &&
             graph_format_parse_bool(&cursor, &node.fallible) &&
+            graph_format_parse_literal(&cursor, " exportC=") &&
+            graph_format_parse_bool(&cursor, &node.export_c) &&
             *cursor == 0;
   free(kind_name);
   if (!ok) {
@@ -383,6 +386,7 @@ static void graph_format_copy_node_identity_input(ZProgramGraphNode *dst, const 
   dst->is_mutable = src->is_mutable;
   dst->is_static = src->is_static;
   dst->fallible = src->fallible;
+  dst->export_c = src->export_c;
 }
 
 static bool graph_format_identities_match(const ZProgramGraph *graph) {
@@ -603,8 +607,8 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
     graph_format_append_quoted(buf, node->node_hash);
     zbuf_append(buf, ",\"path\":");
     graph_format_append_quoted(buf, node->path);
-    zbuf_appendf(buf, ",\"line\":%d,\"column\":%d,\"public\":%s,\"mutable\":%s,\"static\":%s,\"fallible\":%s}",
-                 node->line, node->column, node->is_public ? "true" : "false", node->is_mutable ? "true" : "false", node->is_static ? "true" : "false", node->fallible ? "true" : "false");
+    zbuf_appendf(buf, ",\"line\":%d,\"column\":%d,\"public\":%s,\"mutable\":%s,\"static\":%s,\"fallible\":%s,\"exportC\":%s}",
+                 node->line, node->column, node->is_public ? "true" : "false", node->is_mutable ? "true" : "false", node->is_static ? "true" : "false", node->fallible ? "true" : "false", node->export_c ? "true" : "false");
   }
   zbuf_append(buf, "],\"edges\":[");
   for (size_t i = 0; graph && i < graph->edge_len; i++) {
@@ -659,8 +663,8 @@ void z_program_graph_append_dump(ZBuf *buf, const ZProgramGraph *graph, const ZP
     graph_format_append_quoted(buf, node->node_hash);
     zbuf_append(buf, " path=");
     graph_format_append_quoted(buf, node->path);
-    zbuf_appendf(buf, " line=%d column=%d public=%s mutable=%s static=%s fallible=%s\n",
-                 node->line, node->column, node->is_public ? "true" : "false", node->is_mutable ? "true" : "false", node->is_static ? "true" : "false", node->fallible ? "true" : "false");
+    zbuf_appendf(buf, " line=%d column=%d public=%s mutable=%s static=%s fallible=%s exportC=%s\n",
+                 node->line, node->column, node->is_public ? "true" : "false", node->is_mutable ? "true" : "false", node->is_static ? "true" : "false", node->fallible ? "true" : "false", node->export_c ? "true" : "false");
   }
   for (size_t i = 0; graph && i < graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &graph->edges[i];
