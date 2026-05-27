@@ -394,6 +394,14 @@ static bool canon_validate_member_access(CanonParser *parser, const ZCanonicalTo
   return true;
 }
 
+static bool canon_empty_call_args_close(CanonParser *parser, size_t start, size_t index) {
+  if (index < start + 2) return false;
+  const ZCanonicalToken *open = &parser->tokens->items[index - 1];
+  const ZCanonicalToken *callee = &parser->tokens->items[index - 2];
+  if (!canon_is_symbol_text(open, "(") || !canon_tokens_connected(callee, open)) return false;
+  return callee->kind == Z_CANON_TOKEN_WORD || canon_is_symbol_text(callee, ")") || canon_is_symbol_text(callee, "]") || canon_is_symbol_text(callee, "}") || canon_is_symbol_text(callee, ">");
+}
+
 static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t end) {
   if (start == end) return true;
   bool expect_operand = true;
@@ -456,6 +464,7 @@ static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t 
       if (canon_empty_postfix_index_close(token, previous, bracket_depth, bracket_literal, expect_operand)) {
         return canon_fail(parser->diag, token, "expected index expression before ']'", "index expression", "]");
       }
+      if (expect_operand && previous && canon_is_symbol_text(previous, "(") && !canon_empty_call_args_close(parser, start, i)) return canon_fail(parser->diag, token, "expected expression before delimiter", "expression", token->text);
       if (expect_operand && !(previous && (canon_expr_open_symbol(previous) || canon_is_symbol_text(previous, "..")))) {
         return canon_fail(parser->diag, token, "expected expression before delimiter", "expression", token->text);
       }
@@ -726,6 +735,7 @@ static bool canon_parse_signature(CanonParser *parser, bool body, size_t depth) 
 static bool canon_parse_block(CanonParser *parser, size_t depth) {
   const ZCanonicalToken *open = canon_peek(parser);
   if (!canon_expect_symbol(parser, "{", "expected block")) return false;
+  size_t node_index = parser->tree->len;
   canon_push_node(parser->tree, (ZCanonicalNode){Z_CANON_NODE_BLOCK, parser->pos - 1, 1, depth, open->line, open->column});
   if (parser->facts) {
     parser->facts->block_count++;
@@ -736,7 +746,9 @@ static bool canon_parse_block(CanonParser *parser, size_t depth) {
     if (!canon_parse_statement(parser, depth + 1)) return false;
     canon_skip_newlines(parser);
   }
-  return canon_expect_symbol(parser, "}", "expected closing block");
+  if (!canon_expect_symbol(parser, "}", "expected closing block")) return false;
+  parser->tree->items[node_index].token_count = parser->pos - parser->tree->items[node_index].first_token;
+  return true;
 }
 
 static bool canon_parse_let_or_var(CanonParser *parser) {
@@ -774,6 +786,7 @@ static bool canon_parse_match(CanonParser *parser, size_t depth) {
   if (!canon_validate_expr(parser, expr_start, parser->pos)) return false;
   const ZCanonicalToken *open = canon_peek(parser);
   if (!canon_expect_symbol(parser, "{", "expected match body")) return false;
+  size_t node_index = parser->tree->len;
   canon_push_node(parser->tree, (ZCanonicalNode){Z_CANON_NODE_BLOCK, parser->pos - 1, 1, depth, open->line, open->column});
   if (parser->facts) {
     parser->facts->block_count++;
@@ -787,7 +800,9 @@ static bool canon_parse_match(CanonParser *parser, size_t depth) {
     if (!canon_parse_block(parser, depth + 1)) return false;
     canon_skip_newlines(parser);
   }
-  return canon_expect_symbol(parser, "}", "expected closing match body");
+  if (!canon_expect_symbol(parser, "}", "expected closing match body")) return false;
+  parser->tree->items[node_index].token_count = parser->pos - parser->tree->items[node_index].first_token;
+  return true;
 }
 
 static bool canon_parse_statement(CanonParser *parser, size_t depth) {
@@ -911,6 +926,17 @@ static bool canon_parse_const_declaration(CanonParser *parser) {
   return canon_parse_expr_line(parser, false);
 }
 
+static bool canon_parse_use_declaration(CanonParser *parser) {
+  if (!canon_expect_word_token(parser, "expected import module name")) return false;
+  while (canon_accept_symbol(parser, ".")) {
+    if (!canon_expect_word_token(parser, "expected import module segment")) return false;
+  }
+  if (canon_accept_word(parser, "as")) {
+    if (!canon_expect_word_token(parser, "expected import alias")) return false;
+  }
+  return true;
+}
+
 static bool canon_parse_public_declaration(CanonParser *parser, const ZCanonicalToken *start) {
   if (canon_accept_word(parser, "fn")) {
     if (parser->facts) parser->facts->function_count++;
@@ -956,7 +982,7 @@ static bool canon_parse_declaration_body(CanonParser *parser, const ZCanonicalTo
     if (parser->facts) parser->facts->test_count++;
     return canon_parse_block(parser, 1);
   }
-  if (canon_accept_word(parser, "use")) return canon_parse_expr_line(parser, false);
+  if (canon_accept_word(parser, "use")) return canon_parse_use_declaration(parser);
   if (canon_accept_word(parser, "alias")) return canon_parse_alias_declaration(parser);
   if (canon_accept_word(parser, "const")) return canon_parse_const_declaration(parser);
   return canon_fail(parser->diag, start, "expected canonical declaration", "declaration", start->text);

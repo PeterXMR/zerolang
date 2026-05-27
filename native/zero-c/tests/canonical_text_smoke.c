@@ -214,9 +214,20 @@ static void records_block_open_locations(void) {
 
 static void records_node_token_spans(void) {
   const char *source =
-    "fn main() -> Void {\n"
-    "    let value: i32 = 1\n"
-    "    return value\n"
+    "choice Result {\n"
+    "    ok: i32,\n"
+    "    err: String,\n"
+    "}\n"
+    "\n"
+    "fn main(result: Result) -> Void {\n"
+    "    match result {\n"
+    "        ok value {\n"
+    "            return\n"
+    "        }\n"
+    "        err message {\n"
+    "            return\n"
+    "        }\n"
+    "    }\n"
     "}\n";
   ZDiag diag = {0};
   ZCanonicalFacts facts = {0};
@@ -233,7 +244,11 @@ static void records_node_token_spans(void) {
     expect(node->first_token + node->token_count <= tokens.len, "expected canonical node span inside token stream");
     if (node->kind == Z_CANON_NODE_DECL) saw_decl = true;
     if (node->kind == Z_CANON_NODE_STMT) saw_stmt = true;
-    if (node->kind == Z_CANON_NODE_BLOCK) saw_block = true;
+    if (node->kind == Z_CANON_NODE_BLOCK) {
+      saw_block = true;
+      expect(node->token_count > 1, "expected block node span to include the closing brace");
+      expect(strcmp(tokens.items[node->first_token + node->token_count - 1].text, "}") == 0, "expected block node span to end at closing brace");
+    }
   }
   expect(saw_decl, "expected declaration node span");
   expect(saw_stmt, "expected statement node span");
@@ -332,6 +347,21 @@ static void parses_empty_return_but_not_empty_checks(void) {
   expect_rejects("fn bad() -> Void {\n    expect\n}\n", "empty expect");
 }
 
+static void parses_use_declarations_and_zero_arg_calls(void) {
+  const char *source =
+    "use std.mem\n"
+    "use package.module as module\n"
+    "\n"
+    "fn answer() -> i32 {\n"
+    "    return 42\n"
+    "}\n"
+    "\n"
+    "fn caller() -> Void {\n"
+    "    let value: i32 = answer()\n"
+    "}\n";
+  expect_accepts(source, "use declarations and zero-arg calls");
+}
+
 static void rejects_noncanonical_spellings(void) {
   expect_rejects("fun main() -> Void {}\n", "fun keyword");
   expect_rejects("shape Point {\n    x: i32,\n}\n", "shape keyword");
@@ -384,6 +414,11 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad(foo: Foo) -> Void {\n    let value: i32 = foo.()\n}\n", "group member access");
   expect_rejects("fn bad(foo: Foo) -> Void {\n    let value: i32 = foo.[0]\n}\n", "index member access");
   expect_rejects("fn bad(items: Items) -> Void {\n    let value: i32 = items[]\n}\n", "empty index expression");
+  expect_rejects("fn bad() -> Void {\n    check ()\n}\n", "empty grouped check expression");
+  expect_rejects("fn bad() -> Void {\n    let value: i32 = ()\n}\n", "empty grouped initializer expression");
+  expect_rejects("use \"not-module\"\n", "string use import");
+  expect_rejects("use std.mem()\n", "call use import");
+  expect_rejects("use std.\n", "trailing use import separator");
 }
 
 static void parse_file_arg(const char *mode, const char *path) {
@@ -410,6 +445,7 @@ int main(int argc, char **argv) {
   parses_generic_interfaces();
   parses_choice_payload_match_patterns();
   parses_empty_return_but_not_empty_checks();
+  parses_use_declarations_and_zero_arg_calls();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
   printf("canonical text smoke ok\n");
