@@ -197,14 +197,16 @@ bool z_std_helper_is_fallible(const ZStdHelperInfo *helper) {
 
 void z_std_helper_error_set_text(const ZStdHelperInfo *helper, char *buf, size_t cap) {
   if (!buf || cap == 0) return;
-  snprintf(buf, cap, "![");
+  snprintf(buf, cap, "raises [");
   size_t used = strlen(buf);
+  bool first = true;
   for (size_t i = 0; i < Z_STD_HELPER_MAX_ERRORS; i++) {
     const char *error_name = z_std_helper_error_name(helper, i);
     if (!error_name) break;
     if (used >= cap - 1) break;
-    snprintf(buf + used, cap - used, "%s%s", used > 2 ? " " : "", error_name);
+    snprintf(buf + used, cap - used, "%s%s", first ? "" : ", ", error_name);
     used = strlen(buf);
+    first = false;
   }
   if (used < cap - 1) snprintf(buf + used, cap - used, "]");
   else buf[cap - 1] = '\0';

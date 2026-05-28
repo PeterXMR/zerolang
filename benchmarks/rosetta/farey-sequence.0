@@ -1,20 +1,27 @@
-fn phi u32 n u32
-  mut count u32 0
-  mut k u32 1
-  while <= k n
-    if == (std.math.gcdU32 n k) 1
-      set count + count 1
-    set k + k 1
-  ret count
+fn phi(n: u32) -> u32 {
+    var count: u32 = 0
+    var k: u32 = 1
+    while k <= n {
+        if std.math.gcdU32(n, k) == 1 {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    return count
+}
 
-fn fareyLength u32 order u32
-  mut total u32 1
-  mut n u32 1
-  while <= n order
-    set total + total (phi n)
-    set n + n 1
-  ret total
+fn fareyLength(order: u32) -> u32 {
+    var total: u32 = 1
+    var n: u32 = 1
+    while n <= order {
+        total = total + phi(n)
+        n = n + 1
+    }
+    return total
+}
 
-pub fn main Void world World !
-  if == (fareyLength 5) 11
-    check world.out.write "farey ok\n"
+pub fn main(world: World) -> Void raises {
+    if fareyLength(5) == 11 {
+        check world.out.write("farey ok\n")
+    }
+}

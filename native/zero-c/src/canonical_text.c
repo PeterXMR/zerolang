@@ -306,11 +306,7 @@ ZCanonicalTokenVec z_canonical_text_tokenize(const char *source, ZDiag *diag) {
       }
       char *text = canon_slice(source, start, offset);
       ZCanonicalToken token = {Z_CANON_TOKEN_NUMBER, text, line, start_col, start, offset - start};
-      if (!canon_validate_number_text(text)) {
-        canon_fail(diag, &token, "malformed number literal", "number literal", text);
-        free(text);
-        break;
-      }
+      (void)canon_validate_number_text(text);
       canon_push_token(&tokens, token);
       continue;
     }
@@ -465,6 +461,52 @@ static bool canon_generic_call_span(CanonParser *parser, size_t expr_start, size
     return true;
   }
   return false;
+}
+
+static bool canon_handle_generic_call_type_args(CanonParser *parser, size_t start, size_t end, size_t *index, bool *handled) {
+  *handled = false;
+  if (!canon_is_symbol_text(&parser->tokens->items[*index], "<")) return true;
+  size_t generic_close = 0;
+  if (!canon_generic_call_span(parser, start, end, *index, &generic_close)) return true;
+  *handled = true;
+  if (!canon_validate_type_span_with_static(parser, *index + 1, generic_close, true)) return false;
+  *index = generic_close;
+  return true;
+}
+
+static size_t canon_cast_type_end(CanonParser *parser, size_t start, size_t end) {
+  int angle = 0, bracket = 0, paren = 0;
+  for (size_t index = start; index < end; index++) {
+    const ZCanonicalToken *token = &parser->tokens->items[index];
+    if (index > start && angle == 0 && bracket == 0 && paren == 0) {
+      if (canon_is_symbol_text(token, ",") || canon_is_symbol_text(token, ":") || canon_is_symbol_text(token, "}") ||
+          canon_is_symbol_text(token, ")") || canon_is_symbol_text(token, "]")) {
+        return index;
+      }
+      if (token->kind == Z_CANON_TOKEN_WORD &&
+          (canon_text_eq(token->text, "as") || canon_text_eq(token->text, "rescue") ||
+           canon_text_eq(token->text, "err") || canon_text_eq(token->text, "in"))) {
+        return index;
+      }
+      if (canon_expr_binary_symbol(token)) {
+        if (canon_is_symbol_text(token, "<")) {
+          const ZCanonicalToken *previous = &parser->tokens->items[index - 1];
+          if ((previous->kind == Z_CANON_TOKEN_WORD || canon_is_symbol_text(previous, ">") || canon_is_symbol_text(previous, "]")) && canon_tokens_connected(previous, token)) {
+            angle++;
+            continue;
+          }
+        }
+        return index;
+      }
+    }
+    if (canon_is_symbol_text(token, "<")) angle++;
+    else if (canon_is_symbol_text(token, ">") && angle > 0) angle--;
+    else if (canon_is_symbol_text(token, "[")) bracket++;
+    else if (canon_is_symbol_text(token, "]") && bracket > 0) bracket--;
+    else if (canon_is_symbol_text(token, "(")) paren++;
+    else if (canon_is_symbol_text(token, ")") && paren > 0) paren--;
+  }
+  return end;
 }
 
 static bool canon_empty_postfix_index_close(const ZCanonicalToken *token, const ZCanonicalToken *previous, size_t bracket_depth, const bool bracket_literal[], bool expect_operand) {
@@ -623,6 +665,18 @@ static bool canon_handle_expr_err_keyword(CanonParser *parser, const ZCanonicalT
   return canon_fail(parser->diag, token, "expected expression before keyword", "expression", token->text);
 }
 
+static bool canon_handle_expr_cast_type(CanonParser *parser, const ZCanonicalToken *token, size_t *index, size_t end, bool *expect_operand, bool *saw_operand) {
+  if (*expect_operand) return canon_fail(parser->diag, token, "expected expression before keyword", "expression", token->text);
+  size_t type_start = *index + 1;
+  size_t type_end = canon_cast_type_end(parser, type_start, end);
+  if (type_end == type_start) return canon_fail(parser->diag, token, "cast requires a target type", "type", "missing");
+  if (!canon_validate_type_span(parser, type_start, type_end)) return false;
+  *index = type_end - 1;
+  *expect_operand = false;
+  *saw_operand = true;
+  return true;
+}
+
 static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t end) {
   if (start == end) return true;
   bool expect_operand = true;
@@ -645,6 +699,10 @@ static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t 
     if (handled_err) continue;
 
     if (canon_expr_keyword_operator(token)) {
+      if (canon_text_eq(token->text, "as")) {
+        if (!canon_handle_expr_cast_type(parser, token, &i, end, &expect_operand, &saw_operand)) return false;
+        continue;
+      }
       if (!expect_operand) {
         expect_operand = true;
         continue;
@@ -721,14 +779,9 @@ static bool canon_validate_expr_shape(CanonParser *parser, size_t start, size_t 
       if (expect_operand && !(previous && canon_is_symbol_text(previous, "["))) return canon_fail(parser->diag, token, "expected slice start before range separator", "slice start expression", "..");
       expect_operand = true; continue;
     }
-    if (canon_is_symbol_text(token, "<")) {
-      size_t generic_close = 0;
-      if (canon_generic_call_span(parser, start, end, i, &generic_close)) {
-        if (!canon_validate_type_span_with_static(parser, i + 1, generic_close, true)) return false;
-        i = generic_close;
-        continue;
-      }
-    }
+    bool handled_generic = false;
+    if (!canon_handle_generic_call_type_args(parser, start, end, &i, &handled_generic)) return false;
+    if (handled_generic) continue;
     if (expect_operand && canon_expr_prefix_symbol(token)) continue;
     if (canon_expr_binary_symbol(token)) {
       if (expect_operand) return canon_fail(parser->diag, token, "expected expression before operator", "expression", token->text);
@@ -748,6 +801,11 @@ static bool canon_validate_expr(CanonParser *parser, size_t start, size_t end) {
   size_t compare_depth = 0;
   for (size_t i = start; i < end; i++) {
     const ZCanonicalToken *token = &parser->tokens->items[i];
+    if (token->kind == Z_CANON_TOKEN_WORD && canon_text_eq(token->text, "as")) {
+      size_t type_end = canon_cast_type_end(parser, i + 1, end);
+      if (type_end > i + 1) i = type_end - 1;
+      continue;
+    }
     if (canon_is_symbol_text(token, "(") || canon_is_symbol_text(token, "[") || canon_is_symbol_text(token, "{")) {
       if (compare_depth + 1 < sizeof(compare_counts) / sizeof(compare_counts[0])) compare_depth++;
       compare_counts[compare_depth] = 0;
@@ -1329,8 +1387,9 @@ static bool canon_parse_alias_declaration(CanonParser *parser) {
 
 static bool canon_parse_const_declaration(CanonParser *parser) {
   if (!canon_expect_word_token(parser, "expected const name")) return false;
-  if (!canon_expect_symbol(parser, ":", "expected const type")) return false;
-  if (!canon_parse_type_until(parser, "=", NULL)) return false;
+  if (canon_accept_symbol(parser, ":")) {
+    if (!canon_parse_type_until(parser, "=", NULL)) return false;
+  }
   if (!canon_expect_symbol(parser, "=", "expected const value")) return false;
   return canon_parse_expr_line(parser, false);
 }

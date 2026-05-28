@@ -189,278 +189,363 @@ async function runHttpHeadersExample(baseUrl) {
 }
 
 function okSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}/ok\\n\\n") response (std.time.ms 1000)
-  let body_offset std.http.responseBodyOffset response
-  let body_len std.http.resultBodyLen result
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 200
-    ret 99
-  if != body_len 8
-    ret 99
-  if != (std.http.resultError result) (std.http.errorNone())
-    ret 99
-  if < (std.http.responseLen response) body_len
-    ret 99
-  if != response[body_offset] 123_u8
-    ret 99
-  if != response[+ body_offset 1] 34_u8
-    ret 99
-  if != response[+ body_offset 2] 111_u8
-    ret 99
-  if != response[+ body_offset 3] 107_u8
-    ret 99
-  if != response[+ body_offset 4] 34_u8
-    ret 99
-  if != response[+ body_offset 5] 58_u8
-    ret 99
-  if != response[+ body_offset 6] 49_u8
-    ret 99
-  if != response[+ body_offset 7] 125_u8
-    ret 99
-  ret 8
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok\\n\\n"), response, std.time.ms(1000))
+    let body_offset: usize = std.http.responseBodyOffset(response)
+    let body_len: usize = std.http.resultBodyLen(result)
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 200 {
+        return 99
+    }
+    if body_len != 8 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorNone() {
+        return 99
+    }
+    if std.http.responseLen(response) < body_len {
+        return 99
+    }
+    if response[body_offset] != 123_u8 {
+        return 99
+    }
+    if response[body_offset + 1] != 34_u8 {
+        return 99
+    }
+    if response[body_offset + 2] != 111_u8 {
+        return 99
+    }
+    if response[body_offset + 3] != 107_u8 {
+        return 99
+    }
+    if response[body_offset + 4] != 34_u8 {
+        return 99
+    }
+    if response[body_offset + 5] != 58_u8 {
+        return 99
+    }
+    if response[body_offset + 6] != 49_u8 {
+        return 99
+    }
+    if response[body_offset + 7] != 125_u8 {
+        return 99
+    }
+    return 8
+}
 `;
 }
 
 function fetchRequestSource(baseUrl, method, path, body, expectedStatus, expectedBodyLen, expectedCode) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  let request std.mem.span "${method} ${baseUrl}${path}\\ncontent-type: application/json\\nx-zero-test: yes\\n\\n${body}"
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client request response (std.time.ms 1000)
-  let body_offset std.http.responseBodyOffset response
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) ${expectedStatus}
-    ret 99
-  if != (std.http.resultBodyLen result) ${expectedBodyLen}
-    ret 99
-  if != (std.http.resultError result) (std.http.errorNone())
-    ret 99
-  if != response[body_offset] 123_u8
-    ret 99
-  if == response[+ body_offset 2] 0_u8
-    ret 99
-  ret ${expectedCode}
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    let request: Span<u8> = std.mem.span("${method} ${baseUrl}${path}\\ncontent-type: application/json\\nx-zero-test: yes\\n\\n${body}")
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
+    let body_offset: usize = std.http.responseBodyOffset(response)
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != ${expectedStatus} {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != ${expectedBodyLen} {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorNone() {
+        return 99
+    }
+    if response[body_offset] != 123_u8 {
+        return 99
+    }
+    if response[body_offset + 2] == 0_u8 {
+        return 99
+    }
+    return ${expectedCode}
+}
 `;
 }
 
 function resultFailureSource(baseUrl, path, responseSize, timeoutMs, expectedStatus, expectedLen, expectedError, expectedCode) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [${responseSize}]u8 [${zeroArray(responseSize)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}${path}\\n\\n") response (std.time.ms ${timeoutMs})
-  if != (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) ${expectedStatus}
-    ret 99
-  if != (std.http.resultBodyLen result) ${expectedLen}
-    ret 99
-  if != (std.http.resultError result) (${expectedError})
-    ret 99
-  ret ${expectedCode}
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [${responseSize}]u8 = [${zeroArray(responseSize)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}${path}\\n\\n"), response, std.time.ms(${timeoutMs}))
+    if std.http.resultOk(result) != false {
+        return 99
+    }
+    if std.http.resultStatus(result) != ${expectedStatus} {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != ${expectedLen} {
+        return 99
+    }
+    if std.http.resultError(result) != ${expectedError} {
+        return 99
+    }
+    return ${expectedCode}
+}
 `;
 }
 
 function headersSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}/ok\\n\\n") response (std.time.ms 1000)
-  let reply std.http.headerValue response (std.mem.span "x-zero-reply")
-  let reply_offset std.http.headerOffset reply
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 200
-    ret 99
-  if <= (std.http.responseHeadersLen response) 16
-    ret 99
-  if != (std.http.resultError result) (std.http.errorNone())
-    ret 99
-  if == (std.http.headerFound reply) false
-    ret 99
-  if != (std.http.headerLen reply) 3
-    ret 99
-  if != response[reply_offset] 121_u8
-    ret 99
-  if != response[24] 72_u8
-    ret 99
-  if != response[25] 84_u8
-    ret 99
-  if != response[26] 84_u8
-    ret 99
-  if != response[27] 80_u8
-    ret 99
-  ret 44
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok\\n\\n"), response, std.time.ms(1000))
+    let reply: HttpHeaderValue = std.http.headerValue(response, std.mem.span("x-zero-reply"))
+    let reply_offset: usize = std.http.headerOffset(reply)
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 200 {
+        return 99
+    }
+    if std.http.responseHeadersLen(response) <= 16 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorNone() {
+        return 99
+    }
+    if std.http.headerFound(reply) == false {
+        return 99
+    }
+    if std.http.headerLen(reply) != 3 {
+        return 99
+    }
+    if response[reply_offset] != 121_u8 {
+        return 99
+    }
+    if response[24] != 72_u8 {
+        return 99
+    }
+    if response[25] != 84_u8 {
+        return 99
+    }
+    if response[26] != 84_u8 {
+        return 99
+    }
+    if response[27] != 80_u8 {
+        return 99
+    }
+    return 44
+}
 `;
 }
 
 function interimHeadersSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}/interim\\n\\n") response (std.time.ms 1000)
-  let reply std.http.headerValue response (std.mem.span "x-zero-reply")
-  let reply_offset std.http.headerOffset reply
-  let body_offset std.http.responseBodyOffset response
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 200
-    ret 99
-  if != (std.http.resultBodyLen result) 8
-    ret 99
-  if != (std.http.resultError result) (std.http.errorNone())
-    ret 99
-  if == (std.http.headerFound reply) false
-    ret 99
-  if != (std.http.headerLen reply) 5
-    ret 99
-  if != response[reply_offset] 102_u8
-    ret 99
-  if != response[33] 50_u8
-    ret 99
-  if != response[34] 48_u8
-    ret 99
-  if != response[35] 48_u8
-    ret 99
-  if != response[body_offset] 123_u8
-    ret 99
-  ret 46
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/interim\\n\\n"), response, std.time.ms(1000))
+    let reply: HttpHeaderValue = std.http.headerValue(response, std.mem.span("x-zero-reply"))
+    let reply_offset: usize = std.http.headerOffset(reply)
+    let body_offset: usize = std.http.responseBodyOffset(response)
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 200 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 8 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorNone() {
+        return 99
+    }
+    if std.http.headerFound(reply) == false {
+        return 99
+    }
+    if std.http.headerLen(reply) != 5 {
+        return 99
+    }
+    if response[reply_offset] != 102_u8 {
+        return 99
+    }
+    if response[33] != 50_u8 {
+        return 99
+    }
+    if response[34] != 48_u8 {
+        return 99
+    }
+    if response[35] != 48_u8 {
+        return 99
+    }
+    if response[body_offset] != 123_u8 {
+        return 99
+    }
+    return 46
+}
 `;
 }
 
 function headSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  let request std.mem.span "HEAD ${baseUrl}/ok\\nx-zero-test: yes\\n\\n"
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client request response (std.time.ms 1000)
-  let reply std.http.headerValue response (std.mem.span "x-zero-reply")
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 200
-    ret 99
-  if != (std.http.resultBodyLen result) 0
-    ret 99
-  if <= (std.http.responseHeadersLen response) 16
-    ret 99
-  if != (std.http.resultError result) (std.http.errorNone())
-    ret 99
-  if == (std.http.headerFound reply) false
-    ret 99
-  if != (std.http.headerLen reply) 3
-    ret 99
-  ret 45
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    let request: Span<u8> = std.mem.span("HEAD ${baseUrl}/ok\\nx-zero-test: yes\\n\\n")
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
+    let reply: HttpHeaderValue = std.http.headerValue(response, std.mem.span("x-zero-reply"))
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 200 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 0 {
+        return 99
+    }
+    if std.http.responseHeadersLen(response) <= 16 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorNone() {
+        return 99
+    }
+    if std.http.headerFound(reply) == false {
+        return 99
+    }
+    if std.http.headerLen(reply) != 3 {
+        return 99
+    }
+    return 45
+}
 `;
 }
 
 function jsonResultSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [${zeroArray(512)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}/ok\\n\\n") response (std.time.ms 1000)
-  let body_len std.http.resultBodyLen result
-  let body_offset std.http.responseBodyOffset response
-  let bytes response[body_offset..+ body_offset body_len]
-  mut arena_buf [16]u8 [${zeroArray(16)}]
-  mut arena std.mem.fixedBufAlloc arena_buf
-  let parsed std.json.parseBytes arena bytes
-  if == (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 200
-    ret 99
-  if != body_len 8
-    ret 99
-  if == parsed.has false
-    ret 99
-  if == (std.json.validateBytes bytes) false
-    ret 99
-  if != (std.json.streamTokensBytes bytes) 3
-    ret 99
-  ret 37
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [${zeroArray(512)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok\\n\\n"), response, std.time.ms(1000))
+    let body_len: usize = std.http.resultBodyLen(result)
+    let body_offset: usize = std.http.responseBodyOffset(response)
+    let bytes: Span<u8> = response[body_offset..body_offset + body_len]
+    var arena_buf: [16]u8 = [${zeroArray(16)}]
+    var arena: FixedBufAlloc = std.mem.fixedBufAlloc(arena_buf)
+    let parsed: Maybe<JsonDoc> = std.json.parseBytes(arena, bytes)
+    if std.http.resultOk(result) == false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 200 {
+        return 99
+    }
+    if body_len != 8 {
+        return 99
+    }
+    if parsed.has == false {
+        return 99
+    }
+    if std.json.validateBytes(bytes) == false {
+        return 99
+    }
+    if std.json.streamTokensBytes(bytes) != 3 {
+        return 99
+    }
+    return 37
+}
 `;
 }
 
 function invalidUrlSource() {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [64]u8 [${zeroArray(64)}]
-  let result std.http.fetch client (std.mem.span "GET http://\\n\\n") response (std.time.ms 1000)
-  if != (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 0
-    ret 99
-  if != (std.http.resultBodyLen result) 0
-    ret 99
-  if != (std.http.resultError result) (std.http.errorInvalidUrl())
-    ret 99
-  ret 36
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [64]u8 = [${zeroArray(64)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET http://\\n\\n"), response, std.time.ms(1000))
+    if std.http.resultOk(result) != false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 0 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 0 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorInvalidUrl() {
+        return 99
+    }
+    return 36
+}
 `;
 }
 
 function shorthandRejectedSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [64]u8 [${zeroArray(64)}]
-  let result std.http.fetch client (std.mem.span "${baseUrl}/ok") response (std.time.ms 1000)
-  if != (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 0
-    ret 99
-  if != (std.http.resultBodyLen result) 0
-    ret 99
-  if != (std.http.resultError result) (std.http.errorInvalidRequest())
-    ret 99
-  ret 48
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [64]u8 = [${zeroArray(64)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("${baseUrl}/ok"), response, std.time.ms(1000))
+    if std.http.resultOk(result) != false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 0 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 0 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorInvalidRequest() {
+        return 99
+    }
+    return 48
+}
 `;
 }
 
 function unterminatedEnvelopeSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [64]u8 [${zeroArray(64)}]
-  let result std.http.fetch client (std.mem.span "GET ${baseUrl}/ok") response (std.time.ms 1000)
-  if != (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 0
-    ret 99
-  if != (std.http.resultBodyLen result) 0
-    ret 99
-  if != (std.http.resultError result) (std.http.errorInvalidRequest())
-    ret 99
-  ret 49
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [64]u8 = [${zeroArray(64)}]
+    let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok"), response, std.time.ms(1000))
+    if std.http.resultOk(result) != false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 0 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 0 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorInvalidRequest() {
+        return 99
+    }
+    return 49
+}
 `;
 }
 
 function invalidRequestSource(baseUrl) {
-  return `export c fn main i32
-  let net std.net.host()
-  let client std.http.client net
-  mut response [128]u8 [${zeroArray(128)}]
-  let request std.mem.span "POST ${baseUrl}/echo\\nbad-header\\n\\n"
-  let result std.http.fetch client request response (std.time.ms 1000)
-  if != (std.http.resultOk result) false
-    ret 99
-  if != (std.http.resultStatus result) 0
-    ret 99
-  if != (std.http.resultBodyLen result) 0
-    ret 99
-  if != (std.http.resultError result) (std.http.errorInvalidRequest())
-    ret 99
-  ret 43
+  return `export c fn main() -> i32 {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [128]u8 = [${zeroArray(128)}]
+    let request: Span<u8> = std.mem.span("POST ${baseUrl}/echo\\nbad-header\\n\\n")
+    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
+    if std.http.resultOk(result) != false {
+        return 99
+    }
+    if std.http.resultStatus(result) != 0 {
+        return 99
+    }
+    if std.http.resultBodyLen(result) != 0 {
+        return 99
+    }
+    if std.http.resultError(result) != std.http.errorInvalidRequest() {
+        return 99
+    }
+    return 43
+}
 `;
 }
 

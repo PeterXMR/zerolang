@@ -1,10 +1,13 @@
-fn sum_to i32 n i32
-  mut i i32 0
-  mut sum i32 0
-  while <= i n
-    set sum + sum i
-    set i + i 1
-  ret sum
+fn sum_to(n: i32) -> i32 {
+    var i: i32 = 0
+    var sum: i32 = 0
+    while i <= n {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
 
-export c fn main i32
-  ret sum_to 4
+export c fn main() -> i32 {
+    return sum_to(4)
+}

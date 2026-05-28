@@ -210,9 +210,8 @@ function completionItems() {
     "alias",
     "const",
     "let",
-    "mut",
-    "set",
-    "ret",
+    "var",
+    "return",
     "if",
     "else",
     "while",
@@ -221,6 +220,7 @@ function completionItems() {
     "check",
     "rescue",
     "raise",
+    "raises",
     "use",
     "extern",
     "packed",
@@ -446,7 +446,7 @@ async function selfTest() {
   await mkdir(dir, { recursive: true });
   const path = join(dir, "sample.0");
   const uri = pathToUri(path);
-  const text = "pub fn add i32 a i32 b i32\n  ret + a b\n\npub fn main Void world World !\n  check world.out.write \"ok\\n\"\n";
+  const text = "pub fn add(a: i32, b: i32) -> i32 {\n    return a + b\n}\n\npub fn main(world: World) -> Void raises {\n    check world.out.write(\"ok\\n\")\n}\n";
   await writeFile(path, text);
   const notifications = [];
   await didOpen({ textDocument: { uri, text, version: 1 } }, (method, params) => notifications.push({ method, params }));
@@ -464,9 +464,9 @@ async function selfTest() {
   const completions = completionItems();
   assert(completions.some((item) => item.label === "add"));
   assert(completions.some((item) => item.label === "fn"));
-  assert(completions.some((item) => item.label === "ret"));
+  assert(completions.some((item) => item.label === "return"));
   assert(!completions.some((item) => item.label === "fun"));
-  assert(!completions.some((item) => item.label === "raises"));
+  assert(completions.some((item) => item.label === "raises"));
   const hoverText = hover({ textDocument: { uri }, position: { line: 0, character: 9 } }).contents.value;
   assert(hoverText.includes("add"));
   assert(hoverText.includes("capabilities:"));
@@ -508,7 +508,7 @@ async function selfTest() {
         {
           code: "ERR002",
           message: "caller error set is missing a callee error",
-          data: { repair: { id: "add-missing-error-name", summary: "Add the missing error name to the caller `![...]` set." }, fixSafety: "api-changing" },
+          data: { repair: { id: "add-missing-error-name", summary: "Add the missing error name to the caller `raises [...]` set." }, fixSafety: "api-changing" },
         },
         {
           code: "ERR003",

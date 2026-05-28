@@ -1,5 +1,6 @@
-pub fn main Void
-  mut y 1
-  mut r &mut y
-  set r r
-  set y 2
+pub fn main() -> Void {
+    var y: i32 = 1
+    var r: mutref<i32> = &mut y
+    r = r
+    y = 2
+}

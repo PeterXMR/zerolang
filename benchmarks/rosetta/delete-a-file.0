@@ -1,6 +1,9 @@
-fn deleteOk Bool exists Bool
-  ret == exists false
+fn deleteOk(exists: Bool) -> Bool {
+    return !exists
+}
 
-pub fn main Void world World !
-  if deleteOk false
-    check world.out.write "delete file ok\n"
+pub fn main(world: World) -> Void raises {
+    if deleteOk(false) {
+        check world.out.write("delete file ok\n")
+    }
+}

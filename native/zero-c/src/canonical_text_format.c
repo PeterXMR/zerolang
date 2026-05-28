@@ -193,6 +193,12 @@ static bool fmt_prefix_operator_pair(const CanonFormat *fmt, const ZCanonicalTok
   return fmt_is_symbol(left, "&") || fmt_is_symbol(left, "!") || ((fmt_is_symbol(left, "-") || fmt_is_symbol(left, "+") || fmt_is_symbol(left, "*")) && fmt_prefix_context(fmt->before_previous));
 }
 
+static bool fmt_operand_can_take_postfix(const ZCanonicalToken *token) {
+  return token && (token->kind == Z_CANON_TOKEN_WORD || token->kind == Z_CANON_TOKEN_STRING ||
+                   token->kind == Z_CANON_TOKEN_CHAR || token->kind == Z_CANON_TOKEN_NUMBER ||
+                   fmt_is_symbol(token, ")") || fmt_is_symbol(token, "]"));
+}
+
 static bool fmt_space_before(const CanonFormat *fmt, const ZCanonicalToken *token) {
   const ZCanonicalToken *prev = fmt->previous;
   if (!prev || fmt->line_start) return false;
@@ -212,7 +218,7 @@ static bool fmt_space_before(const CanonFormat *fmt, const ZCanonicalToken *toke
   }
   if (fmt_is_symbol(token, "[")) {
     if (fmt_is_word(prev, "raises")) return true;
-    if (prev->kind == Z_CANON_TOKEN_WORD || fmt_is_symbol(prev, ")") || fmt_is_symbol(prev, "]")) return false;
+    if (fmt_operand_can_take_postfix(prev)) return false;
     return !(fmt_is_symbol(prev, "(") || fmt_is_symbol(prev, "[") || fmt_is_symbol(prev, "<"));
   }
   if (fmt_is_symbol(prev, "(") || fmt_is_symbol(prev, "[")) return false;

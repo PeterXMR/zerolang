@@ -1,13 +1,17 @@
-fn eScaled u32 scale u32 terms u32
-  mut sum u32 scale
-  mut term u32 scale
-  mut divisor u32 1
-  while <= divisor terms
-    set term / term divisor
-    set sum + sum term
-    set divisor + divisor 1
-  ret sum
+fn eScaled(scale: u32, terms: u32) -> u32 {
+    var sum: u32 = scale
+    var term: u32 = scale
+    var divisor: u32 = 1
+    while divisor <= terms {
+        term = term / divisor
+        sum = sum + term
+        divisor = divisor + 1
+    }
+    return sum
+}
 
-pub fn main Void world World !
-  if && (> (eScaled 1000000 9) 2718270) (< (eScaled 1000000 9) 2718290)
-    check world.out.write "e ok\n"
+pub fn main(world: World) -> Void raises {
+    if eScaled(1000000, 9) > 2718270 && eScaled(1000000, 9) < 2718290 {
+        check world.out.write("e ok\n")
+    }
+}

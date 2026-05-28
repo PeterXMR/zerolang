@@ -1,10 +1,13 @@
-type Holder
-  value ref<i32>
+type Holder {
+    value: ref<i32>,
+}
 
-pub fn main Void
-  let old 1
-  mut holder Holder . value (&old)
-  let selected &mut holder
-  if true
-    let inner 2
-    set selected.value &inner
+pub fn main() -> Void {
+    let old: i32 = 1
+    var holder: Holder = Holder { value: &old }
+    let selected: mutref<Holder> = &mut holder
+    if true {
+        let inner: i32 = 2
+        selected.value = &inner
+    }
+}

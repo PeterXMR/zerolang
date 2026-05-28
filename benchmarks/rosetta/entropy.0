@@ -1,8 +1,12 @@
-fn binaryEntropyBits u32 zeroes u32 ones u32
-  if == zeroes ones
-    ret 1
-  ret 0
+fn binaryEntropyBits(zeroes: u32, ones: u32) -> u32 {
+    if zeroes == ones {
+        return 1
+    }
+    return 0
+}
 
-pub fn main Void world World !
-  if == (binaryEntropyBits 4 4) 1
-    check world.out.write "entropy ok\n"
+pub fn main(world: World) -> Void raises {
+    if binaryEntropyBits(4, 4) == 1 {
+        check world.out.write("entropy ok\n")
+    }
+}

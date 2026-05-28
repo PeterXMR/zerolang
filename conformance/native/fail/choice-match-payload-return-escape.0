@@ -1,15 +1,21 @@
-choice Slot
-  some ref<i32>
-  none
+choice Slot {
+    some: ref<i32>,
+    none,
+}
 
-fn leak ref<i32>
-  let local 1
-  let slot Slot Slot.some (&local)
-  match slot
-    some borrowed
-      ret borrowed
-    none
-      ret &local
+fn leak() -> ref<i32> {
+    let local: i32 = 1
+    let slot: Slot = Slot.some(&local)
+    match slot {
+        .some(borrowed) {
+            return borrowed
+        }
+        none {
+            return &local
+        }
+    }
+}
 
-pub fn main Void
-  let _borrowed leak()
+pub fn main() -> Void {
+    let _borrowed: ref<i32> = leak()
+}

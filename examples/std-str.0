@@ -1,32 +1,46 @@
-pub fn main Void world World !
-  mut reversed_buf [6]u8 [0_u8;6]
-  let reversed std.str.reverse reversed_buf "drawer"
-  let trimmed std.str.trimAscii "  zero row  "
-  mut small [3]u8 [0_u8;3]
-  let overflow std.str.reverse small "drawer"
-  mut ok Bool true
-  if == reversed.has false
-    set ok false
-  if reversed.has
-    if == (std.mem.eql reversed.value "reward") false
-      set ok false
-  if overflow.has
-    set ok false
-  if != (std.str.countByte "banana" 97_u8) 3
-    set ok false
-  if == (std.str.startsWith "zero row syntax" "zero") false
-    set ok false
-  if == (std.str.endsWith "zero row syntax" "syntax") false
-    set ok false
-  if == (std.str.contains "zero row syntax" "row") false
-    set ok false
-  if std.str.contains "zero row syntax" "column"
-    set ok false
-  if == (std.str.contains "zero" "") false
-    set ok false
-  if == (std.mem.eql trimmed "zero row") false
-    set ok false
-  if != (std.str.wordCountAscii "zero row syntax") 3
-    set ok false
-  if ok
-    check world.out.write "std str ok\n"
+pub fn main(world: World) -> Void raises {
+    var reversed_buf: [6]u8 = [0_u8; 6]
+    let reversed: Maybe<Span<u8>> = std.str.reverse(reversed_buf, "drawer")
+    let trimmed: Span<u8> = std.str.trimAscii("  zero text  ")
+    var small: [3]u8 = [0_u8; 3]
+    let overflow: Maybe<Span<u8>> = std.str.reverse(small, "drawer")
+    var ok: Bool = true
+    if !reversed.has {
+        ok = false
+    }
+    if reversed.has {
+        if !std.mem.eql(reversed.value, "reward") {
+            ok = false
+        }
+    }
+    if overflow.has {
+        ok = false
+    }
+    if std.str.countByte("banana", 97_u8) != 3 {
+        ok = false
+    }
+    if !std.str.startsWith("zero text syntax", "zero") {
+        ok = false
+    }
+    if !std.str.endsWith("zero text syntax", "syntax") {
+        ok = false
+    }
+    if !std.str.contains("zero text syntax", "text") {
+        ok = false
+    }
+    if std.str.contains("zero text syntax", "column") {
+        ok = false
+    }
+    if !std.str.contains("zero", "") {
+        ok = false
+    }
+    if !std.mem.eql(trimmed, "zero text") {
+        ok = false
+    }
+    if std.str.wordCountAscii("zero text syntax") != 3 {
+        ok = false
+    }
+    if ok {
+        check world.out.write("std str ok\n")
+    }
+}

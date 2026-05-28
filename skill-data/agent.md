@@ -5,7 +5,7 @@ description: Graph-first agent workflow for making focused Zero changes with CLI
 
 # Zero Agent Workflow
 
-Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: inspect and patch source through ProgramGraph commands, and use ProgramGraph artifacts only when you need an interchange/debug file. `.0` and `.row` files remain the canonical source text that gets committed. Zero command text is designed to be readable by agents; use JSON when another tool must parse stable fields or when deeper diagnostics are needed.
+Use this when editing Zero code, examples, tests, docs, or a package. The graph interface is the primary authoring surface for agents: inspect and patch source through ProgramGraph commands, and use ProgramGraph artifacts only when you need an interchange/debug file. `.0` files are the canonical source text that gets committed. Zero command text is designed to be readable by agents; use JSON when another tool must parse stable fields or when deeper diagnostics are needed.
 
 ## Start
 
@@ -68,7 +68,7 @@ zero fix --plan --json <file-or-package>
 - Treat effects as capabilities, not ambient globals. Use `World`, `std.fs`, `std.args`, `std.env`, and similar APIs only where the target supports them.
 - Keep examples copyable and runnable from the repository or package root.
 - Prefer explicit types at public boundaries and when inference is unclear.
-- Use `Maybe<T>`, explicit `!` / `![...]`, and `check` instead of hidden failure.
+- Use `Maybe<T>`, explicit `raises` / `raises [...]`, and `check` instead of hidden failure.
 - Prefer graph inspection and source-backed graph patches for agent planning and mechanical edits.
 - Do not invent syntax. Load `language` when unsure.
 - Do not invent CLI fields. If you need fields, run the command with `--json` and read the data.

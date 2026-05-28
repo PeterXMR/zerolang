@@ -12,8 +12,9 @@ A Zero program can be a single `.0` file or a package with a `zero.json` manifes
 Command-line programs export `main`:
 
 ```zero
-pub fn main Void world World !
-  check world.out.write "hello from zero\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello from zero\n")
+}
 ```
 
 Examples print user output through `World.out` and diagnostics through
@@ -38,23 +39,25 @@ comments start with `//`.
 Common literal forms include:
 
 ```zero
-let name "zero"
-let marker char 'z'
-let count 42
-let ratio f64 0.5
-let ok true
+let name: String = "zero"
+let marker: char = 'z'
+let count: i32 = 42
+let ratio: f64 = 0.5
+let ok: Bool = true
 ```
 
 Top-level `const` declarations can name deterministic compile-time values for use in functions:
 
 ```zero
-const base i32 40
+const base: i32 = 40
 
-const answer i32 + base 2
+const answer: i32 = base + 2
 
-pub fn main Void world World !
-  if == answer 42
-    check world.out.write "const ok\n"
+pub fn main(world: World) -> Void raises {
+    if answer == 42 {
+        check world.out.write("const ok\n")
+    }
+}
 ```
 
 Literal arithmetic, references to earlier constants, and supported `meta`
@@ -89,9 +92,9 @@ Unsupported or cyclic compile-time expressions report `MET001`.
 Type aliases provide a compile-time spelling for an existing type:
 
 ```zero
-pub alias ByteCount usize
+pub alias ByteCount = usize
 
-alias BytePair Pair<u8,u8>
+alias BytePair = Pair<u8, u8>
 ```
 
 Aliases do not create runtime wrapper types, layout identity, or conversion
@@ -111,26 +114,29 @@ The current compiler keeps compile-time execution intentionally small:
 Functions are declared with `fn`. Exported functions use `pub fn`.
 
 ```zero
-fn answer i32
-  ret + 40 2
+fn answer() -> i32 {
+    return 40 + 2
+}
 
-pub fn main Void world World !
-  let value answer()
-  check world.out.write "done\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = answer()
+    check world.out.write("done\n")
+}
 ```
 
-Signatures start with the return type, then parameter name/type pairs. Fallible functions include `!` or an explicit `![...]`.
+Signatures put parameters in parentheses and the return type after `->`. Fallible functions include plain `raises` or an explicit `raises [Error]`.
 
 The current compiler supports a narrow, static generic slice. Generic functions
 use explicit type parameters and are emitted as concrete specializations only
 when called:
 
 ```zero
-fn identity<T: Type> T value T
-  ret value
+fn identity<T: Type>(value: T) -> T {
+    return value
+}
 
-let a i32 identity<i32> 41
-let b u8 identity 7_u8
+let a: i32 = identity<i32>(41)
+let b: u8 = identity(7_u8)
 ```
 
 Argument-based inference is local to the call. If the same generic parameter is
@@ -144,12 +150,14 @@ known at specialization time and can appear in fixed array lengths or direct
 type specializations:
 
 ```zero
-type FixedVec<T: Type, static N: usize>
-  len usize
-  items [N]T
+type FixedVec<T: Type, static N: usize> {
+    len: usize,
+    items: [N]T,
+}
 
-fn first<T: Type, static N: usize> T vec ref<FixedVec<T,N>>
-  ret vec.items[0]
+fn first<T: Type, static N: usize>(vec: ref<FixedVec<T, N>>) -> T {
+    return vec.items[0]
+}
 ```
 
 Call sites pass explicit literals, enum cases, or top-level deterministic
@@ -181,22 +189,24 @@ Calls may use namespace style or receiver style. Both specialize from a
 concrete receiver:
 
 ```zero
-type FixedVec<T: Type, static N: usize>
-  len usize 0
-  items [N]T
+type FixedVec<T: Type, static N: usize> {
+    len: usize = 0,
+    items: [N]T,
+    fn init(items: [N]T) -> Self {
+        return FixedVec { items: items }
+    }
+    fn push(self: mutref<Self>, value: T) -> Void raises [Full] {
+        if self.len == N {
+            raise Full
+        }
+        self.items[self.len] = value
+        self.len = self.len + 1
+    }
+}
 
-  fn init Self items [N]T
-    ret FixedVec . items items
-
-  fn push Void self mutref<Self> value T ![Full]
-    if == self.len N
-      raise Full
-    set self.items[self.len] value
-    set self.len + self.len 1
-
-mut vec FixedVec<u8,4> FixedVec.init ([0, 0, 0, 0])
-check FixedVec.push (&mut vec) 10
-check vec.push 20
+var vec: FixedVec<u8, 4> = FixedVec.init([0, 0, 0, 0])
+check FixedVec.push(&mut vec, 10)
+check vec.push(20)
 ```
 
 Field defaults let type literals omit fields such as `len` when an annotated
@@ -223,11 +233,13 @@ Method diagnostics:
 Static interfaces constrain generic functions without runtime dispatch:
 
 ```zero
-interface Readable<T: Type>
-  fn read i32 self ref<T>
+interface Readable<T: Type> {
+    fn read(self: ref<T>) -> i32
+}
 
-fn readValue<T: Readable<T>> i32 value ref<T>
-  ret T.read value
+fn readValue<T: Readable<T>>(value: ref<T>) -> i32 {
+    return T.read(value)
+}
 ```
 
 The concrete type argument must be a type with matching static methods.
@@ -243,34 +255,35 @@ through `IFC005`.
 Use `let` for immutable bindings:
 
 ```zero
-let message "hello\n"
+let message: String = "hello\n"
 ```
 
-Use `mut` for bindings that are intentionally reassigned:
+Use `var` for bindings that are intentionally reassigned:
 
 ```zero
-mut index 0
-set index + index 1
+var index: i32 = 0
+index = index + 1
 ```
 
 Mutable bindings also support field assignment and fixed-array element assignment through nested lvalue chains:
 
 ```zero
-type Point
-  x i32
-  y i32
+type Point {
+    x: i32,
+    y: i32,
+}
 
-mut point Point . x 1 y 2
-set point.x 3
+var point: Point = Point { x: 1, y: 2 }
+point.x = 3
 
-mut bytes [4]u8 [65, 66, 67, 68]
-set bytes[1] 90
+var bytes: [4]u8 = [65, 66, 67, 68]
+bytes[1] = 90
 ```
 
 The checker rejects assignment to immutable bindings. Indexed assignment is
 currently limited to:
 
-- fixed arrays rooted in `mut` lvalues
+- fixed arrays rooted in `var` lvalues
 - explicit `MutSpan<T>` writable views
 
 Read-only `Span<T>` and `String` indexed mutation are not part of the current
@@ -284,15 +297,15 @@ integer widths for `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`,
 
 Integer literals support decimal, `0x` hexadecimal, `0b` binary, `0o` octal,
 `_` separators, and optional suffixes such as `_u8` or `_usize`. Literals are
-context-typed and range-checked: `let byte u8 255` is valid, while
-`let byte u8 256` is rejected.
+context-typed and range-checked: `let byte: u8 = 255` is valid, while
+`let byte: u8 = 256` is rejected.
 
 Non-literal integer values do not implicitly narrow, widen, or change
 signedness. Use `value as Type` for explicit integer-to-integer casts.
 
 ```zero
-let count u32 0x12c_u32
-let byte u8 count as u8
+let count: u32 = 0x12c_u32
+let byte: u8 = count as u8
 ```
 
 The current `as` form is intentionally explicit. It supports primitive integers,
@@ -342,29 +355,29 @@ Index expressions and slice bounds must be integers. Integer literals in those
 positions are checked as `usize`:
 
 ```zero
-let bytes [4]u8 [65, 66, 67, 68]
-let scratch [16]u8 [0_u8; 16]
-let first u8 bytes[0]
-let tail Span<u8> bytes[1..4]
-let view Span<u8> std.mem.span "ABCD"
-let second u8 view[1]
-let pair Span<u8> view[1..3]
-let suffix Span<u8> view[1..]
-let prefix Span<u8> view[..3]
-let all Span<u8> view[..]
+let bytes: [4]u8 = [65, 66, 67, 68]
+let scratch: [16]u8 = [0_u8; 16]
+let first: u8 = bytes[0]
+let tail: Span<u8> = bytes[1..4]
+let view: Span<u8> = std.mem.span("ABCD")
+let second: u8 = view[1]
+let pair: Span<u8> = view[1..3]
+let suffix: Span<u8> = view[1..]
+let prefix: Span<u8> = view[..3]
+let all: Span<u8> = view[..]
 
-let values [4]i32 [10, 20, 30, 40]
-let numbers Span<i32> values
-let third i32 numbers[2]
-let middle Span<i32> values[1..3]
+let values: [4]i32 = [10, 20, 30, 40]
+let numbers: Span<i32> = values
+let third: i32 = numbers[2]
+let middle: Span<i32> = values[1..3]
 
-mut writableValues [3]i32 [1, 2, 3]
-let writable MutSpan<i32> writableValues
-set writable[1] 20
+var writableValues: [3]i32 = [1, 2, 3]
+let writable: MutSpan<i32> = writableValues
+writable[1] = 20
 
-let text String "zero"
-let byte u8 text[1]
-let bytes Span<u8> text[1..]
+let text: String = "zero"
+let byte: u8 = text[1]
+let textBytes: Span<u8> = text[1..]
 ```
 
 Current indexing behavior:
@@ -408,10 +421,11 @@ The native compiler does not yet support:
 Use `if` / `else` for branches:
 
 ```zero
-if == value 42
-  check world.out.write "math works\n"
-else
-  check world.out.write "math broke\n"
+if value == 42 {
+    check world.out.write("math works\n")
+} else {
+    check world.out.write("math broke\n")
+}
 ```
 
 Conditions must be `Bool`; integers and pointers do not coerce to truthy or falsey values.
@@ -419,54 +433,61 @@ Conditions must be `Bool`; integers and pointers do not coerce to truthy or fals
 Use `while` for loops:
 
 ```zero
-while keepGoing
-  check world.out.write "loop\n"
+while keepGoing {
+    check world.out.write("loop\n")
+}
 ```
 
 Use range `for` loops for integer ranges. The end bound is exclusive:
 
 ```zero
-for index in 0..4
-  if == index 2
-    continue
-  check world.out.write "tick\n"
+for index in 0..4 {
+    if index == 2 {
+        continue
+    }
+    check world.out.write("tick\n")
+}
 ```
 
 Use `break` to exit the nearest loop and `continue` to skip to the next iteration.
 
-Use `ret` to exit a function with a value.
+Use `return` to exit a function with a value.
 
 ## Effects And Errors
 
 Zero keeps effectful operations visible.
 
 ```zero
-pub fn main Void world World !
-  check world.out.write "hello\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello\n")
+}
 ```
 
-`check` calls a fallible operation and propagates failure. Functions that use `check` declare `!` or `![...]`.
+`check` calls a fallible operation and propagates failure. Functions that use `check` declare `raises` or `raises [Error]`.
 
-User-defined errors are named symbols. A function can declare an open `!` marker, or an explicit error set:
+User-defined errors are named symbols. A function can declare open `raises`, or an explicit error set:
 
 ```zero
-fn validate i32 ok Bool ![InvalidInput]
-  if == ok false
-    raise InvalidInput
-  ret 42
+fn validate(ok: Bool) -> i32 raises [InvalidInput] {
+    if !ok {
+        raise InvalidInput
+    }
+    return 42
+}
 
-fn run Void ![InvalidInput]
-  check validate true
+fn run() -> Void raises [InvalidInput] {
+    check validate(true)
+}
 ```
 
 The native compiler validates explicit error flow:
 
 - `raise ErrorName` can appear only in a raising function.
-- A function with `![...]` may only raise listed errors.
+- A function with `raises [...]` may only raise listed errors.
 - Calling a fallible user function requires `check`.
 - Callers with explicit error sets must include every checked callee error.
-- `let value check fallible_call()` works for user fallible calls, `Maybe<T>`, and named-error `std.fs` helpers.
-- `let value rescue (expr) err fallback` works for the same simple cases and lowers to direct branches.
+- `let value: T = check fallible_call()` works for user fallible calls, `Maybe<T>`, and named-error `std.fs` helpers.
+- `let value: T = rescue expr err fallback` works for the same simple cases and lowers to direct branches.
 
 Zero does not use language-level exceptions.
 
@@ -482,12 +503,13 @@ only when they use explicit error flow.
 Use `type` for named records:
 
 ```zero
-type Point
-  x i32
-  y i32
+type Point {
+    x: i32,
+    y: i32,
+}
 
-let point Point . x 40 y 2
-let total + point.x point.y
+let point: Point = Point { x: 40, y: 2 }
+let total: i32 = point.x + point.y
 ```
 
 Type literals name their fields. Field access uses dot syntax.
@@ -495,11 +517,12 @@ Type literals name their fields. Field access uses dot syntax.
 Type fields can declare defaults:
 
 ```zero
-type Pair
-  left u8 1
-  right u8
+type Pair {
+    left: u8 = 1,
+    right: u8,
+}
 
-let pair Pair Pair . right 2
+let pair: Pair = Pair { right: 2 }
 ```
 
 Only fields with defaults may be omitted. Defaults are typechecked against the
@@ -509,12 +532,13 @@ site.
 Generic types are supported when construction has an explicit annotated type:
 
 ```zero
-type Pair<T: Type, U: Type>
-  left T
-  right U
+type Pair<T: Type, U: Type> {
+    left: T,
+    right: U,
+}
 
-let pair Pair<i32,u8> Pair . left 42 right 7_u8
-let value i32 pair.left
+let pair: Pair<i32, u8> = Pair { left: 42, right: 7_u8 }
+let value: i32 = pair.left
 ```
 
 Generic type layouts are monomorphized before emission. The current compiler
@@ -532,14 +556,16 @@ current public surface.
 Types may define small static methods that are called through namespace-style lookup:
 
 ```zero
-type Counter
-  value i32
+type Counter {
+    value: i32,
 
-  fn add i32 self ref<Self> amount i32
-    ret + self.value amount
+    fn add(self: ref<Self>, amount: i32) -> i32 {
+        return self.value + amount
+    }
+}
 
-let counter Counter Counter . value 40
-let answer Counter.add (&counter) 2
+let counter: Counter = Counter { value: 40 }
+let answer: i32 = Counter.add(&counter, 2)
 ```
 
 This is direct static lowering to a concrete function such as `z_Counter_add`.
@@ -553,44 +579,53 @@ Receiver-style calls are reserved for type methods whose first parameter is
 Use `enum` for a fixed set of names:
 
 ```zero
-enum Status
-  ready
-  failed
+enum Status {
+    ready,
+    failed,
+}
 ```
 
 Use `choice` for alternatives, including alternatives with payloads:
 
 ```zero
-choice Result
-  ok i32
-  err String
+choice Result {
+    ok: i32,
+    err: String,
+}
 ```
 
 Construct payload variants with the choice name:
 
 ```zero
-let result Result Result.ok 42
+let result: Result = Result.ok(42)
 ```
 
 Match choices exhaustively:
 
 ```zero
-match result
-  ok value
-    if == value 42
-      check world.out.write "choice ok\n"
-  err message
-    check world.out.write "choice err\n"
+match result {
+    .ok(value) {
+        if value == 42 {
+            check world.out.write("choice ok\n")
+        }
+    }
+    .err(message) {
+        check world.out.write("choice err\n")
+    }
+}
 ```
 
-Use `._` as a fallback arm when a match intentionally groups remaining cases:
+Use `_` as a fallback arm when a match intentionally groups remaining cases:
 
 ```zero
-match mode
-  fast
-    check world.out.write "fast\n"
-  _
-    check world.out.write "other\n"
+match mode {
+    fast {
+        check world.out.write("fast\n")
+    }
+    _ {
+        check world.out.write("other\n")
+    }
+}
 ```
 
 Fallback arms cannot bind payloads. Put a payload name after a named choice case when the payload value is needed.
@@ -600,21 +635,23 @@ Fallback arms cannot bind payloads. Put a payload name after a named choice case
 `defer` schedules cleanup for the end of the current scope:
 
 ```zero
-pub fn main Void world World !
-  defer cleanup()
-  check world.out.write "work\n"
+pub fn main(world: World) -> Void raises {
+    defer cleanup()
+    check world.out.write("work\n")
+}
 ```
 
-The current native compiler supports simple `defer` on lexical scope exit, including exits through `ret`, `break`, and `continue`.
+The current native compiler supports simple `defer` on lexical scope exit, including exits through `return`, `break`, and `continue`.
 
 Live `owned<T>` locals are also cleaned up at lexical exits when `T` defines the canonical non-raising type method:
 
 ```zero
-type Handle
-  marker MutSpan<u8>
-
-  fn drop Void self mutref<Self>
-    set self.marker[0] 1
+type Handle {
+    marker: MutSpan<u8>,
+    fn drop(self: mutref<Self>) -> Void {
+        self.marker[0] = 1
+    }
+}
 ```
 
 The compiler emits a direct `Handle_drop(&value)` call in reverse declaration
@@ -627,7 +664,7 @@ explicit cleanup function when you need manual control.
 
 `owned<File>` is compiler-known in the current hosted `std.fs` slice. It lowers
 to the underlying file handle and closes deterministically at lexical exits,
-including early `ret`.
+including early `return`.
 
 This does not use a registry, refcount, or process-global cleanup list. Explicit
 `std.fs.close(&mut file)` is allowed and is idempotent with the automatic cleanup
@@ -638,15 +675,18 @@ path.
 Use `&value` to create a shared `ref<T>` and `&mut value` to create a mutable `mutref<T>`:
 
 ```zero
-type Point
-  x i32
-  y i32
+type Point {
+    x: i32,
+    y: i32,
+}
 
-fn read_x i32 point ref<Point>
-  ret point.x
+fn read_x(point: ref<Point>) -> i32 {
+    return point.x
+}
 
-fn write_x Void point mutref<Point> value i32
-  set point.x value
+fn write_x(point: mutref<Point>, value: i32) -> Void {
+    point.x = value
+}
 ```
 
 `&mut` requires a mutable lvalue root, and assignment through `ref<T>` is
@@ -668,6 +708,7 @@ Use `use` to import modules:
 
 ```zero
 use std.codec
+
 use std.parse
 ```
 
@@ -760,9 +801,10 @@ Use `extern c` and `extern type` for C boundaries:
 ```zero
 extern c "config.h" as config
 
-extern type CConfig
-  enabled bool
-  limit i32
+extern type CConfig {
+    enabled: bool,
+    limit: i32,
+}
 ```
 
 Interop declarations should make layout and ABI expectations explicit.

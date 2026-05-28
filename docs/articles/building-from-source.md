@@ -85,11 +85,11 @@ The compiler supports the command-line language subset used by the examples:
 
 - multi-file manifest packages
 - functions and typed parameters
-- typed `let` and `mut`
+- typed `let` and `var`
 - fixed array literals, repeat literals, and assignment
 - `defer`
 - `match`
-- `check`, `ret`, `if`, `else`, and `while`
+- `check`, `return`, `if`, `else`, and `while`
 - calls and member calls
 - strings, numbers, booleans, and binary operators
 - `type` and `extern type`

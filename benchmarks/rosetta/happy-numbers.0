@@ -1,22 +1,29 @@
-fn digitSquareSum u32 value u32
-  mut n value
-  mut sum u32 0
-  while > n 0
-    let d % n 10
-    set sum + sum (* d d)
-    set n / n 10
-  ret sum
+fn digitSquareSum(value: u32) -> u32 {
+    var n: u32 = value
+    var sum: u32 = 0
+    while n > 0 {
+        let d: u32 = n % 10
+        sum = sum + d * d
+        n = n / 10
+    }
+    return sum
+}
 
-fn happy Bool value u32
-  mut n value
-  mut steps u32 0
-  while < steps 16
-    if == n 1
-      ret true
-    set n digitSquareSum n
-    set steps + steps 1
-  ret false
+fn happy(value: u32) -> Bool {
+    var n: u32 = value
+    var steps: u32 = 0
+    while steps < 16 {
+        if n == 1 {
+            return true
+        }
+        n = digitSquareSum(n)
+        steps = steps + 1
+    }
+    return false
+}
 
-pub fn main Void world World !
-  if && (happy 19) (== (happy 20) false)
-    check world.out.write "happy numbers ok\n"
+pub fn main(world: World) -> Void raises {
+    if happy(19) && !happy(20) {
+        check world.out.write("happy numbers ok\n")
+    }
+}

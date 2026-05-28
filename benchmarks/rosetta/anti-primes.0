@@ -1,12 +1,17 @@
-fn antiPrime Bool n u32
-  let target std.math.divisorCountU32 n
-  mut value u32 1
-  while < value n
-    if >= (std.math.divisorCountU32 value) target
-      ret false
-    set value + value 1
-  ret true
+fn antiPrime(n: u32) -> Bool {
+    let target: u32 = std.math.divisorCountU32(n)
+    var value: u32 = 1
+    while value < n {
+        if std.math.divisorCountU32(value) >= target {
+            return false
+        }
+        value = value + 1
+    }
+    return true
+}
 
-pub fn main Void world World !
-  if antiPrime 12
-    check world.out.write "anti prime ok\n"
+pub fn main(world: World) -> Void raises {
+    if antiPrime(12) {
+        check world.out.write("anti prime ok\n")
+    }
+}

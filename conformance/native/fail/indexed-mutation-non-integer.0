@@ -1,4 +1,5 @@
-pub fn main Void world World !
-  mut values [2]i32 [1, 2]
-  set values[true] 3
-  check world.out.write "bad indexed mutation\n"
+pub fn main(world: World) -> Void raises {
+    var values: [2]i32 = [1, 2]
+    values[true] = 3
+    check world.out.write("bad indexed mutation\n")
+}

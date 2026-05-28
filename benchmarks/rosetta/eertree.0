@@ -1,13 +1,18 @@
-fn palindrome Bool text Span<u8>
-  mut left usize 0
-  mut right usize - (std.mem.len text) 1
-  while < left right
-    if != text[left] text[right]
-      ret false
-    set left + left 1
-    set right - right 1
-  ret true
+fn palindrome(text: Span<u8>) -> Bool {
+    var left: usize = 0
+    var right: usize = std.mem.len(text) - 1
+    while left < right {
+        if text[left] != text[right] {
+            return false
+        }
+        left = left + 1
+        right = right - 1
+    }
+    return true
+}
 
-pub fn main Void world World !
-  if palindrome (std.mem.span "level")
-    check world.out.write "eertree ok\n"
+pub fn main(world: World) -> Void raises {
+    if palindrome(std.mem.span("level")) {
+        check world.out.write("eertree ok\n")
+    }
+}

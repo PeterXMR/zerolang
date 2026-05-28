@@ -125,8 +125,9 @@ describe("native zero CLI", () => {
       );
       await writeFile(
         join(src, "main.0"),
-        `pub fn main Void world World !
-  check world.out.write "hello from demo\\n"
+        `pub fn main(world: World) -> Void raises {
+    check world.out.write("hello from demo\\n")
+}
 `,
       );
 

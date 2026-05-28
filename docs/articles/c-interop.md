@@ -5,8 +5,9 @@ primitive scalar parameters or explicit references accepted by the native
 checker.
 
 ```zero
-export c fn add i32 a i32 b i32
-  ret + a b
+export c fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
 ```
 
 Check the ABI surface:

@@ -25,13 +25,15 @@ Current limits:
 ```zero
 use std.parse
 
-pub fn main Void world World !
-  let digit std.parse.isAsciiDigit "7"
-  let ident std.parse.isIdentifierStart "_"
-  let scanned std.parse.scanDigits "123abc"
-  let parsed std.parse.parseU16 "8080"
-  if && (&& (&& (&& digit ident) (== scanned 3)) parsed.has) (== parsed.value 8080)
-    check world.out.write "parse primitives ok\n"
+pub fn main(world: World) -> Void raises {
+    let digit: Bool = std.parse.isAsciiDigit("7")
+    let ident: Bool = std.parse.isIdentifierStart("_")
+    let scanned: usize = std.parse.scanDigits("123abc")
+    let parsed: Maybe<u16> = std.parse.parseU16("8080")
+    if digit && ident && scanned == 3 && parsed.has && parsed.value == 8080 {
+        check world.out.write("parse primitives ok\n")
+    }
+}
 ```
 
 ## Design Notes

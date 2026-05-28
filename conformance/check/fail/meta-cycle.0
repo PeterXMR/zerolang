@@ -1,3 +1,4 @@
-const bad usize meta bad
+const bad: usize = meta bad
 
-pub fn main Void
+pub fn main() -> Void {
+}

@@ -1,11 +1,13 @@
-pub fn main Void world World !
-  let left [2]i32 [1, 2]
-  let right [3]i32 [3, 4, 5]
-  mut both [5]i32 [0;5]
-  set both[0] left[0]
-  set both[1] left[1]
-  set both[2] right[0]
-  set both[3] right[1]
-  set both[4] right[2]
-  if && (== both[0] 1) (== both[4] 5)
-    check world.out.write "array concatenation ok\n"
+pub fn main(world: World) -> Void raises {
+    let left: [2]i32 = [1, 2]
+    let right: [3]i32 = [3, 4, 5]
+    var both: [5]i32 = [0; 5]
+    both[0] = left[0]
+    both[1] = left[1]
+    both[2] = right[0]
+    both[3] = right[1]
+    both[4] = right[2]
+    if both[0] == 1 && both[4] == 5 {
+        check world.out.write("array concatenation ok\n")
+    }
+}

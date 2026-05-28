@@ -1,17 +1,23 @@
-enum Mode
-  left
-  alsoLeft
+enum Mode {
+    left,
+    alsoLeft,
+}
 
-fn choose ref<i32> mode Mode left ref<i32> right ref<i32>
-  match mode
-    left
-      ret left
-    alsoLeft
-      ret left
-  ret right
+fn choose(mode: Mode, left: ref<i32>, right: ref<i32>) -> ref<i32> {
+    match mode {
+        left {
+            return left
+        }
+        alsoLeft {
+            return left
+        }
+    }
+    return right
+}
 
-pub fn main Void mode Mode
-  let x 1
-  mut y 2
-  let current choose mode (&x) (&y)
-  set y 3
+pub fn main(mode: Mode) -> Void {
+    let x: i32 = 1
+    var y: i32 = 2
+    let current: ref<i32> = choose(mode, &x, &y)
+    y = 3
+}

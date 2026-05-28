@@ -1,11 +1,13 @@
-type Pair
-  left ref<i32>
-  right ref<i32>
+type Pair {
+    left: ref<i32>,
+    right: ref<i32>,
+}
 
-pub fn main Void
-  mut x 1
-  mut y 2
-  mut z 3
-  mut pair Pair Pair . left (&x) right (&z)
-  set pair.left &y
-  set z 4
+pub fn main() -> Void {
+    var x: i32 = 1
+    var y: i32 = 2
+    var z: i32 = 3
+    var pair: Pair = Pair { left: &x, right: &z }
+    pair.left = &y
+    z = 4
+}

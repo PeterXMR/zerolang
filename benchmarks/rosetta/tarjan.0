@@ -1,8 +1,12 @@
-fn lowlink u32 self u32 child u32
-  if < child self
-    ret child
-  ret self
+fn lowlink(self: u32, child: u32) -> u32 {
+    if child < self {
+        return child
+    }
+    return self
+}
 
-pub fn main Void world World !
-  if == (lowlink 4 2) 2
-    check world.out.write "tarjan ok\n"
+pub fn main(world: World) -> Void raises {
+    if lowlink(4, 2) == 2 {
+        check world.out.write("tarjan ok\n")
+    }
+}

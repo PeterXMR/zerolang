@@ -1,3 +1,4 @@
-pub fn main Void world World !
-  let value 256_u8
-  check world.out.write "bad literal\n"
+pub fn main(world: World) -> Void raises {
+    let value: u8 = 256_u8
+    check world.out.write("bad literal\n")
+}

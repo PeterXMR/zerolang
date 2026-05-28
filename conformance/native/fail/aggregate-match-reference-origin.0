@@ -1,16 +1,22 @@
-type Box
-  value ref<i32>
+type Box {
+    value: ref<i32>,
+}
 
-enum Mode
-  keep
-  replace
+enum Mode {
+    keep,
+    replace,
+}
 
-pub fn main Void mode Mode
-  mut x 1
-  let y 2
-  mut box Box Box . value (&x)
-  match mode
-    keep
-    replace
-      set box Box . value (&y)
-  set x 3
+pub fn main(mode: Mode) -> Void {
+    var x: i32 = 1
+    let y: i32 = 2
+    var box: Box = Box { value: &x }
+    match mode {
+        keep {
+        }
+        replace {
+            box = Box { value: &y }
+        }
+    }
+    x = 3
+}

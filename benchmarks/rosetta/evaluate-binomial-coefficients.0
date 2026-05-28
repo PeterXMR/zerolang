@@ -1,11 +1,15 @@
-fn choose u32 n u32 k u32
-  mut result u32 1
-  mut i u32 1
-  while <= i k
-    set result / (* result (+ (- n i) 1)) i
-    set i + i 1
-  ret result
+fn choose(n: u32, k: u32) -> u32 {
+    var result: u32 = 1
+    var i: u32 = 1
+    while i <= k {
+        result = result * (n - i + 1) / i
+        i = i + 1
+    }
+    return result
+}
 
-pub fn main Void world World !
-  if == (choose 5 2) 10
-    check world.out.write "binomial coefficients ok\n"
+pub fn main(world: World) -> Void raises {
+    if choose(5, 2) == 10 {
+        check world.out.write("binomial coefficients ok\n")
+    }
+}

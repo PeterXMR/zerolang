@@ -1,9 +1,13 @@
-fn lower i32
-  ret 20
+fn lower() -> i32 {
+    return 20
+}
 
-fn upper i32
-  ret 22
+fn upper() -> i32 {
+    return 22
+}
 
-pub fn main Void world World !
-  if == (+ lower() upper()) 42
-    check world.out.write "case sensitivity ok\n"
+pub fn main(world: World) -> Void raises {
+    if lower() + upper() == 42 {
+        check world.out.write("case sensitivity ok\n")
+    }
+}

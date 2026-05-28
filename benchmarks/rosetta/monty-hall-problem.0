@@ -1,12 +1,17 @@
-fn switchWins u32
-  mut wins u32 0
-  mut prize u32 0
-  while < prize 3
-    if != prize 0
-      set wins + wins 1
-    set prize + prize 1
-  ret wins
+fn switchWins() -> u32 {
+    var wins: u32 = 0
+    var prize: u32 = 0
+    while prize < 3 {
+        if prize != 0 {
+            wins = wins + 1
+        }
+        prize = prize + 1
+    }
+    return wins
+}
 
-pub fn main Void world World !
-  if == switchWins() 2
-    check world.out.write "monty hall ok\n"
+pub fn main(world: World) -> Void raises {
+    if switchWins() == 2 {
+        check world.out.write("monty hall ok\n")
+    }
+}

@@ -1,3 +1,4 @@
-pub fn main Void
-  let text "{not a block}"
-  unknown_name text
+pub fn main() -> Void {
+    let text: String = "{not a block}"
+    unknown_name(text)
+}

@@ -1,2 +1,3 @@
-pub fn duplicateName String
-  ret "beta"
+pub fn duplicateName() -> String {
+    return "beta"
+}

@@ -2,25 +2,25 @@
   "main": {
     "prefix": "main",
     "body": [
-      "pub fun main(world: World) -> Void raises {",
+      "pub fn main(world: World) -> Void raises {",
       "    check world.out.write(\"$1\\\\n\")",
       "}"
     ],
     "description": "Zero main entrypoint"
   },
-  "shape": {
-    "prefix": "shape",
+  "type": {
+    "prefix": "type",
     "body": [
-      "shape ${1:Name} {",
+      "type ${1:Name} {",
       "    ${2:field}: ${3:i32},",
       "}"
     ],
-    "description": "Zero shape declaration"
+    "description": "Zero type declaration"
   },
   "function": {
-    "prefix": "fun",
+    "prefix": "fn",
     "body": [
-      "fun ${1:name}(${2:param}: ${3:i32}) -> ${4:i32} {",
+      "fn ${1:name}(${2:param}: ${3:i32}) -> ${4:i32} {",
       "    return ${2:param}",
       "}"
     ],

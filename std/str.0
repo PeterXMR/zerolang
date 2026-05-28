@@ -1,90 +1,117 @@
-fn __zero_std_str_is_ascii_space Bool byte u8
-  ret || (|| (== byte 32_u8) (== byte 9_u8)) (|| (== byte 10_u8) (== byte 13_u8))
+fn __zero_std_str_is_ascii_space(byte: u8) -> Bool {
+    return byte == 32_u8 || byte == 9_u8 || (byte == 10_u8 || byte == 13_u8)
+}
 
-fn __zero_std_str_reverse Maybe<Span<u8>> buffer MutSpan<u8> text Span<u8>
-  let len usize std.mem.len text
-  if > len (std.mem.len buffer)
-    ret null
-  mut index usize 0
-  while < index len
-    set buffer[index] text[(- (- len 1) index)]
-    set index + index 1
-  ret buffer[..len]
+fn __zero_std_str_reverse(buffer: MutSpan<u8>, text: Span<u8>) -> Maybe<Span<u8>> {
+    let len: usize = std.mem.len(text)
+    if len > std.mem.len(buffer) {
+        return null
+    }
+    var index: usize = 0
+    while index < len {
+        buffer[index] = text[len - 1 - index]
+        index = index + 1
+    }
+    return buffer[..len]
+}
 
-fn __zero_std_str_count_byte usize text Span<u8> byte u8
-  mut index usize 0
-  mut count usize 0
-  while < index (std.mem.len text)
-    if == text[index] byte
-      set count + count 1
-    set index + index 1
-  ret count
+fn __zero_std_str_count_byte(text: Span<u8>, byte: u8) -> usize {
+    var index: usize = 0
+    var count: usize = 0
+    while index < std.mem.len(text) {
+        if text[index] == byte {
+            count = count + 1
+        }
+        index = index + 1
+    }
+    return count
+}
 
-fn __zero_std_str_starts_with Bool text Span<u8> prefix Span<u8>
-  let prefix_len usize std.mem.len prefix
-  if > prefix_len (std.mem.len text)
-    ret false
-  mut index usize 0
-  while < index prefix_len
-    if != text[index] prefix[index]
-      ret false
-    set index + index 1
-  ret true
+fn __zero_std_str_starts_with(text: Span<u8>, prefix: Span<u8>) -> Bool {
+    let prefix_len: usize = std.mem.len(prefix)
+    if prefix_len > std.mem.len(text) {
+        return false
+    }
+    var index: usize = 0
+    while index < prefix_len {
+        if text[index] != prefix[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
 
-fn __zero_std_str_ends_with Bool text Span<u8> suffix Span<u8>
-  let text_len usize std.mem.len text
-  let suffix_len usize std.mem.len suffix
-  if > suffix_len text_len
-    ret false
-  let start usize - text_len suffix_len
-  mut index usize 0
-  while < index suffix_len
-    if != text[(+ start index)] suffix[index]
-      ret false
-    set index + index 1
-  ret true
+fn __zero_std_str_ends_with(text: Span<u8>, suffix: Span<u8>) -> Bool {
+    let text_len: usize = std.mem.len(text)
+    let suffix_len: usize = std.mem.len(suffix)
+    if suffix_len > text_len {
+        return false
+    }
+    let start: usize = text_len - suffix_len
+    var index: usize = 0
+    while index < suffix_len {
+        if text[start + index] != suffix[index] {
+            return false
+        }
+        index = index + 1
+    }
+    return true
+}
 
-fn __zero_std_str_contains Bool text Span<u8> needle Span<u8>
-  let needle_len usize std.mem.len needle
-  if == needle_len 0
-    ret true
-  let text_len usize std.mem.len text
-  if > needle_len text_len
-    ret false
-  let last_start usize - text_len needle_len
-  mut start usize 0
-  while <= start last_start
-    mut offset usize 0
-    mut same Bool true
-    while && same (< offset needle_len)
-      if != text[(+ start offset)] needle[offset]
-        set same false
-      else
-        set offset + offset 1
-    if same
-      ret true
-    set start + start 1
-  ret false
+fn __zero_std_str_contains(text: Span<u8>, needle: Span<u8>) -> Bool {
+    let needle_len: usize = std.mem.len(needle)
+    if needle_len == 0 {
+        return true
+    }
+    let text_len: usize = std.mem.len(text)
+    if needle_len > text_len {
+        return false
+    }
+    let last_start: usize = text_len - needle_len
+    var start: usize = 0
+    while start <= last_start {
+        var offset: usize = 0
+        var same: Bool = true
+        while same && offset < needle_len {
+            if text[start + offset] != needle[offset] {
+                same = false
+            } else {
+                offset = offset + 1
+            }
+        }
+        if same {
+            return true
+        }
+        start = start + 1
+    }
+    return false
+}
 
-fn __zero_std_str_trim_ascii Span<u8> text Span<u8>
-  mut start usize 0
-  mut end usize std.mem.len text
-  while && (< start end) (__zero_std_str_is_ascii_space text[start])
-    set start + start 1
-  while && (> end start) (__zero_std_str_is_ascii_space text[(- end 1)])
-    set end - end 1
-  ret text[start..end]
+fn __zero_std_str_trim_ascii(text: Span<u8>) -> Span<u8> {
+    var start: usize = 0
+    var end: usize = std.mem.len(text)
+    while start < end && __zero_std_str_is_ascii_space(text[start]) {
+        start = start + 1
+    }
+    while end > start && __zero_std_str_is_ascii_space(text[end - 1]) {
+        end = end - 1
+    }
+    return text[start..end]
+}
 
-fn __zero_std_str_word_count_ascii usize text Span<u8>
-  mut index usize 0
-  mut count usize 0
-  mut in_word Bool false
-  while < index (std.mem.len text)
-    if __zero_std_str_is_ascii_space text[index]
-      set in_word false
-    else
-      if == in_word false
-        set count + count 1
-        set in_word true
-    set index + index 1
-  ret count
+fn __zero_std_str_word_count_ascii(text: Span<u8>) -> usize {
+    var index: usize = 0
+    var count: usize = 0
+    var in_word: Bool = false
+    while index < std.mem.len(text) {
+        if __zero_std_str_is_ascii_space(text[index]) {
+            in_word = false
+        } else if !in_word {
+            count = count + 1
+            in_word = true
+        }
+        index = index + 1
+    }
+    return count
+}

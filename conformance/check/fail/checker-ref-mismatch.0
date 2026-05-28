@@ -1,10 +1,13 @@
-type Point
-  x i32
+type Point {
+    x: i32,
+}
 
-fn read_x i32 point ref<Point>
-  ret point.x
+fn read_x(point: ref<Point>) -> i32 {
+    return point.x
+}
 
-pub fn main Void world World !
-  let value i32 1
-  let x read_x (&value)
-  check world.out.write "bad ref\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = 1
+    let x: i32 = read_x(&value)
+    check world.out.write("bad ref\n")
+}

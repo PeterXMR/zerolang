@@ -16,12 +16,14 @@ Current limits:
 ## Example
 
 ```zero
-pub fn main Void world World !
-  let count std.args.len()
-  let first std.args.get 1
-  if && (> count 1) first.has
-    check world.out.write first.value
-    check world.out.write "\n"
+pub fn main(world: World) -> Void raises {
+    let count: usize = std.args.len()
+    let first: Maybe<String> = std.args.get(1)
+    if count > 1 && first.has {
+        check world.out.write(first.value)
+        check world.out.write("\n")
+    }
+}
 ```
 
 ## Design Notes

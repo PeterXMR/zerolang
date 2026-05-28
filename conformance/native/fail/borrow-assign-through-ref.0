@@ -1,8 +1,10 @@
-type Point
-  x i32
+type Point {
+    x: i32,
+}
 
-pub fn main Void world World !
-  mut point Point . x 1
-  let shared &point
-  set shared.x 2
-  check world.out.write "assigned through ref"
+pub fn main(world: World) -> Void raises {
+    var point: Point = Point { x: 1 }
+    let shared: ref<Point> = &point
+    shared.x = 2
+    check world.out.write("assigned through ref")
+}

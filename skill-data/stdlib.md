@@ -11,6 +11,7 @@ Use this when an agent needs common library calls, memory helpers, hosted I/O, o
 
 ```zero
 use std.mem
+
 use std.parse
 ```
 
@@ -58,18 +59,22 @@ Add `--json` only when a tool needs exact target facts or diagnostics.
 ```zero
 use std.mem
 
-pub fn main Void world World !
-  let bytes Span<u8> std.mem.span "zero"
-  if == (std.mem.len bytes) 4
-    check world.out.write "memory ok\n"
+pub fn main(world: World) -> Void raises {
+    let bytes: Span<u8> = std.mem.span("zero")
+    if std.mem.len(bytes) == 4 {
+        check world.out.write("memory ok\n")
+    }
+}
 ```
 
 For writable buffers, use caller-owned fixed arrays and `MutSpan<T>`:
 
 ```zero
-mut storage [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
-let writable MutSpan<u8> storage
-let copied std.mem.copy writable (std.mem.span "zero")
+pub fn main() -> Void {
+    var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0]
+    let writable: MutSpan<u8> = storage
+    let copied: usize = std.mem.copy(writable, std.mem.span("zero"))
+}
 ```
 
 String helpers are byte-oriented and allocation-free. `std.str.reverse` writes
@@ -77,18 +82,24 @@ into caller storage and requires that destination storage does not overlap the
 input text:
 
 ```zero
-mut reversed [4]u8 [0, 0, 0, 0]
-let out std.str.reverse reversed "zero"
-if out.has
-  expect (std.mem.eql out.value "orez")
+pub fn main() -> Void {
+    var reversed: [4]u8 = [0, 0, 0, 0]
+    let out: Maybe<Span<u8>> = std.str.reverse(reversed, "zero")
+    if out.has {
+        expect std.mem.eql(out.value, "orez")
+    }
+}
 ```
 
 ## Maybe Pattern
 
 ```zero
-let first std.args.get 1
-if first.has
-  check world.out.write first.value
+pub fn main(world: World) -> Void raises {
+    let first: Maybe<String> = std.args.get(1)
+    if first.has {
+        check world.out.write(first.value)
+    }
+}
 ```
 
 Use `check maybeValue` only when absence should propagate as a failure in a fallible function.
@@ -98,9 +109,11 @@ Use `check maybeValue` only when absence should propagate as a failure in a fall
 Hosted file APIs can use explicit handles:
 
 ```zero
-let fs std.fs.host()
-mut file owned<File> check std.fs.createOrRaise fs ".zero/out/log.txt"
-check std.fs.writeAllOrRaise (&mut file) (std.mem.span "hello\n")
+pub fn main() -> Void raises {
+    let fs: Fs = std.fs.host()
+    var file: owned<File> = check std.fs.createOrRaise(fs, ".zero/out/log.txt")
+    check std.fs.writeAllOrRaise(&mut file, std.mem.span("hello\n"))
+}
 ```
 
 Owned resources are deterministic. Do not invent hidden heap, global logger, or ambient filesystem APIs.

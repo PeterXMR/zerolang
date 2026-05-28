@@ -1,17 +1,21 @@
-interface Storer<T: Type>
-  fn store Void self mutref<T> next ref<i32>
+type Holder {
+    value: ref<i32>,
+    fn store(self: mutref<Self>, next: ref<i32>) -> Void {
+        self.value = next
+    }
+}
 
-type Holder
-  value ref<i32>
+interface Storer<T: Type> {
+    fn store(self: mutref<T>, next: ref<i32>) -> Void
+}
 
-  fn store Void self mutref<Self> next ref<i32>
-    set self.value next
+fn storeLocal<T: Storer<T>>(holder: mutref<T>) -> Void {
+    let local: i32 = 1
+    T.store(holder, &local)
+}
 
-fn storeLocal<T: Storer<T>> Void holder mutref<T>
-  let local 1
-  T.store holder (&local)
-
-pub fn main Void
-  let fallback 0
-  mut holder Holder . value (&fallback)
-  storeLocal<Holder> (&mut holder)
+pub fn main() -> Void {
+    let fallback: i32 = 0
+    var holder: Holder = Holder { value: &fallback }
+    storeLocal<Holder>(&mut holder)
+}

@@ -1,8 +1,10 @@
-type S
-  value i32
+type S {
+    value: i32,
+    fn risky() -> Void raises [Bad] {
+        raise Bad
+    }
+}
 
-  fn risky Void ![Bad]
-    raise Bad
-
-pub fn main Void ![Bad]
-  S.risky()
+pub fn main() -> Void raises [Bad] {
+    S.risky()
+}

@@ -23,12 +23,14 @@ Metadata labels:
 ## Example
 
 ```zero
-pub fn main Void world World !
-  let net std.net.host()
-  let addr std.net.withTimeout (std.net.address "localhost" 8080_u16) (std.time.ms 250)
-  let conn std.net.connect net addr
-  if && conn.has (std.mem.eql (std.net.dnsName addr) "localhost")
-    check world.out.write "net ok\n"
+pub fn main(world: World) -> Void raises {
+    let net: Net = std.net.host()
+    let addr: Address = std.net.withTimeout(std.net.address("localhost", 8080_u16), std.time.ms(250))
+    let conn: Maybe<Conn> = std.net.connect(net, addr)
+    if conn.has && std.mem.eql(std.net.dnsName(addr), "localhost") {
+        check world.out.write("net ok\n")
+    }
+}
 ```
 
 ## Design Notes

@@ -1,17 +1,24 @@
-fn search i32 text Span<u8> needle Span<u8>
-  mut i usize 0
-  while <= (+ i (std.mem.len needle)) (std.mem.len text)
-    mut ok Bool true
-    mut j usize 0
-    while < j (std.mem.len needle)
-      if != text[(+ i j)] needle[j]
-        set ok false
-      set j + j 1
-    if ok
-      ret i as i32
-    set i + i 1
-  ret - 0 1
+fn search(text: Span<u8>, needle: Span<u8>) -> i32 {
+    var i: usize = 0
+    while i + std.mem.len(needle) <= std.mem.len(text) {
+        var ok: Bool = true
+        var j: usize = 0
+        while j < std.mem.len(needle) {
+            if text[i + j] != needle[j] {
+                ok = false
+            }
+            j = j + 1
+        }
+        if ok {
+            return i as i32
+        }
+        i = i + 1
+    }
+    return -1
+}
 
-pub fn main Void world World !
-  if == (search (std.mem.span "abracadabra") (std.mem.span "cad")) 4
-    check world.out.write "boyer moore ok\n"
+pub fn main(world: World) -> Void raises {
+    if search(std.mem.span("abracadabra"), std.mem.span("cad")) == 4 {
+        check world.out.write("boyer moore ok\n")
+    }
+}

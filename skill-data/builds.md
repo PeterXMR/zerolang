@@ -43,16 +43,16 @@ zero build --json --target linux-musl-x64 examples/memory-package
 
 Useful JSON fields include `artifact`, `sizeBytes`, `toolchain`, `releaseTargetContract`, selected target facts, linker flavor, and sysroot status.
 
-## Graph Artifacts
+## Graph Inputs
 
-When an agent is authoring through ProgramGraph, build and run the derived artifact with graph commands:
+When an agent is authoring through ProgramGraph, inspect and patch the canonical `.0` source directly. Use graph build and run only when you intentionally need to validate a derived interchange artifact:
 
 ```sh
 zero graph build --out .zero/out/app .zero/agent/app.program-graph
 zero graph run .zero/agent/app.program-graph
 ```
 
-Use normal `zero build` and `zero run` after persisting the accepted change to canonical `.0` or `.row` source text.
+Use normal `zero build` and `zero run` after persisting the accepted change to canonical `.0` source text.
 
 ## Targets
 

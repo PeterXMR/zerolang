@@ -1,13 +1,19 @@
-fn numeric Bool text Span<u8>
-  if == (std.mem.len text) 0
-    ret false
-  mut i usize 0
-  while < i (std.mem.len text)
-    if || (< text[i] 48) (> text[i] 57)
-      ret false
-    set i + i 1
-  ret true
+fn numeric(text: Span<u8>) -> Bool {
+    if std.mem.len(text) == 0 {
+        return false
+    }
+    var i: usize = 0
+    while i < std.mem.len(text) {
+        if text[i] < 48 || text[i] > 57 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
 
-pub fn main Void world World !
-  if && (numeric (std.mem.span "12345")) (== (numeric (std.mem.span "12a")) false)
-    check world.out.write "numeric string ok\n"
+pub fn main(world: World) -> Void raises {
+    if numeric(std.mem.span("12345")) && !numeric(std.mem.span("12a")) {
+        check world.out.write("numeric string ok\n")
+    }
+}

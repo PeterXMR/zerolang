@@ -1,7 +1,10 @@
-fn parse u8 ok Bool ![Invalid]
-  if ok
-    ret 7_u8
-  raise Invalid
+fn parse(ok: Bool) -> u8 raises [Invalid] {
+    if ok {
+        return 7_u8
+    }
+    raise Invalid
+}
 
-export c fn main u8
-  ret rescue (parse false) err 9_u8
+export c fn main() -> u8 {
+    return rescue parse(false) err 9_u8
+}

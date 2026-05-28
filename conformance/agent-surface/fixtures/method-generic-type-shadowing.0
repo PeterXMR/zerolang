@@ -1,8 +1,12 @@
-type Item
-  value i32
+type Item {
+    value: i32,
+}
 
-type Holder
-  fn keep<Item: Type> Item value Item
-    ret value
+type Holder {
+    fn keep<Item: Type>(value: Item) -> Item {
+        return value
+    }
+}
 
-pub fn main Void
+pub fn main() -> Void {
+}

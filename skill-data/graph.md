@@ -5,11 +5,11 @@ description: Use ProgramGraph commands as the primary agent authoring and inspec
 
 # Zero Graph Authoring
 
-Use this when an agent needs to inspect, plan, patch, or validate Zero changes through the graph interface. The graph interface is the primary agent authoring surface. `.0` and `.row` files are canonical source text; `.program-graph` artifacts are derived debug and interchange files.
+Use this when an agent needs to inspect, plan, patch, or validate Zero changes through the graph interface. The graph interface is the primary agent authoring surface. `.0` files are canonical source text; `.program-graph` artifacts are derived debug and interchange files.
 
 ## Source Boundary
 
-- Commit `.0` or `.row` source text for durable program changes.
+- Commit `.0` source text for durable program changes.
 - Use `zero graph view <input>` to render canonical source text from a source file or ProgramGraph artifact.
 - Use `zero graph patch <file.0> ...` for source-backed graph edits that rewrite the canonical source after validation.
 - Write explicit graph artifacts only when you need an interchange/debug file, using non-source paths such as `.zero/agent/app.program-graph`.
@@ -90,11 +90,12 @@ Do not commit `.program-graph` files unless the user explicitly asks for derived
 
 ## Packages
 
-For packages, derive the graph from the package root or manifest:
+For packages, inspect the graph from the package root or manifest. Only write an artifact when another tool needs a file handoff:
 
 ```sh
+zero graph view <package-dir>
+zero graph check <package-dir>
 zero graph import --out .zero/agent/package.program-graph <package-dir>
-zero graph test .zero/agent/package.program-graph
 ```
 
-If a package manifest has `targets.cli.graph`, graph subcommands may use that artifact. Normal build, run, test, and ship commands use canonical source unless the command is explicitly `zero graph ...`.
+Normal build, run, test, and ship commands use canonical source unless the command is explicitly `zero graph ...`.

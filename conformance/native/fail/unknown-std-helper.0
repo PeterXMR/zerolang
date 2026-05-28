@@ -1,4 +1,6 @@
-pub fn main Void world World !
-  let value std.args.nope()
-  if == value 0
-    check world.out.write "bad std\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = std.args.nope()
+    if value == 0 {
+        check world.out.write("bad std\n")
+    }
+}

@@ -1,9 +1,12 @@
-fn answer i32
-  ret 1
+fn answer() -> i32 {
+    return 1
+}
 
-fn answer i32
-  ret 2
+fn answer() -> i32 {
+    return 2
+}
 
-pub fn main Void world World !
-  let value answer()
-  check world.out.write "bad\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = answer()
+    check world.out.write("bad\n")
+}

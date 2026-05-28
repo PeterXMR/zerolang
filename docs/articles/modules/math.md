@@ -24,9 +24,11 @@ Current scope:
 ## Example
 
 ```zero
-pub fn main Void world World !
-  if && (== (std.math.gcdU32 84 30) 6) (std.math.isPrimeU32 31)
-    check world.out.write "math helper ok\n"
+pub fn main(world: World) -> Void raises {
+    if std.math.gcdU32(84, 30) == 6 && std.math.isPrimeU32(31) {
+        check world.out.write("math helper ok\n")
+    }
+}
 ```
 
 ## Design Notes

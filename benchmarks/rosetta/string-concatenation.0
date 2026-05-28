@@ -1,14 +1,18 @@
-pub fn main Void world World !
-  let left std.mem.span "zero"
-  let right std.mem.span "lang"
-  mut out [8]u8 [0_u8;8]
-  mut i usize 0
-  while < i (std.mem.len left)
-    set out[i] left[i]
-    set i + i 1
-  mut j usize 0
-  while < j (std.mem.len right)
-    set out[(+ (std.mem.len left) j)] right[j]
-    set j + j 1
-  if && (&& (== out[0] 122) (== out[3] 111)) (&& (== out[4] 108) (== out[7] 103))
-    check world.out.write "string concatenation ok\n"
+pub fn main(world: World) -> Void raises {
+    let left: Span<u8> = std.mem.span("zero")
+    let right: Span<u8> = std.mem.span("lang")
+    var out: [8]u8 = [0_u8; 8]
+    var i: usize = 0
+    while i < std.mem.len(left) {
+        out[i] = left[i]
+        i = i + 1
+    }
+    var j: usize = 0
+    while j < std.mem.len(right) {
+        out[std.mem.len(left) + j] = right[j]
+        j = j + 1
+    }
+    if out[0] == 122 && out[3] == 111 && (out[4] == 108 && out[7] == 103) {
+        check world.out.write("string concatenation ok\n")
+    }
+}

@@ -1,3 +1,4 @@
-pub const answer 42
+pub const answer = 42
 
-pub fn main Void
+pub fn main() -> Void {
+}

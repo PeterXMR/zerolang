@@ -1,18 +1,22 @@
-interface Storer<T: Type>
-  fn store Void self mutref<T> next ref<i32>
+type Holder {
+    value: ref<i32>,
+    fn store(self: mutref<Self>, next: ref<i32>) -> Void {
+        self.value = next
+    }
+}
 
-type Holder
-  value ref<i32>
+interface Storer<T: Type> {
+    fn store(self: mutref<T>, next: ref<i32>) -> Void
+}
 
-  fn store Void self mutref<Self> next ref<i32>
-    set self.value next
+fn through<T: Storer<T>>(holder: mutref<T>, next: ref<i32>) -> Void {
+    T.store(holder, next)
+}
 
-fn through<T: Storer<T>> Void holder mutref<T> next ref<i32>
-  T.store holder next
-
-pub fn main Void
-  mut old 1
-  mut next 2
-  mut holder Holder . value (&old)
-  through<Holder> (&mut holder) (&next)
-  set next 3
+pub fn main() -> Void {
+    var old: i32 = 1
+    var next: i32 = 2
+    var holder: Holder = Holder { value: &old }
+    through<Holder>(&mut holder, &next)
+    next = 3
+}

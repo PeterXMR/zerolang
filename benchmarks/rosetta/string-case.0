@@ -1,21 +1,28 @@
-fn upper u8 c u8
-  if && (>= c 97) (<= c 122)
-    ret - c 32
-  ret c
+fn upper(c: u8) -> u8 {
+    if c >= 97 && c <= 122 {
+        return c - 32
+    }
+    return c
+}
 
-fn lower u8 c u8
-  if && (>= c 65) (<= c 90)
-    ret + c 32
-  ret c
+fn lower(c: u8) -> u8 {
+    if c >= 65 && c <= 90 {
+        return c + 32
+    }
+    return c
+}
 
-pub fn main Void world World !
-  let source std.mem.span "Zero"
-  mut uppered [4]u8 [0_u8;4]
-  mut lowered [4]u8 [0_u8;4]
-  mut i usize 0
-  while < i (std.mem.len source)
-    set uppered[i] upper source[i]
-    set lowered[i] lower source[i]
-    set i + i 1
-  if && (&& (== uppered[0] 90) (== uppered[1] 69)) (&& (&& (== lowered[0] 122) (== lowered[1] 101)) (== lowered[3] 111))
-    check world.out.write "string case ok\n"
+pub fn main(world: World) -> Void raises {
+    let source: Span<u8> = std.mem.span("Zero")
+    var uppered: [4]u8 = [0_u8; 4]
+    var lowered: [4]u8 = [0_u8; 4]
+    var i: usize = 0
+    while i < std.mem.len(source) {
+        uppered[i] = upper(source[i])
+        lowered[i] = lower(source[i])
+        i = i + 1
+    }
+    if uppered[0] == 90 && uppered[1] == 69 && (lowered[0] == 122 && lowered[1] == 101 && lowered[3] == 111) {
+        check world.out.write("string case ok\n")
+    }
+}

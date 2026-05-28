@@ -1,4 +1,5 @@
 use missing.utility
 
-pub fn main Void world World !
-  check world.out.write "unresolved import current\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("unresolved import current\n")
+}

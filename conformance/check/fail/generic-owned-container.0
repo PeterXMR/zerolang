@@ -1,5 +1,7 @@
-type Box<T: Type>
-  value owned<T>
+type Box<T: Type> {
+    value: owned<T>,
+}
 
-pub fn main Void
-  ret
+pub fn main() -> Void {
+    return
+}

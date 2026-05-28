@@ -1,3 +1,4 @@
-pub fn main Void world World !
-  let huge u64 18446744073709551616
-  check world.out.write "bad integer\n"
+pub fn main(world: World) -> Void raises {
+    let huge: u64 = 18446744073709551616
+    check world.out.write("bad integer\n")
+}

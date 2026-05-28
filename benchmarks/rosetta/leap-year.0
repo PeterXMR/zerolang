@@ -1,10 +1,15 @@
-fn leap Bool year u32
-  if == (% year 400) 0
-    ret true
-  if == (% year 100) 0
-    ret false
-  ret == (% year 4) 0
+fn leap(year: u32) -> Bool {
+    if year % 400 == 0 {
+        return true
+    }
+    if year % 100 == 0 {
+        return false
+    }
+    return year % 4 == 0
+}
 
-pub fn main Void world World !
-  if && (leap 2000) (== (leap 1900) false)
-    check world.out.write "leap year ok\n"
+pub fn main(world: World) -> Void raises {
+    if leap(2000) && !leap(1900) {
+        check world.out.write("leap year ok\n")
+    }
+}

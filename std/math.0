@@ -1,99 +1,133 @@
-fn __zero_std_math_min_u32 u32 left u32 right u32
-  if < left right
-    ret left
-  ret right
+fn __zero_std_math_min_u32(left: u32, right: u32) -> u32 {
+    if left < right {
+        return left
+    }
+    return right
+}
 
-fn __zero_std_math_max_u32 u32 left u32 right u32
-  if > left right
-    ret left
-  ret right
+fn __zero_std_math_max_u32(left: u32, right: u32) -> u32 {
+    if left > right {
+        return left
+    }
+    return right
+}
 
-fn __zero_std_math_clamp_u32 u32 value u32 low u32 high u32
-  let lower __zero_std_math_min_u32 low high
-  let upper __zero_std_math_max_u32 low high
-  if < value lower
-    ret lower
-  if > value upper
-    ret upper
-  ret value
+fn __zero_std_math_clamp_u32(value: u32, low: u32, high: u32) -> u32 {
+    let lower: u32 = __zero_std_math_min_u32(low, high)
+    let upper: u32 = __zero_std_math_max_u32(low, high)
+    if value < lower {
+        return lower
+    }
+    if value > upper {
+        return upper
+    }
+    return value
+}
 
-fn __zero_std_math_gcd_u32 u32 a0 u32 b0 u32
-  mut a a0
-  mut b b0
-  while != b 0
-    let next % a b
-    set a b
-    set b next
-  ret a
+fn __zero_std_math_gcd_u32(a0: u32, b0: u32) -> u32 {
+    var a: u32 = a0
+    var b: u32 = b0
+    while b != 0 {
+        let next: u32 = a % b
+        a = b
+        b = next
+    }
+    return a
+}
 
-fn __zero_std_math_lcm_u32 u32 left u32 right u32
-  if || (== left 0) (== right 0)
-    ret 0
-  ret * (/ left (__zero_std_math_gcd_u32 left right)) right
+fn __zero_std_math_lcm_u32(left: u32, right: u32) -> u32 {
+    if left == 0 || right == 0 {
+        return 0
+    }
+    return left / __zero_std_math_gcd_u32(left, right) * right
+}
 
-fn __zero_std_math_pow_u32 u32 base u32 exponent u32
-  mut result u32 1
-  mut current base
-  mut exp exponent
-  while > exp 0
-    if == (% exp 2) 1
-      set result * result current
-    set current * current current
-    set exp / exp 2
-  ret result
+fn __zero_std_math_pow_u32(base: u32, exponent: u32) -> u32 {
+    var result: u32 = 1
+    var current: u32 = base
+    var exp: u32 = exponent
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = result * current
+        }
+        current = current * current
+        exp = exp / 2
+    }
+    return result
+}
 
-fn __zero_std_math_mod_pow_u32 u32 base u32 exponent u32 modulus u32
-  if == modulus 0
-    ret 0
-  mut result u32 % 1 modulus
-  mut current % base modulus
-  mut exp exponent
-  while > exp 0
-    if == (% exp 2) 1
-      set result % (* result current) modulus
-    set current % (* current current) modulus
-    set exp / exp 2
-  ret result
+fn __zero_std_math_mod_pow_u32(base: u32, exponent: u32, modulus: u32) -> u32 {
+    if modulus == 0 {
+        return 0
+    }
+    var result: u32 = 1 % modulus
+    var current: u32 = base % modulus
+    var exp: u32 = exponent
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result = result * current % modulus
+        }
+        current = current * current % modulus
+        exp = exp / 2
+    }
+    return result
+}
 
-fn __zero_std_math_is_prime_u32 Bool value u32
-  if < value 2
-    ret false
-  if == value 2
-    ret true
-  if == (% value 2) 0
-    ret false
-  mut divisor u32 3
-  while <= divisor (/ value divisor)
-    if == (% value divisor) 0
-      ret false
-    set divisor + divisor 2
-  ret true
+fn __zero_std_math_is_prime_u32(value: u32) -> Bool {
+    if value < 2 {
+        return false
+    }
+    if value == 2 {
+        return true
+    }
+    if value % 2 == 0 {
+        return false
+    }
+    var divisor: u32 = 3
+    while divisor <= value / divisor {
+        if value % divisor == 0 {
+            return false
+        }
+        divisor = divisor + 2
+    }
+    return true
+}
 
-fn __zero_std_math_divisor_count_u32 u32 value u32
-  if == value 0
-    ret 0
-  mut count u32 0
-  mut divisor u32 1
-  while <= divisor (/ value divisor)
-    if == (% value divisor) 0
-      let paired / value divisor
-      if == paired divisor
-        set count + count 1
-      else
-        set count + count 2
-    set divisor + divisor 1
-  ret count
+fn __zero_std_math_divisor_count_u32(value: u32) -> u32 {
+    if value == 0 {
+        return 0
+    }
+    var count: u32 = 0
+    var divisor: u32 = 1
+    while divisor <= value / divisor {
+        if value % divisor == 0 {
+            let paired: u32 = value / divisor
+            if paired == divisor {
+                count = count + 1
+            } else {
+                count = count + 2
+            }
+        }
+        divisor = divisor + 1
+    }
+    return count
+}
 
-fn __zero_std_math_proper_divisor_sum_u32 u32 value u32
-  if <= value 1
-    ret 0
-  mut sum u32 1
-  mut divisor u32 2
-  while <= divisor (/ value divisor)
-    if == (% value divisor) 0
-      let paired / value divisor
-      set sum + sum divisor
-      if != paired divisor
-        set sum + sum paired
-    set divisor + divisor 1
-  ret sum
+fn __zero_std_math_proper_divisor_sum_u32(value: u32) -> u32 {
+    if value <= 1 {
+        return 0
+    }
+    var sum: u32 = 1
+    var divisor: u32 = 2
+    while divisor <= value / divisor {
+        if value % divisor == 0 {
+            let paired: u32 = value / divisor
+            sum = sum + divisor
+            if paired != divisor {
+                sum = sum + paired
+            }
+        }
+        divisor = divisor + 1
+    }
+    return sum
+}

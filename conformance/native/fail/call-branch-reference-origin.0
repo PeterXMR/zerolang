@@ -1,11 +1,14 @@
-fn choose ref<i32> flag Bool left ref<i32> right ref<i32>
-  mut current left
-  if flag
-    set current right
-  ret current
+fn choose(flag: Bool, left: ref<i32>, right: ref<i32>) -> ref<i32> {
+    var current: ref<i32> = left
+    if flag {
+        current = right
+    }
+    return current
+}
 
-pub fn main Void flag Bool
-  mut x 1
-  let y 2
-  let current choose flag (&x) (&y)
-  set x 3
+pub fn main(flag: Bool) -> Void {
+    var x: i32 = 1
+    let y: i32 = 2
+    let current: ref<i32> = choose(flag, &x, &y)
+    x = 3
+}

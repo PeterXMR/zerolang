@@ -21,7 +21,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | --- | --- | --- |
 | `hello.0` | `pub fn main`, `World`, `check`, stdout | `bin/zero check examples/hello.0` |
 | `hello-let.0` | immutable `let` bindings | `bin/zero check examples/hello-let.0` |
-| `add.0` | helper functions, `ret`, `if` / `else` | `bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add` |
+| `add.0` | helper functions, `return`, `if` / `else` | `bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add` |
 | `direct-u8-helper-call.0` | direct backend signed LEB literals, byte arrays, and helper calls | `bin/zero check examples/direct-u8-helper-call.0` |
 | `direct-array-bounds-trap.0` | direct backend stack-memory bounds traps | `bin/zero check examples/direct-array-bounds-trap.0` |
 | `direct-string-len.0` | direct backend string literal length for compiler token scans | `bin/zero check examples/direct-string-len.0` |
@@ -53,7 +53,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | --- | --- | --- |
 | `point.0` | `type`, type literals, field access | `bin/zero check examples/point.0` |
 | `result-choice.0` | `enum`, payload `choice`, exhaustive `match`, payload binding | `bin/zero check examples/result-choice.0` |
-| `primitive-language-gaps.0` | fixed arrays, `mut`, assignment | `bin/zero check examples/primitive-language-gaps.0` |
+| `primitive-language-gaps.0` | fixed arrays, `var`, assignment | `bin/zero check examples/primitive-language-gaps.0` |
 | `memory-primitives.0` | `Span`, `Maybe`, references, allocator vocabulary, `std.mem` spans | `bin/zero check examples/memory-primitives.0` |
 | `allocator-collections.0` | `NullAlloc`, explicit allocator handles, fixed-buffer allocation, `Vec`, and empty map/set metadata without a global heap | `bin/zero check examples/allocator-collections.0 && bin/zero mem --json examples/allocator-collections.0` |
 | `const-arithmetic.0` | top-level deterministic `const` values and arithmetic | `bin/zero check examples/const-arithmetic.0` |
@@ -64,7 +64,7 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `type-alias.0` | `alias Name ExistingType` as compile-time spelling | `bin/zero check examples/type-alias.0` |
 | `static-method.0` | static type method namespace calls without dispatch | `bin/zero check examples/static-method.0` |
 | `static-interface.0` | static interface constraints over generic functions with direct calls | `bin/zero check examples/static-interface.0` |
-| `fallibility.0` | `raise`, `check`, and explicit `![...]` error sets | `bin/zero build --emit exe --target linux-musl-x64 examples/fallibility.0 --out .zero/out/fallibility && ./.zero/out/fallibility` |
+| `fallibility.0` | `raise`, `check`, and explicit `raises [...]` error sets | `bin/zero build --emit exe --target linux-musl-x64 examples/fallibility.0 --out .zero/out/fallibility && ./.zero/out/fallibility` |
 | `ownership-cleanup.0` | `owned<T>` cleanup, canonical `drop`, and `defer` at lexical scope exit | `bin/zero build --emit exe --target linux-musl-x64 examples/ownership-cleanup.0 --out .zero/out/ownership-cleanup && ./.zero/out/ownership-cleanup` |
 
 ## Standard Library

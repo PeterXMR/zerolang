@@ -1,25 +1,34 @@
-fn squareDoor Bool door usize
-  mut root usize 1
-  while <= (* root root) door
-    if == (* root root) door
-      ret true
-    set root + root 1
-  ret false
+fn squareDoor(door: usize) -> Bool {
+    var root: usize = 1
+    while root * root <= door {
+        if root * root == door {
+            return true
+        }
+        root = root + 1
+    }
+    return false
+}
 
-pub fn main Void world World !
-  mut doors [101]Bool [false;101]
-  mut pass usize 1
-  while <= pass 100
-    mut door usize pass
-    while <= door 100
-      set doors[door] == doors[door] false
-      set door + door pass
-    set pass + pass 1
-  mut valid Bool true
-  mut checkDoor usize 1
-  while <= checkDoor 100
-    if != doors[checkDoor] (squareDoor checkDoor)
-      set valid false
-    set checkDoor + checkDoor 1
-  if valid
-    check world.out.write "100 doors ok\n"
+pub fn main(world: World) -> Void raises {
+    var doors: [101]Bool = [false; 101]
+    var pass: usize = 1
+    while pass <= 100 {
+        var door: usize = pass
+        while door <= 100 {
+            doors[door] = !doors[door]
+            door = door + pass
+        }
+        pass = pass + 1
+    }
+    var valid: Bool = true
+    var checkDoor: usize = 1
+    while checkDoor <= 100 {
+        if doors[checkDoor] != squareDoor(checkDoor) {
+            valid = false
+        }
+        checkDoor = checkDoor + 1
+    }
+    if valid {
+        check world.out.write("100 doors ok\n")
+    }
+}

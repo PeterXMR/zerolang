@@ -20,12 +20,14 @@ Current scope:
 ## Example
 
 ```zero
-pub fn main Void world World !
-  mut storage [64]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  let path std.path.join storage ".zero" "example.txt"
-  if path.has
-    check world.out.write path.value
-    check world.out.write "\n"
+pub fn main(world: World) -> Void raises {
+    var storage: [64]u8 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    let path: Maybe<String> = std.path.join(storage, ".zero", "example.txt")
+    if path.has {
+        check world.out.write(path.value)
+        check world.out.write("\n")
+    }
+}
 ```
 
 ## Design Notes

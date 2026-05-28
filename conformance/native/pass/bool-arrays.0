@@ -1,6 +1,8 @@
-pub fn main Void world World !
-  mut flags [5]Bool [false;5]
-  set flags[1] true
-  set flags[3] true
-  if && (&& (== flags[0] false) flags[1]) (&& flags[3] (== flags[4] false))
-    check world.out.write "bool arrays ok\n"
+pub fn main(world: World) -> Void raises {
+    var flags: [5]Bool = [false; 5]
+    flags[1] = true
+    flags[3] = true
+    if !flags[0] && flags[1] && (flags[3] && !flags[4]) {
+        check world.out.write("bool arrays ok\n")
+    }
+}

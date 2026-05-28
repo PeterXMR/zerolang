@@ -1,5 +1,7 @@
-enum E
-  a
-  a
+enum E {
+    a,
+    a,
+}
 
-pub fn main Void
+pub fn main() -> Void {
+}

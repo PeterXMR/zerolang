@@ -1,8 +1,11 @@
-fn inner Void ![Bad]
-  raise Bad
+fn inner() -> Void raises [Bad] {
+    raise Bad
+}
 
-fn wrapper Void !
-  check inner()
+fn wrapper() -> Void raises {
+    check inner()
+}
 
-pub fn main Void
-  wrapper()
+pub fn main() -> Void {
+    wrapper()
+}

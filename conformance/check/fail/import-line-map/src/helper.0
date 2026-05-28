@@ -1,2 +1,3 @@
-pub fn hashPassword u32 bytes Span<u8>
-  ret std.crypto.hash32 bytes
+pub fn hashPassword(bytes: Span<u8>) -> u32 {
+    return std.crypto.hash32(bytes)
+}

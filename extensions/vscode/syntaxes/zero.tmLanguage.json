@@ -81,7 +81,7 @@
         },
         {
           "name": "keyword.declaration.zero",
-          "match": "\\b(?:choice|const|enum|export|extern|fun|impl|import|let|meta|mut|packed|pub|shape|static|test|type|use|var)\\b"
+          "match": "\\b(?:alias|choice|const|enum|export|extern|fn|interface|let|meta|mut|packed|pub|static|test|type|use|var)\\b"
         },
         {
           "name": "constant.language.zero",
@@ -105,7 +105,7 @@
       "patterns": [
         {
           "name": "entity.name.function.zero",
-          "match": "(?<=\\bfun\\s+)[A-Za-z_][A-Za-z0-9_]*"
+          "match": "(?<=\\bfn\\s+)[A-Za-z_][A-Za-z0-9_]*"
         },
         {
           "name": "entity.name.function.method.zero",

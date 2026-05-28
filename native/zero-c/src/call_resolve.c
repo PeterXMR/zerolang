@@ -151,14 +151,16 @@ void z_call_resolution_add_error(ZCallResolution *resolution, const char *name) 
 
 void z_call_resolution_error_set_text(const ZCallResolution *resolution, char *buf, size_t cap) {
   if (!buf || cap == 0) return;
-  snprintf(buf, cap, "![");
+  snprintf(buf, cap, "raises [");
   size_t used = strlen(buf);
+  bool first = true;
   for (size_t i = 0; resolution && i < resolution->error_len; i++) {
     const char *name = resolution->errors[i].name;
     if (!name) continue;
     if (used >= cap - 1) break;
-    snprintf(buf + used, cap - used, "%s%s", used > 2 ? " " : "", name);
+    snprintf(buf + used, cap - used, "%s%s", first ? "" : ", ", name);
     used = strlen(buf);
+    first = false;
   }
   if (used < cap - 1) snprintf(buf + used, cap - used, "]");
   else buf[cap - 1] = '\0';

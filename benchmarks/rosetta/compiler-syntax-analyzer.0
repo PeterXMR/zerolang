@@ -1,16 +1,23 @@
-fn balanced Bool text Span<u8>
-  mut depth i32 0
-  mut i usize 0
-  while < i (std.mem.len text)
-    if == text[i] 40
-      set depth + depth 1
-    if == text[i] 41
-      set depth - depth 1
-    if < depth 0
-      ret false
-    set i + i 1
-  ret == depth 0
+fn balanced(text: Span<u8>) -> Bool {
+    var depth: i32 = 0
+    var i: usize = 0
+    while i < std.mem.len(text) {
+        if text[i] == 40 {
+            depth = depth + 1
+        }
+        if text[i] == 41 {
+            depth = depth - 1
+        }
+        if depth < 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return depth == 0
+}
 
-pub fn main Void world World !
-  if balanced (std.mem.span "(a+b)")
-    check world.out.write "parser ok\n"
+pub fn main(world: World) -> Void raises {
+    if balanced(std.mem.span("(a+b)")) {
+        check world.out.write("parser ok\n")
+    }
+}

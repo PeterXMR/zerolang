@@ -1,8 +1,10 @@
-pub fn main Void world World !
-  mut values [4]i32 [0, 0, 0, 0]
-  set values[0] 3
-  set values[1] 1
-  set values[2] 4
-  set values[3] 1
-  if && (== values[0] 3) (== values[2] 4)
-    check world.out.write "arrays ok\n"
+pub fn main(world: World) -> Void raises {
+    var values: [4]i32 = [0, 0, 0, 0]
+    values[0] = 3
+    values[1] = 1
+    values[2] = 4
+    values[3] = 1
+    if values[0] == 3 && values[2] == 4 {
+        check world.out.write("arrays ok\n")
+    }
+}

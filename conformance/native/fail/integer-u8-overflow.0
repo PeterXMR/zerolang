@@ -1,3 +1,4 @@
-pub fn main Void world World !
-  let byte u8 256
-  check world.out.write "bad integer\n"
+pub fn main(world: World) -> Void raises {
+    let byte: u8 = 256
+    check world.out.write("bad integer\n")
+}

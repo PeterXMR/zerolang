@@ -1,8 +1,10 @@
-pub fn main Void
-  mut x 1
-  let z 2
-  mut r &x
-  if true
-    let x 3
-    set r &z
-  set x 4
+pub fn main() -> Void {
+    var x: i32 = 1
+    let z: i32 = 2
+    var r: ref<i32> = &x
+    if true {
+        let x: i32 = 3
+        r = &z
+    }
+    x = 4
+}

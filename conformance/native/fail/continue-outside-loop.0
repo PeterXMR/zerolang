@@ -1,3 +1,4 @@
-pub fn main Void world World !
-  continue
-  check world.out.write "unreachable\n"
+pub fn main(world: World) -> Void raises {
+    continue
+    check world.out.write("unreachable\n")
+}

@@ -50,7 +50,7 @@ symbol: std.fs.readAllOrRaise
 effects: fs
 allocation behavior: caller allocator
 target support: host
-error behavior: `![NotFound TooLarge Io]`
+error behavior: `raises [NotFound, TooLarge, Io]`
 ownership notes: returns owned<ByteBuf>
 example: examples/readall-cli/
 ```

@@ -1,4 +1,6 @@
-type Box<Self: Type>
-  value i32
+type Box<Self: Type> {
+    value: i32,
+}
 
-pub fn main Void
+pub fn main() -> Void {
+}

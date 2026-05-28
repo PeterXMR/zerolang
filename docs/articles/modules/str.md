@@ -21,12 +21,15 @@ Current scope:
 ## Example
 
 ```zero
-pub fn main Void world World !
-  mut storage [6]u8 [0_u8;6]
-  let reversed std.str.reverse storage "drawer"
-  if reversed.has
-    if std.mem.eql reversed.value "reward"
-      check world.out.write "string helper ok\n"
+pub fn main(world: World) -> Void raises {
+    var storage: [6]u8 = [0_u8; 6]
+    let reversed: Maybe<Span<u8>> = std.str.reverse(storage, "drawer")
+    if reversed.has {
+        if std.mem.eql(reversed.value, "reward") {
+            check world.out.write("string helper ok\n")
+        }
+    }
+}
 ```
 
 ## Design Notes

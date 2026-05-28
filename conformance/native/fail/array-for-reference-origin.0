@@ -1,7 +1,9 @@
-pub fn main Void
-  mut x 1
-  let y 2
-  mut refs [&x]
-  for index 0 .. 1
-    set refs [&y]
-  set x 3
+pub fn main() -> Void {
+    var x: i32 = 1
+    let y: i32 = 2
+    var refs: [1]ref<i32> = [&x]
+    for index in 0..1 {
+        refs = [&y]
+    }
+    x = 3
+}

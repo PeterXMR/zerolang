@@ -1,11 +1,15 @@
-fn factorial u32 n u32
-  mut value u32 1
-  mut i u32 2
-  while <= i n
-    set value * value i
-    set i + i 1
-  ret value
+fn factorial(n: u32) -> u32 {
+    var value: u32 = 1
+    var i: u32 = 2
+    while i <= n {
+        value = value * i
+        i = i + 1
+    }
+    return value
+}
 
-pub fn main Void world World !
-  if == (factorial 6) 720
-    check world.out.write "factorial ok\n"
+pub fn main(world: World) -> Void raises {
+    if factorial(6) == 720 {
+        check world.out.write("factorial ok\n")
+    }
+}

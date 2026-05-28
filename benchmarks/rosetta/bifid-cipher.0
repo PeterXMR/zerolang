@@ -1,10 +1,14 @@
-fn row u8 index u8
-  ret / index 5
+fn row(index: u8) -> u8 {
+    return index / 5
+}
 
-fn col u8 index u8
-  ret % index 5
+fn col(index: u8) -> u8 {
+    return index % 5
+}
 
-pub fn main Void world World !
-  let index u8 7
-  if && (== (row index) 1) (== (col index) 2)
-    check world.out.write "bifid ok\n"
+pub fn main(world: World) -> Void raises {
+    let index: u8 = 7
+    if row(index) == 1 && col(index) == 2 {
+        check world.out.write("bifid ok\n")
+    }
+}

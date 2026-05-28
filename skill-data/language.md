@@ -5,80 +5,64 @@ description: Compact zerolang syntax and semantics guide for agents.
 
 # zerolang Language
 
-Use this when writing or reviewing `.0` source, especially if the model has no prior zerolang training. Prefer the row patterns below; they are the most reliable shapes for generation.
+Use this when writing or reviewing `.0` source, especially if the model has no prior zerolang training. `.0` source is canonical text: regular declarations, typed bindings, braces, infix operators, and explicit calls.
 
 ## Minimal Program
 
 ```zero
-pub fn main Void world World !
-  check world.out.write "hello from zerolang\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("hello from zerolang\n")
+}
 ```
 
-`pub fn` exports a function. `World` carries runtime capabilities. `!` marks a fallible function. `check` calls a fallible operation and propagates failure.
-
-## Row Syntax
-
-One statement or declaration starts each row. Child rows are indented two spaces. Calls are prefix rows:
-
-```zero
-fn add i32 a i32 b i32
-  ret + a b
-
-pub fn main Void world World !
-  let value i32 add 40 2
-  if == value 42
-    check world.out.write "math works\n"
-```
-
-Use `name()` for a zero-argument call. Use parentheses only to group nested expressions:
-
-```zero
-let value i32 answer()
-let sum i32 add 40 2
-let hmac u32 std.crypto.hmac32 (std.mem.span "key") (std.mem.span "message")
-let ok Bool && (== sum 42) (!= hmac 0_u32)
-```
-
-Operators are prefix calls: `+ a b`, `- a b`, `* a b`, `% a b`, `== a b`, `< a b`, `&& a b`. Comments start with `//`.
+`pub fn` exports a function. `World` carries runtime capabilities. `raises` marks a fallible function. `check` calls a fallible operation and propagates failure.
 
 ## Declarations
 
 Top-level declarations include:
 
 - `use std.mem` or `use helpers`
-- `const answer i32 42`
-- `type Point` with indented fields such as `x i32`
-- `enum Mode` with indented cases such as `off`
-- `choice Result` with indented cases such as `ok i32`
-- `fn answer i32` with an indented `ret 42`
-- `pub fn main Void world World !`
-- `test "name"` with an indented `expect true`
+- `const answer: i32 = 42`
+- `const inferred = 42`
+- `type Point { x: i32, y: i32, }`
+- `enum Mode { fast, small, }`
+- `choice Result { ok: i32, err: String, }`
+- `fn answer() -> i32 { return 42 }`
+- `pub fn main(world: World) -> Void raises { ... }`
+- `test "name" { expect true }`
 
 Use `.0` for source files.
 
 ## Values, Mutation, And Control Flow
 
 ```zero
-fn answer i32
-  ret + 40 2
+fn answer() -> i32 {
+    return 40 + 2
+}
 
-pub fn main Void world World !
-  let value answer()
-  if == value 42
-    check world.out.write "math works\n"
-  else
-    check world.out.write "math broke\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = answer()
+    if value == 42 {
+        check world.out.write("math works\n")
+    } else {
+        check world.out.write("math broke\n")
+    }
+}
 ```
 
-Use `let` by default and `mut` only when a binding changes. Conditions are `Bool`; do not rely on truthy integers or strings.
+Use `let` by default and `var` only when a binding changes. Conditions are `Bool`; do not rely on truthy integers or strings.
 
 ```zero
-fn count usize n usize
-  mut i usize 0
-  while < i n
-    set i + i 1
-  ret i
+fn count(n: usize) -> usize {
+    var i: usize = 0
+    while i < n {
+        i = i + 1
+    }
+    return i
+}
 ```
+
+Operators are normal infix expressions: `a + b`, `a - b`, `a * b`, `a % b`, `a == b`, `a < b`, `a && b`. Use parentheses for grouping. Comments start with `//`.
 
 ## Types
 
@@ -96,56 +80,66 @@ Integer literals are checked against context. Use suffixes such as `_u8` or `_us
 ## Shapes, Enums, And Choices
 
 ```zero
-type Point
-  x i32
-  y i32
+type Point {
+    x: i32,
+    y: i32,
+}
 
-enum Mode
-  fast
-  small
+enum Mode {
+    fast,
+    small,
+}
 
-choice Result
-  ok i32
-  err String
+choice Result {
+    ok: i32,
+    err: String,
+}
 ```
 
 Construct a shape with field names:
 
 ```zero
-let point Point . x 1 y 2
+let point: Point = Point { x: 1, y: 2 }
 ```
 
 Choice payload cases use the choice name:
 
 ```zero
-let result Result Result.ok 42
+let result: Result = Result.ok(42)
 ```
 
 Matches must be exhaustive unless they use the fallback arm `_`:
 
 ```zero
-match result
-  ok value
-    expect (== value 42)
-  err message
-    expect true
+match result {
+    .ok(value) {
+        expect value == 42
+    }
+    .err(message) {
+        expect true
+    }
+}
 ```
 
 ## Errors
 
 ```zero
-fn value i32 i i32 ![Odd]
-  if == (% i 2) 0
-    ret i
-  raise Odd
+fn value(i: i32) -> i32 raises [Odd] {
+    if i % 2 == 0 {
+        return i
+    }
+    raise Odd
+}
 
-pub fn main Void world World !
-  let item i32 rescue (value 3) err 1
-  if == item 1
-    check world.out.write "fallible ok\n"
+pub fn main(world: World) -> Void raises {
+    let item: i32 = rescue value(3) err 1
+    if item == 1 {
+        check world.out.write("fallible ok\n")
+    }
+}
 ```
 
-`![...]` restricts the error set. A plain `!` marker is open. Calling a fallible function requires `check` or `rescue`.
+`raises [Error]` restricts the error set. Plain `raises` is open. Calling a fallible function requires `check` or `rescue`.
 
 ## Borrowing And Memory Views
 
@@ -158,35 +152,41 @@ pub fn main Void world World !
 - `owned<T>` marks explicit resource ownership.
 
 ```zero
-fn bump Void point mutref<Point>
-  set point.x + point.x 1
+fn bump(point: mutref<Point>) -> Void {
+    point.x = point.x + 1
+}
 ```
 
 Arrays and views:
 
 ```zero
-mut storage [4]u8 [1, 2, 3, 4]
-let view MutSpan<u8> storage
-let first u8 storage[0]
-set storage[0] 9
+pub fn main() -> Void {
+    var storage: [4]u8 = [1, 2, 3, 4]
+    let view: MutSpan<u8> = storage
+    let first: u8 = storage[0]
+    storage[0] = 9
+}
 ```
 
 ## Generics
 
 ```zero
-type Box<T: Type>
-  value T
+type Box<T: Type> {
+    value: T,
+}
 
-fn id<T: Type> T value T
-  ret value
+fn id<T: Type>(value: T) -> T {
+    return value
+}
 ```
 
 Static generic values are declared with `static`:
 
 ```zero
-type FixedVec<T: Type, static N: usize>
-  len usize
-  items [N]T
+type FixedVec<T: Type, static N: usize> {
+    len: usize,
+    items: [N]T,
+}
 ```
 
 ## Standard Library Call Shapes
@@ -194,53 +194,61 @@ type FixedVec<T: Type, static N: usize>
 Common target-neutral helpers:
 
 ```zero
-let bytes Span<u8> std.mem.span "zero"
-let n usize std.mem.len bytes
-let same Bool std.mem.eql "zero" "zero"
+pub fn main() -> Void {
+    let bytes: Span<u8> = std.mem.span("zero")
+    let n: usize = std.mem.len(bytes)
+    let same: Bool = std.mem.eql("zero", "zero")
 
-mut dst [8]u8 [0, 0, 0, 0, 0, 0, 0, 0]
-let writable MutSpan<u8> dst
-let copied usize std.mem.copy writable bytes
+    var dst: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0]
+    let writable: MutSpan<u8> = dst
+    let copied: usize = std.mem.copy(writable, bytes)
 
-let parsed std.parse.parseU16 "8080"
-if parsed.has
-  expect (== parsed.value 8080)
+    let parsed: Maybe<u16> = std.parse.parseU16("8080")
+    if parsed.has {
+        expect parsed.value == 8080
+    }
 
-let checksum u32 std.codec.crc32 "zero"
-let crc u32 std.codec.crc32Bytes bytes
-let hash u32 std.crypto.hash32 bytes
-let hmac u32 std.crypto.hmac32 (std.mem.span "key") (std.mem.span "message")
+    let checksum: u32 = std.codec.crc32("zero")
+    let crc: u32 = std.codec.crc32Bytes(bytes)
+    let hash: u32 = std.crypto.hash32(bytes)
+    let hmac: u32 = std.crypto.hmac32(std.mem.span("key"), std.mem.span("message"))
 
-mut reversed [4]u8 [0, 0, 0, 0]
-let reversed_text std.str.reverse reversed "zero"
-if reversed_text.has
-  expect (std.mem.eql reversed_text.value "orez")
+    var reversed: [4]u8 = [0, 0, 0, 0]
+    let reversed_text: Maybe<Span<u8>> = std.str.reverse(reversed, "zero")
+    if reversed_text.has {
+        expect std.mem.eql(reversed_text.value, "orez")
+    }
 
-mut rng std.rand.seed 7_u32
-let random u32 std.rand.nextU32 (&mut rng)
+    var rng: RandSource = std.rand.seed(7_u32)
+    let random: u32 = std.rand.nextU32(&mut rng)
 
-let duration std.time.add (std.time.ms 250) (std.time.seconds 1)
-expect (== (std.time.asMsFloor duration) 1250)
+    let duration: Duration = std.time.add(std.time.ms(250), std.time.seconds(1))
+    expect std.time.asMsFloor(duration) == 1250
+}
 ```
 
 Hosted helpers are capability-gated by target:
 
 ```zero
-let count usize std.args.len()
-let first std.args.get 1
-if first.has
-  check world.out.write first.value
+pub fn main(world: World) -> Void raises {
+    let count: usize = std.args.len()
+    let first: Maybe<String> = std.args.get(1)
+    if first.has {
+        check world.out.write(first.value)
+    }
 
-mut path_storage [16]u8 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-let path check std.path.join path_storage ".zero" "x"
+    var path_storage: [16]u8 = [0; 16]
+    let path: String = check std.path.join(path_storage, ".zero", "x")
 
-let fs std.fs.host()
-mut file owned<File> check std.fs.createOrRaise fs path
-check std.fs.writeAllOrRaise (&mut file) bytes
+    let fs: Fs = std.fs.host()
+    var file: owned<File> = check std.fs.createOrRaise(fs, path)
+    check std.fs.writeAllOrRaise(&mut file, std.mem.span("hello\n"))
 
-let status std.proc.spawn "zero-noop"
-if == (std.proc.exitCode status) 0
-  check world.out.write "proc ok\n"
+    let status: ProcStatus = std.proc.spawn("zero-noop")
+    if std.proc.exitCode(status) == 0 {
+        check world.out.write("proc ok\n")
+    }
+}
 ```
 
 ## Compact Examples
@@ -248,60 +256,75 @@ if == (std.proc.exitCode status) 0
 Use these as small pattern anchors when generating code:
 
 ```zero
-fn one i32
-  ret 1
+type Point {
+    x: i32,
+    y: i32,
+}
 
-fn two i32
-  ret + 1 1
+fn one() -> i32 {
+    return 1
+}
 
-fn sub i32 a i32 b i32
-  ret - a b
+fn two() -> i32 {
+    return 1 + 1
+}
 
-fn even Bool n i32
-  ret == (% n 2) 0
+fn sub(a: i32, b: i32) -> i32 {
+    return a - b
+}
 
-fn max i32 a i32 b i32
-  if > a b
-    ret a
-  ret b
+fn even(n: i32) -> Bool {
+    return n % 2 == 0
+}
 
-fn sum_to i32 n i32
-  mut i i32 0
-  mut total i32 0
-  while <= i n
-    set total + total i
-    set i + i 1
-  ret total
+fn max(a: i32, b: i32) -> i32 {
+    if a > b {
+        return a
+    }
+    return b
+}
 
-fn fib u32 n u32
-  mut i u32 0
-  mut a u32 0
-  mut b u32 1
-  while < i n
-    let next u32 + a b
-    set a b
-    set b next
-    set i + i 1
-  ret a
+fn sum_to(n: i32) -> i32 {
+    var i: i32 = 0
+    var total: i32 = 0
+    while i <= n {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
 
-fn factorial u32 n u32
-  mut i u32 2
-  mut total u32 1
-  while <= i n
-    set total * total i
-    set i + i 1
-  ret total
+fn fib(n: u32) -> u32 {
+    var i: u32 = 0
+    var a: u32 = 0
+    var b: u32 = 1
+    while i < n {
+        let next: u32 = a + b
+        a = b
+        b = next
+        i = i + 1
+    }
+    return a
+}
 
-type Point
-  x i32
-  y i32
+fn factorial(n: u32) -> u32 {
+    var i: u32 = 2
+    var total: u32 = 1
+    while i <= n {
+        total = total * i
+        i = i + 1
+    }
+    return total
+}
 
-fn point_sum i32 point Point
-  ret + point.x point.y
+fn point_sum(point: Point) -> i32 {
+    return point.x + point.y
+}
 
-test "shape"
-  let point Point . x 40 y 2
-  expect (== (point_sum point) 42)
+test "shape" {
+    let point: Point = Point { x: 40, y: 2 }
+    expect point_sum(point) == 42
+}
 ```
 
 If unsure, run `zero check <file>` instead of inventing syntax. Add `--json` only when you need the exact diagnostic span or structured fields.

@@ -1,11 +1,15 @@
-fn moves u32 disks u32
-  mut total u32 1
-  mut i u32 0
-  while < i disks
-    set total * total 2
-    set i + i 1
-  ret - total 1
+fn moves(disks: u32) -> u32 {
+    var total: u32 = 1
+    var i: u32 = 0
+    while i < disks {
+        total = total * 2
+        i = i + 1
+    }
+    return total - 1
+}
 
-pub fn main Void world World !
-  if == (moves 4) 15
-    check world.out.write "hanoi ok\n"
+pub fn main(world: World) -> Void raises {
+    if moves(4) == 15 {
+        check world.out.write("hanoi ok\n")
+    }
+}

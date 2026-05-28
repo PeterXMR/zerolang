@@ -1,33 +1,43 @@
-fn pow2 u32 exp u32
-  mut result u32 1
-  mut i u32 0
-  while < i exp
-    set result * result 2
-    set i + i 1
-  ret result
+fn pow2(exp: u32) -> u32 {
+    var result: u32 = 1
+    var i: u32 = 0
+    while i < exp {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
 
-fn hasBit Bool mask u32 bit u32
-  ret == (% (/ mask (pow2 bit)) 2) 1
+fn hasBit(mask: u32, bit: u32) -> Bool {
+    return mask / pow2(bit) % 2 == 1
+}
 
-fn bestValue u32
-  let weights [3]u32 [2, 3, 4]
-  let values [3]u32 [3, 4, 5]
-  mut best u32 0
-  mut mask u32 0
-  while < mask 8
-    mut weight u32 0
-    mut value u32 0
-    mut i u32 0
-    while < i 3
-      if hasBit mask i
-        set weight + weight weights[i as usize]
-        set value + value values[i as usize]
-      set i + i 1
-    if && (<= weight 5) (> value best)
-      set best value
-    set mask + mask 1
-  ret best
+fn bestValue() -> u32 {
+    let weights: [3]u32 = [2, 3, 4]
+    let values: [3]u32 = [3, 4, 5]
+    var best: u32 = 0
+    var mask: u32 = 0
+    while mask < 8 {
+        var weight: u32 = 0
+        var value: u32 = 0
+        var i: u32 = 0
+        while i < 3 {
+            if hasBit(mask, i) {
+                weight = weight + weights[i as usize]
+                value = value + values[i as usize]
+            }
+            i = i + 1
+        }
+        if weight <= 5 && value > best {
+            best = value
+        }
+        mask = mask + 1
+    }
+    return best
+}
 
-pub fn main Void world World !
-  if == bestValue() 7
-    check world.out.write "knapsack ok\n"
+pub fn main(world: World) -> Void raises {
+    if bestValue() == 7 {
+        check world.out.write("knapsack ok\n")
+    }
+}

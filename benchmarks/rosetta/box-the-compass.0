@@ -1,12 +1,18 @@
-fn quadrant u8 degrees u16
-  if < degrees 90
-    ret 0
-  if < degrees 180
-    ret 1
-  if < degrees 270
-    ret 2
-  ret 3
+fn quadrant(degrees: u16) -> u8 {
+    if degrees < 90 {
+        return 0
+    }
+    if degrees < 180 {
+        return 1
+    }
+    if degrees < 270 {
+        return 2
+    }
+    return 3
+}
 
-pub fn main Void world World !
-  if && (== (quadrant 45) 0) (== (quadrant 225) 2)
-    check world.out.write "compass ok\n"
+pub fn main(world: World) -> Void raises {
+    if quadrant(45) == 0 && quadrant(225) == 2 {
+        check world.out.write("compass ok\n")
+    }
+}

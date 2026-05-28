@@ -1,10 +1,13 @@
-const N usize 4
+const N: usize = 4
 
-fn needsConst Void items ref<[N]i32>
+fn needsConst(items: ref<[N]i32>) -> Void {
+}
 
-fn caller<static N: usize> Void items ref<[N]i32>
-  needsConst items
+fn caller<static N: usize>(items: ref<[N]i32>) -> Void {
+    needsConst(items)
+}
 
-pub fn main Void
-  let values [3]i32 [1, 2, 3]
-  caller (&values)
+pub fn main() -> Void {
+    let values: [3]i32 = [1, 2, 3]
+    caller(&values)
+}

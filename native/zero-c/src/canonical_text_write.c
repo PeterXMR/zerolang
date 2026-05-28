@@ -320,7 +320,7 @@ static void cw_append_stmt(CanonWriter *writer, const Stmt *stmt, unsigned inden
       zbuf_append(writer->buf, stmt->mutable_binding ? "var " : "let ");
       cw_append_name(writer, stmt->name);
       zbuf_append(writer->buf, ": ");
-      zbuf_append(writer->buf, stmt->type ? stmt->type : "Unknown");
+      zbuf_append(writer->buf, stmt->type ? stmt->type : (stmt->resolved_type ? stmt->resolved_type : "Unknown"));
       zbuf_append(writer->buf, " = ");
       cw_append_expr_prec(writer, stmt->expr, 0, false);
       zbuf_append_char(writer->buf, '\n');
@@ -453,6 +453,16 @@ static void cw_append_blank_between(CanonWriter *writer, bool *wrote_any) {
   *wrote_any = true;
 }
 
+static bool cw_program_has_non_std_source_items(const Program *program) {
+  if (!program) return false;
+  if (program->c_imports.len || program->use_imports.len || program->consts.len || program->aliases.len ||
+      program->shapes.len || program->interfaces.len || program->enums.len || program->choices.len) return true;
+  for (size_t i = 0; i < program->functions.len; i++) {
+    if (!cw_starts_with(program->functions.items[i].name, "__zero_std_")) return true;
+  }
+  return false;
+}
+
 static void cw_append_use(CanonWriter *writer, const UseImport *item) {
   zbuf_append(writer->buf, "use ");
   zbuf_append(writer->buf, item->module ? item->module : "");
@@ -475,8 +485,10 @@ static void cw_append_const(CanonWriter *writer, const ConstDecl *item) {
   if (item->is_public) zbuf_append(writer->buf, "pub ");
   zbuf_append(writer->buf, "const ");
   cw_append_name(writer, item->name);
-  zbuf_append(writer->buf, ": ");
-  zbuf_append(writer->buf, item->type ? item->type : "Unknown");
+  if (item->type && item->type[0] && !cw_text_eq(item->type, "Unknown")) {
+    zbuf_append(writer->buf, ": ");
+    zbuf_append(writer->buf, item->type);
+  }
   zbuf_append(writer->buf, " = ");
   cw_append_expr_prec(writer, item->expr, 0, false);
   zbuf_append_char(writer->buf, '\n');
@@ -579,8 +591,9 @@ bool z_canonical_text_write_program(const Program *program, ZBuf *out, ZDiag *di
   for (size_t i = 0; i < program->interfaces.len; i++) { cw_append_blank_between(&writer, &wrote_any); cw_append_interface(&writer, &program->interfaces.items[i]); }
   for (size_t i = 0; i < program->enums.len; i++) { cw_append_blank_between(&writer, &wrote_any); cw_append_enum(&writer, &program->enums.items[i]); }
   for (size_t i = 0; i < program->choices.len; i++) { cw_append_blank_between(&writer, &wrote_any); cw_append_choice(&writer, &program->choices.items[i]); }
+  bool skip_std_helpers = cw_program_has_non_std_source_items(program);
   for (size_t i = 0; i < program->functions.len; i++) {
-    if (cw_starts_with(program->functions.items[i].name, "__zero_std_")) continue;
+    if (skip_std_helpers && cw_starts_with(program->functions.items[i].name, "__zero_std_")) continue;
     cw_append_blank_between(&writer, &wrote_any);
     cw_append_function(&writer, &program->functions.items[i], 0, false);
   }

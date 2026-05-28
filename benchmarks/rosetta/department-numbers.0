@@ -1,21 +1,29 @@
-fn valid Bool police u32 sanitation u32 fire u32
-  ret && (&& (!= police sanitation) (!= police fire)) (&& (!= sanitation fire) (&& (== (+ (+ police sanitation) fire) 12) (== (* (* police sanitation) fire) 48)))
+fn valid(police: u32, sanitation: u32, fire: u32) -> Bool {
+    return police != sanitation && police != fire && (sanitation != fire && (police + sanitation + fire == 12 && police * sanitation * fire == 48))
+}
 
-fn validOrderCount u32
-  mut count u32 0
-  mut police u32 1
-  while <= police 7
-    mut sanitation u32 1
-    while <= sanitation 7
-      mut fire u32 1
-      while <= fire 7
-        if valid police sanitation fire
-          set count + count 1
-        set fire + fire 1
-      set sanitation + sanitation 1
-    set police + police 1
-  ret count
+fn validOrderCount() -> u32 {
+    var count: u32 = 0
+    var police: u32 = 1
+    while police <= 7 {
+        var sanitation: u32 = 1
+        while sanitation <= 7 {
+            var fire: u32 = 1
+            while fire <= 7 {
+                if valid(police, sanitation, fire) {
+                    count = count + 1
+                }
+                fire = fire + 1
+            }
+            sanitation = sanitation + 1
+        }
+        police = police + 1
+    }
+    return count
+}
 
-pub fn main Void world World !
-  if && (valid 2 4 6) (== (validOrderCount()) 6)
-    check world.out.write "departments ok\n"
+pub fn main(world: World) -> Void raises {
+    if valid(2, 4, 6) && validOrderCount() == 6 {
+        check world.out.write("departments ok\n")
+    }
+}

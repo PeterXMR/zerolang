@@ -178,8 +178,9 @@ cat > "$project/zero.json" <<'PROJECT'
 PROJECT
 
 cat > "$project/src/main.0" <<'SOURCE'
-pub fn main Void world World !
-  check world.out.write "native project\n"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("native project\n")
+}
 SOURCE
 
 run_native_or_gap "$project" .zero/native-test/project-exe "native project"
@@ -352,20 +353,23 @@ const fs = require("node:fs");
 
 const body = JSON.parse(fs.readFileSync(".zero/native-test/lexer-tokens.json", "utf8"));
 assert.equal(body.schemaVersion, 1);
-assert.equal(body.syntax, "row");
+assert.equal(body.syntax, "canonical");
 assert.deepEqual(body.tokens.slice(0, 4).map((token) => `${token.kind}:${token.text}`), [
   "word:use",
   "word:std",
   "symbol:.",
   "word:mem",
 ]);
-assert.deepEqual(body.tokens.slice(5, 9).map((token) => `${token.kind}:${token.text}`), [
+assert.deepEqual(body.tokens.slice(6, 13).map((token) => `${token.kind}:${token.text}`), [
   "word:pub",
   "word:fn",
   "word:main",
+  "symbol:(",
+  "symbol:)",
+  "symbol:->",
   "word:Void",
 ]);
-assert.equal(body.tokens[5].offset, 12);
+assert.equal(body.tokens[6].offset, 13);
 assert.equal(body.tokens[12].line, 3);
 assert.equal(body.tokens.at(-1).kind, "eof");
 NODE
@@ -883,10 +887,12 @@ test ! -f .zero/native-test/direct-std-args-darwin.o.c
 grep -q '"path":"direct-macho64-object"' .zero/native-test/direct-std-args-darwin.json
 if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ] && command -v cc >/dev/null 2>&1; then
   cat > .zero/native-test/direct-std-args-darwin-link.0 <<'SOURCE'
-pub fn main Void world World !
-  let first std.args.get 1
-  if first.has
-    check world.out.write first.value
+pub fn main(world: World) -> Void raises {
+    let first: Maybe<String> = std.args.get(1)
+    if first.has {
+        check world.out.write(first.value)
+    }
+}
 SOURCE
   cat > .zero/native-test/direct-std-args-darwin-runtime.c <<'SOURCE'
 #include <unistd.h>

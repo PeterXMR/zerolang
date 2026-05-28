@@ -2860,7 +2860,7 @@ static bool stmt_raise_errors_covered(CheckContext *ctx, const Program *program,
   if (stmt->kind == STMT_RAISE && stmt->name && !function_error_contains(caller, stmt->name)) {
     char actual[160];
     snprintf(actual, sizeof(actual), "callee may raise %s", stmt->name);
-    return set_diag_detail(diag, 1002, "caller error set does not include inferred callee error", call->line, call->column, "caller `![...]` set containing every checked callee error", actual, "add the missing error to the caller's `![...]` set");
+    return set_diag_detail(diag, 1002, "caller error set does not include inferred callee error", call->line, call->column, "caller `raises [...]` set containing every checked callee error", actual, "add the missing error to the caller's `raises [...]` set");
   }
   if (stmt->kind == STMT_CHECK) {
     if (!stdlib_call_error_sets_covered(caller, diag, stmt->expr, call)) return false;
@@ -2929,7 +2929,7 @@ static bool function_error_sets_compatible_inner(CheckContext *ctx, const Functi
   if (!caller || !callee || !callee->raises) return true;
   if (depth > 64) return true;
   if (!caller->raises) {
-    return set_diag_detail(diag, 1001, "fallible call requires function to be marked fallible", call->line, call->column, "function signature with `!` or `![...]`", "function is not marked fallible", "add `!` to the function signature or handle the error locally");
+    return set_diag_detail(diag, 1001, "fallible call requires function to be marked fallible", call->line, call->column, "function signature with `raises` or `raises [...]`", "function is not marked fallible", "add `raises` to the function signature or handle the error locally");
   }
   if (!caller->has_error_set) return true;
   if (!callee->has_error_set) {
@@ -2949,7 +2949,7 @@ static bool function_error_sets_compatible_inner(CheckContext *ctx, const Functi
     if (!function_error_contains(caller, error_name)) {
       char actual[160];
       snprintf(actual, sizeof(actual), "callee may raise %s", error_name ? error_name : "<error>");
-      return set_diag_detail(diag, 1002, "caller error set does not include callee error", call->line, call->column, "caller `![...]` set containing every checked callee error", actual, "add the missing error to the caller's `![...]` set");
+      return set_diag_detail(diag, 1002, "caller error set does not include callee error", call->line, call->column, "caller `raises [...]` set containing every checked callee error", actual, "add the missing error to the caller's `raises [...]` set");
     }
   }
   return true;
@@ -3112,7 +3112,7 @@ static bool function_error_sets_include_stdlib_resolution(const Function *caller
   int column = call ? call->column : 1;
   if (!resolution || !resolution->fallible) return true;
   if (!caller || !caller->raises) {
-    return set_diag_detail(diag, 1001, "fallible std call requires function to be marked fallible", line, column, "function signature with `!` or `![...]`", "function is not marked fallible", "add `!` to the function signature or handle the error locally");
+    return set_diag_detail(diag, 1001, "fallible std call requires function to be marked fallible", line, column, "function signature with `raises` or `raises [...]`", "function is not marked fallible", "add `raises` to the function signature or handle the error locally");
   }
   if (!caller->has_error_set) return true;
   char expected[160];
@@ -3122,7 +3122,7 @@ static bool function_error_sets_include_stdlib_resolution(const Function *caller
     if (error_name && !function_error_contains(caller, error_name)) {
       char actual[160];
       snprintf(actual, sizeof(actual), "std call may raise %s", error_name);
-      return set_diag_detail(diag, 1002, "caller error set does not include std error", line, column, expected, actual, "add the missing std error to `![...]` or rescue the call locally");
+      return set_diag_detail(diag, 1002, "caller error set does not include std error", line, column, expected, actual, "add the missing std error to `raises [...]` or rescue the call locally");
     }
   }
   return true;
@@ -5408,7 +5408,7 @@ static bool check_named_call_fallibility_expected(CheckContext *ctx, const Progr
     generic ? "fallible generic function call must be checked" : "fallible function call must be checked",
     "check fallible_call ...",
     actual,
-    "prefix the call with check in a function marked with `!`"
+    "prefix the call with check in a function marked with `raises`"
   );
 }
 
@@ -5652,7 +5652,7 @@ static bool check_stdlib_fs_read_call_expected(CheckContext *ctx, const Program 
 }
 
 static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
-  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, "std.fs.readAll", "pass an explicit allocator; no global filesystem allocator is available", "store the fixed buffer allocator in a mut binding before reading")) return false;
+  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, "std.fs.readAll", "pass an explicit allocator; no global filesystem allocator is available", "store the fixed buffer allocator in a var binding before reading")) return false;
   if (!check_stdlib_table_arg_range_expected(ctx, program, expr, scope, diag, name, 1, false, resolution)) return false;
   const char *return_type = kind == Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE ? "owned<ByteBuf>" : "Maybe<owned<ByteBuf>>";
   set_expr_resolved_type(expr, return_type);
@@ -5661,7 +5661,7 @@ static bool check_stdlib_fs_read_all_call_expected(CheckContext *ctx, const Prog
 }
 
 static bool check_stdlib_json_parse_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name, ZStdHelperKind kind) {
-  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "pass an explicit allocator; JSON parsing does not use a global allocator", "store the fixed buffer allocator in a mut binding before parsing JSON")) return false;
+  if (!check_stdlib_allocator_arg(ctx, program, expr, scope, diag, resolution, 0, name, "pass an explicit allocator; JSON parsing does not use a global allocator", "store the fixed buffer allocator in a var binding before parsing JSON")) return false;
   const char *expected = kind == Z_STD_HELPER_KIND_JSON_PARSE_BYTES ? "Span<u8>" : "String";
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, expected)) return false;
   const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
@@ -5692,9 +5692,9 @@ static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *p
     case Z_STD_HELPER_KIND_MEM_EQL_BYTES:
       return check_stdlib_mem_eql_bytes_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_ALLOC_BYTES:
-      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating");
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<MutSpan<u8>>", "allocation length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a var binding before allocating");
     case Z_STD_HELPER_KIND_MEM_BYTE_BUF:
-      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a mut binding before allocating a ByteBuf");
+      return check_stdlib_allocator_len_call_expected(ctx, program, expr, scope, diag, resolution, name, "Maybe<owned<ByteBuf>>", "ByteBuf length must be an integer", "pass an integer byte count", "store the fixed buffer allocator in a var binding before allocating a ByteBuf");
     case Z_STD_HELPER_KIND_FS_READ:
       return check_stdlib_fs_read_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_FS_READ_ALL:
@@ -5714,7 +5714,7 @@ static bool check_stdlib_call_fallibility_expected(CheckContext *ctx, const Expr
   if (!resolution || !resolution->fallible || (ctx && ctx->allow_fallible_call > 0)) return true;
   char actual[160];
   snprintf(actual, sizeof(actual), "call to '%s'", resolution->callee_name ? resolution->callee_name : "std fallible helper");
-  return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `!`");
+  return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `raises`");
 }
 
 static bool check_stdlib_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, bool *handled) {
@@ -5832,7 +5832,7 @@ static bool check_shape_namespace_call_expected(CheckContext *ctx, const Program
   if (function_has_error_flow(ctx, program, method)) {
     char actual[160];
     snprintf(actual, sizeof(actual), "call to '%s.%s'", shape->name, method->name);
-    if (!check_fallible_call_is_checked(ctx, program, method, expr, diag, "fallible static method call must be checked", "check Shape.method ...", actual, "prefix the call with check in a function marked with `!`")) {
+    if (!check_fallible_call_is_checked(ctx, program, method, expr, diag, "fallible static method call must be checked", "check Shape.method ...", actual, "prefix the call with check in a function marked with `raises`")) {
       generic_bindings_free(method_bindings, method_binding_len);
       free(method_bindings);
       z_call_resolution_free(&resolution);
@@ -5884,7 +5884,7 @@ static bool check_receiver_method_receiver_access(CheckContext *ctx, const Progr
   }
   if (receiver_requires_mut && !receiver_is_mutref) {
     if (!expr_is_addressable(receiver)) {
-      return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "mut record value", "temporary receiver", "store the value in a mut binding before calling the mutating method");
+      return set_diag_detail(diag, 3049, "receiver method requires an addressable mutable receiver", receiver->line, receiver->column, "var record value", "temporary receiver", "store the value in a var binding before calling the mutating method");
     }
     char root[128];
     if (expr_root_ident(receiver, root, sizeof(root)) && !scope_is_mutable(scope, root)) {
@@ -5959,7 +5959,7 @@ static bool check_receiver_shape_call_expected(CheckContext *ctx, const Program 
   set_expr_checked_type_args(expr, receiver_bindings, receiver_binding_len);
   if (function_has_error_flow(ctx, program, receiver_method)) {
     if ((!ctx || ctx->allow_fallible_call == 0)) {
-      ok = set_diag_detail(diag, 1003, "fallible receiver method call must be checked", expr->line, expr->column, "check receiver.method ...", "unchecked fallible receiver method", "prefix the call with check in a function marked with `!`");
+      ok = set_diag_detail(diag, 1003, "fallible receiver method call must be checked", expr->line, expr->column, "check receiver.method ...", "unchecked fallible receiver method", "prefix the call with check in a function marked with `raises`");
       goto cleanup;
     }
     if (!function_error_sets_compatible(ctx, ctx ? ctx->function : NULL, receiver_method, diag, expr)) { ok = false; goto cleanup; }
@@ -6012,7 +6012,7 @@ static bool check_constrained_interface_call_expected(CheckContext *ctx, const P
   if (function_has_error_flow(ctx, program, required)) {
     char actual[160];
     snprintf(actual, sizeof(actual), "call to '%s.%s'", interface->name, required->name);
-    if (!check_fallible_call_is_checked(ctx, program, required, expr, diag, "fallible constrained interface method call must be checked", "check Interface.method ...", actual, "prefix the call with check in a function marked with `!`")) {
+    if (!check_fallible_call_is_checked(ctx, program, required, expr, diag, "fallible constrained interface method call must be checked", "check Interface.method ...", actual, "prefix the call with check in a function marked with `raises`")) {
       generic_bindings_free(interface_bindings, interface_binding_len);
       free(interface_bindings);
       z_call_resolution_free(&resolution);
@@ -6048,7 +6048,7 @@ static bool check_world_stream_write_call_expected(CheckContext *ctx, const Prog
     return set_diag_detail(diag, 3005, "World stream write argument has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "String or Span<u8>", actual, "pass text or a byte span to the stream writer");
   }
   if ((!ctx || ctx->allow_fallible_call == 0)) {
-    return set_diag_detail(diag, 1003, "fallible World stream write must be checked", expr->line, expr->column, "check world.out.write text", "unchecked World stream write", "prefix the write with check in a function marked with `!`");
+    return set_diag_detail(diag, 1003, "fallible World stream write must be checked", expr->line, expr->column, "check world.out.write text", "unchecked World stream write", "prefix the write with check in a function marked with `raises`");
   }
   set_expr_resolved_type(expr, "Void");
   return true;
@@ -6060,7 +6060,7 @@ static bool check_unchecked_fallible_call_expected(CheckContext *ctx, const Prog
   if (fun && (!ctx || ctx->allow_fallible_call == 0)) {
     char actual[160];
     snprintf(actual, sizeof(actual), "call to '%s'", fun->name);
-    return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `!`");
+    return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call ...", actual, "prefix the call with check in a function marked with `raises`");
   }
   return true;
 }
@@ -6163,7 +6163,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
         if (mutspan_element_text(expected, expected_element, sizeof(expected_element)) &&
             fixed_array_type_parts(actual, NULL, 0, actual_element, sizeof(actual_element))) {
           if (!scope_is_mutable(scope, expr->text)) {
-            return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with mut", "immutable array binding", "add mut to the array binding before creating a MutSpan");
+            return set_diag_detail(diag, 3010, "cannot create MutSpan from immutable array binding", expr->line, expr->column, "array binding declared with var", "immutable array binding", "change let to var before creating a MutSpan");
           }
           if (!types_compatible_in_scope(program, scope, expected_element, actual_element)) {
             return set_diag_detail(diag, 3006, "MutSpan element type does not match array element", expr->line, expr->column, expected_element, actual_element, "use a MutSpan with the same element type as the array");
@@ -6278,7 +6278,7 @@ static bool check_expr_expected(CheckContext *ctx, const Program *program, const
     }
     case EXPR_CHECK: {
       if (!ctx || !ctx->function || !ctx->function->raises) {
-        return set_diag_detail(diag, 1001, "`check` requires function to be marked fallible", expr->line, expr->column, "function signature with `!` or `![...]`", "function is not marked fallible", "add `!` to the function signature");
+        return set_diag_detail(diag, 1001, "`check` requires function to be marked fallible", expr->line, expr->column, "function signature with `raises` or `raises [...]`", "function is not marked fallible", "add `raises` to the function signature");
       }
       ctx->allow_fallible_call++;
       bool checked_ok = check_expr(ctx, program, expr->left, scope, diag);
@@ -6700,7 +6700,7 @@ static bool check_lvalue_target(CheckContext *ctx, const Program *program, const
         return set_diag_detail(diag, 3003, message, target->line, target->column, "visible mutable local", "no matching visible symbol", "declare the name before assigning it");
       }
       if (!scope_is_mutable(scope, target->text)) {
-        return set_diag_detail(diag, 3010, "cannot assign through immutable binding", target->line, target->column, "binding declared with mut", "immutable binding", "add mut to the root binding before assigning through it");
+        return set_diag_detail(diag, 3010, "cannot assign through immutable binding", target->line, target->column, "binding declared with var", "immutable binding", "change let to var before assigning through it");
       }
       const char *type = scope_type(scope, target->text);
       if (type_is_const(type)) {
@@ -8833,7 +8833,7 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     return true;
   }
   if (stmt->kind == STMT_CHECK) {
-    if (!fun->raises) return set_diag_detail(diag, 1001, "`check` requires function to be marked fallible", stmt->line, stmt->column, "function signature with `!` or `![...]`", "function is not marked fallible", "add `!` to the function signature");
+    if (!fun->raises) return set_diag_detail(diag, 1001, "`check` requires function to be marked fallible", stmt->line, stmt->column, "function signature with `raises` or `raises [...]`", "function is not marked fallible", "add `raises` to the function signature");
     ctx->allow_fallible_call++;
     bool checked_ok = check_expr(ctx, program, stmt->expr, scope, diag);
     ctx->allow_fallible_call--;
@@ -8856,12 +8856,12 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     return true;
   }
   if (stmt->kind == STMT_RAISE) {
-    if (!fun->raises) return set_diag_detail(diag, 1001, "`raise` requires function to be marked fallible", stmt->line, stmt->column, "function signature with `!` or `![...]`", "function is not marked fallible", "add `!` to the function signature or use `ret` with an explicit value");
+    if (!fun->raises) return set_diag_detail(diag, 1001, "`raise` requires function to be marked fallible", stmt->line, stmt->column, "function signature with `raises` or `raises [...]`", "function is not marked fallible", "add `raises` to the function signature or use `return` with an explicit value");
     if (!stmt->name) return set_diag_detail(diag, 1001, "raise requires an error name", stmt->line, stmt->column, "raise ErrorName", "missing error name", "name the error being raised");
     if (fun->has_error_set && !function_error_contains(fun, stmt->name)) {
       char actual[160];
       snprintf(actual, sizeof(actual), "raise %s", stmt->name);
-      return set_diag_detail(diag, 1002, "raised error is not declared by this function", stmt->line, stmt->column, "error listed in `![...]`", actual, "add the error name to this function's `![...]` set");
+      return set_diag_detail(diag, 1002, "raised error is not declared by this function", stmt->line, stmt->column, "error listed in `raises [...]`", actual, "add the error name to this function's `raises [...]` set");
     }
     return true;
   }
@@ -9230,7 +9230,7 @@ static bool validate_export_c_function(const Function *fun, ZDiag *diag) {
 static bool validate_function_error_set(const Function *fun, ZDiag *diag) {
   if (!fun || !fun->has_error_set) return true;
   if (!fun->raises) {
-    return set_diag_detail(diag, 1001, "error set requires fallible marker", fun->line, fun->column, "`![Error]`", "error set without `!`", "add `!` before the error set");
+    return set_diag_detail(diag, 1001, "error set requires fallible marker", fun->line, fun->column, "`raises [Error]`", "error set without `raises`", "add `raises` before the error set");
   }
   for (size_t i = 0; i < fun->errors.len; i++) {
     const Param *error = &fun->errors.items[i];
@@ -9239,7 +9239,7 @@ static bool validate_function_error_set(const Function *fun, ZDiag *diag) {
     }
     for (size_t previous = 0; previous < i; previous++) {
       if (strcmp(fun->errors.items[previous].name, error->name) == 0) {
-        return set_diag_detail(diag, 1002, "duplicate error in `![...]` set", error->line, error->column, "unique error names", error->name, "remove the duplicate error");
+        return set_diag_detail(diag, 1002, "duplicate error in `raises [...]` set", error->line, error->column, "unique error names", error->name, "remove the duplicate error");
       }
     }
   }

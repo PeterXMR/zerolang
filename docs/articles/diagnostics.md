@@ -29,9 +29,10 @@ Read it from top to bottom:
 In this case, the program tried to write `message` without declaring it. A local binding fixes it:
 
 ```zero
-pub fn main Void world World !
-  let message "hello from zero\n"
-  check world.out.write message
+pub fn main(world: World) -> Void raises {
+    let message: String = "hello from zero\n"
+    check world.out.write(message)
+}
 ```
 
 ## Plain Text By Default
@@ -189,56 +190,57 @@ move that code behind a target-specific entry point.
 Writable byte helpers require mutable storage:
 
 ```zero
-let dst [4]u8 [0, 0, 0, 0]
-let src [4]u8 [122, 101, 114, 111]
-let _copied std.mem.copy dst src
+let dst: [4]u8 = [0, 0, 0, 0]
+let src: [4]u8 = [122, 101, 114, 111]
+let _copied: usize = std.mem.copy(dst, src)
 ```
 
 This reports `TYP009` with repair id `make-binding-mutable`. The canonical repair is:
 
 ```zero
-mut dst [4]u8 [0, 0, 0, 0]
-let src [4]u8 [122, 101, 114, 111]
-let _copied std.mem.copy dst src
+var dst: [4]u8 = [0, 0, 0, 0]
+let src: [4]u8 = [122, 101, 114, 111]
+let _copied: usize = std.mem.copy(dst, src)
 ```
 
 Named-error `std.fs` calls require explicit error flow:
 
 ```zero
-let file std.fs.createOrRaise fs ".zero/out.txt"
+let file: owned<File> = std.fs.createOrRaise(fs, ".zero/out.txt")
 ```
 
 This reports `ERR003` with repair id `check-or-rescue-fallible-call`.
 
 Use `check` and include `NotFound`, `TooLarge`, and `Io` in the caller's
-`![NotFound TooLarge Io]` set. Use `rescue` locally when the call should recover in
+`raises [NotFound, TooLarge, Io]` set. Use `rescue` locally when the call should recover in
 place.
 
 Generic calls use local inference only. This fails because `T` would need to be both `i32` and `u8`:
 
 ```zero
-fn first<T: Type> T left T right T
-  ret left
+fn first<T: Type>(left: T, right: T) -> T {
+    return left
+}
 
-let value i32 first 1 2_u8
+let value: i32 = first(1, 2_u8)
 ```
 
 The repair is to make the arguments agree or pass explicit type arguments with compatible values:
 
 ```zero
-let value i32 first<i32> 1 2
+let value: i32 = first<i32>(1, 2)
 ```
 
 Public constants need explicit API shape:
 
 ```zero
-pub const answer 42
+pub const answer = 42
 ```
 
 This reports `PUB001`. The behavior-preserving repair is:
 
 ```zero
-pub const answer i32 42
+pub const answer: i32 = 42
 ```
 
 C interop keeps host and target discovery separate. This fails for a foreign target because the manifest asks for host include/library discovery:
@@ -268,9 +270,9 @@ package topology or target support.
 Type aliases are compile-time spellings and cannot cycle:
 
 ```zero
-alias A B
+alias A = B
 
-alias B A
+alias B = A
 ```
 
 This reports `TYP026`. Point the alias at a concrete type such as `Span<u8>` or
@@ -283,11 +285,13 @@ native compiler.
 Generic type methods must specialize from a concrete `Self` value or explicit type arguments:
 
 ```zero
-type FixedVec<T: Type, static N: usize>
-  fn cap usize
-    ret N
+type FixedVec<T: Type, static N: usize> {
+    fn cap() -> usize {
+        return N
+    }
+}
 
-let cap FixedVec.cap()
+let cap: usize = FixedVec.cap()
 ```
 
 This reports `SHM001`.
@@ -304,8 +308,8 @@ disagree.
 Receiver calls require a declared method whose first parameter is `self: ref<Self>` or `self: mutref<Self>`:
 
 ```zero
-let vec FixedVec<u8,4> FixedVec . len 0 items [0, 0, 0, 0]
-check vec.push 1
+let vec: FixedVec<u8, 4> = FixedVec { len: 0, items: [0, 0, 0, 0] }
+check vec.push(1)
 ```
 
 This reports `RCV002` because `push` needs `mutref<Self>` and `vec` is
@@ -317,11 +321,12 @@ be called through the type namespace.
 Type field defaults allow omitted fields, but only when the declaration provides a compatible default:
 
 ```zero
-type NeedsItem
-  count usize 0
-  item u8
+type NeedsItem {
+    count: usize = 0,
+    item: u8,
+}
 
-let value NeedsItem NeedsItem .
+let value: NeedsItem = NeedsItem {}
 ```
 
 This reports `FLD002` with repair id `initialize-missing-field` because `item`
@@ -331,35 +336,41 @@ expression.
 Static interfaces are checked at generic specialization time. This fails because `Counter` does not provide the required static method:
 
 ```zero
-interface Readable<T: Type>
-  fn read i32 self ref<T>
+type Counter {
+    value: i32,
+}
 
-type Counter
-  value i32
+interface Readable<T: Type> {
+    fn read(self: ref<T>) -> i32
+}
 
-fn readValue<T: Readable<T>> i32 value ref<T>
-  ret T.read value
+fn readValue<T: Readable<T>>(value: ref<T>) -> i32 {
+    return T.read(value)
+}
 ```
 
 This reports `IFC002`. Add a concrete static method with the matching signature:
 
 ```zero
-fn read i32 self ref<Self>
-  ret self.value
+fn read(self: ref<Self>) -> i32 {
+    return self.value
+}
 ```
 
 Static value parameters are checked before emission so fixed-size layouts stay concrete:
 
 ```zero
-type FixedVec<T: Type, static N: usize>
-  len usize
-  items [N]T
+type FixedVec<T: Type, static N: usize> {
+    len: usize,
+    items: [N]T,
+}
 
-fn first<T: Type, static N: usize> T vec ref<FixedVec<T,N>>
-  ret vec.items[0]
+fn first<T: Type, static N: usize>(vec: ref<FixedVec<T, N>>) -> T {
+    return vec.items[0]
+}
 
-let vec FixedVec<u8,4> FixedVec . len 4 items [1, 2, 3, 4]
-let bad first<u8, 8> (&vec)
+let vec: FixedVec<u8, 4> = FixedVec { len: 4, items: [1, 2, 3, 4] }
+let bad: u8 = first<u8, 8>(&vec)
 ```
 
 This reports `STC003` because the explicit `8` conflicts with the annotated

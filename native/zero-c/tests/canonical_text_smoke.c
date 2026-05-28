@@ -892,6 +892,21 @@ static void imports_call_arguments_with_casts(void) {
   z_free_program(&program);
 }
 
+static void imports_cast_comparisons_without_parentheses(void) {
+  const char *source =
+    "fn less(value: u32, other: u32) -> Bool {\n"
+    "    return value as u32 < other\n"
+    "}\n";
+  ZDiag diag = {0};
+  Program program = {0};
+  expect(z_parse_canonical_text_program_source(source, &program, &diag), diag.message);
+  Expr *expr = program.functions.items[0].body.items[0]->expr;
+  expect(expr && expr->kind == EXPR_BINARY && strcmp(expr->text, "<") == 0, "expected cast comparison binary expression");
+  expect(expr->left && expr->left->kind == EXPR_CAST && strcmp(expr->left->text, "u32") == 0, "expected cast as comparison left operand");
+  expect(expr->right && expr->right->kind == EXPR_IDENT && strcmp(expr->right->text, "other") == 0, "expected comparison right operand");
+  z_free_program(&program);
+}
+
 static void expect_program_checks_and_roundtrips(const char *source, const char *label, bool library) {
   ZDiag diag = {0};
   Program program = {0};
@@ -1094,8 +1109,8 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\\x0aworld\"\n}\n", "escaped string newline");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\rworld\"\n}\n", "raw carriage return string newline");
   expect_rejects("fn bad() -> Void {\n    let text: String = \"hello\\xZZ\"\n}\n", "malformed hex string escape");
-  expect_rejects("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal");
-  expect_rejects("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal");
+  expect_accepts("fn bad() -> Void {\n    let value: i32 = 123abc\n}\n", "malformed number literal reaches typed diagnostics");
+  expect_accepts("fn bad() -> Void {\n    let value: i32 = 0b102\n}\n", "malformed radix number literal reaches typed diagnostics");
   expect_rejects("type Point {\n    x: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { 1: 2 }\n}\n", "numeric object field");
   expect_rejects("type Point {\n    x: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { x }\n}\n", "object field without value");
   expect_rejects("type Point {\n    x: i32,\n    y: i32,\n}\n\nfn bad() -> Void {\n    let point: Point = Point { x, y: 1 }\n}\n", "object field without value before comma");
@@ -1180,6 +1195,7 @@ int main(int argc, char **argv) {
   parses_effectful_expression_forms();
   imports_decoded_literals_and_prefix_forms();
   imports_call_arguments_with_casts();
+  imports_cast_comparisons_without_parentheses();
   parses_checks_and_graph_roundtrips_core_program();
   parses_checks_and_graph_roundtrips_library_program();
   parses_checks_and_graph_roundtrips_generic_shape_literal();

@@ -1,2 +1,3 @@
-test "xfail: known checked failure"
-  expect false
+test "xfail: known checked failure" {
+    expect (false)
+}

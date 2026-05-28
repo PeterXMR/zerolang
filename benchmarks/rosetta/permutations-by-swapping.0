@@ -1,11 +1,15 @@
-fn factorial u32 n u32
-  mut result u32 1
-  mut value u32 2
-  while <= value n
-    set result * result value
-    set value + value 1
-  ret result
+fn factorial(n: u32) -> u32 {
+    var result: u32 = 1
+    var value: u32 = 2
+    while value <= n {
+        result = result * value
+        value = value + 1
+    }
+    return result
+}
 
-pub fn main Void world World !
-  if == (factorial 4) 24
-    check world.out.write "permutations by swapping ok\n"
+pub fn main(world: World) -> Void raises {
+    if factorial(4) == 24 {
+        check world.out.write("permutations by swapping ok\n")
+    }
+}

@@ -1,18 +1,23 @@
-fn distance u32 tile u8 index usize
-  let target (- tile 1) as usize
-  let row / index 4
-  let col % index 4
-  let targetRow / target 4
-  let targetCol % target 4
-  let dr ifLess row targetRow
-  let dc ifLess col targetCol
-  ret + dr dc
+fn distance(tile: u8, index: usize) -> u32 {
+    let target: usize = (tile - 1) as usize
+    let row: usize = index / 4
+    let col: usize = index % 4
+    let targetRow: usize = target / 4
+    let targetCol: usize = target % 4
+    let dr: u32 = ifLess(row, targetRow)
+    let dc: u32 = ifLess(col, targetCol)
+    return dr + dc
+}
 
-fn ifLess u32 a usize b usize
-  if < a b
-    ret (- b a) as u32
-  ret (- a b) as u32
+fn ifLess(a: usize, b: usize) -> u32 {
+    if a < b {
+        return (b - a) as u32
+    }
+    return (a - b) as u32
+}
 
-pub fn main Void world World !
-  if == (distance 5 0) 1
-    check world.out.write "15 puzzle solver ok\n"
+pub fn main(world: World) -> Void raises {
+    if distance(5, 0) == 1 {
+        check world.out.write("15 puzzle solver ok\n")
+    }
+}

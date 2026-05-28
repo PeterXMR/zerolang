@@ -1,17 +1,23 @@
-fn binomial u32 n u32 k0 u32
-  mut k k0
-  if > k (- n k)
-    set k - n k
-  mut result u32 1
-  mut i u32 1
-  while <= i k
-    set result / (* result (+ (- n k) i)) i
-    set i + i 1
-  ret result
+fn binomial(n: u32, k0: u32) -> u32 {
+    var k: u32 = k0
+    if k > n - k {
+        k = n - k
+    }
+    var result: u32 = 1
+    var i: u32 = 1
+    while i <= k {
+        result = result * (n - k + i) / i
+        i = i + 1
+    }
+    return result
+}
 
-fn catalan u32 n u32
-  ret / (binomial (* 2 n) n) (+ n 1)
+fn catalan(n: u32) -> u32 {
+    return binomial(2 * n, n) / (n + 1)
+}
 
-pub fn main Void world World !
-  if == (catalan 5) 42
-    check world.out.write "catalan ok\n"
+pub fn main(world: World) -> Void raises {
+    if catalan(5) == 42 {
+        check world.out.write("catalan ok\n")
+    }
+}

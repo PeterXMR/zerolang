@@ -1,5 +1,7 @@
-fn bad Void value Self
-  ret
+fn bad(value: Self) -> Void {
+    return
+}
 
-pub fn main Void
-  ret
+pub fn main() -> Void {
+    return
+}

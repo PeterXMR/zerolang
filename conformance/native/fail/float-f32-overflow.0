@@ -1,3 +1,4 @@
-pub fn main Void world World !
-  let value f32 1.0e39
-  check world.out.write "bad float\n"
+pub fn main(world: World) -> Void raises {
+    let value: f32 = 1.0e39
+    check world.out.write("bad float\n")
+}

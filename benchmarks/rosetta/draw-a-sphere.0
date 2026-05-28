@@ -1,6 +1,9 @@
-fn inside Bool x i32 y i32 z i32 radius i32
-  ret <= (+ (+ (* x x) (* y y)) (* z z)) (* radius radius)
+fn inside(x: i32, y: i32, z: i32, radius: i32) -> Bool {
+    return x * x + y * y + z * z <= radius * radius
+}
 
-pub fn main Void world World !
-  if inside 1 2 2 3
-    check world.out.write "sphere ok\n"
+pub fn main(world: World) -> Void raises {
+    if inside(1, 2, 2, 3) {
+        check world.out.write("sphere ok\n")
+    }
+}

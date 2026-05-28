@@ -1,22 +1,29 @@
-fn pow2 u64 exp u32
-  mut result u64 1
-  mut i u32 0
-  while < i exp
-    set result * result 2
-    set i + i 1
-  ret result
+fn pow2(exp: u32) -> u64 {
+    var result: u64 = 1
+    var i: u32 = 0
+    while i < exp {
+        result = result * 2
+        i = i + 1
+    }
+    return result
+}
 
-fn lucasLehmer Bool p u32
-  if == p 2
-    ret true
-  let m - (pow2 p) 1
-  mut s u64 4
-  mut i u32 0
-  while < i (- p 2)
-    set s % (- (* s s) 2) m
-    set i + i 1
-  ret == s 0
+fn lucasLehmer(p: u32) -> Bool {
+    if p == 2 {
+        return true
+    }
+    let m: u64 = pow2(p) - 1
+    var s: u64 = 4
+    var i: u32 = 0
+    while i < p - 2 {
+        s = (s * s - 2) % m
+        i = i + 1
+    }
+    return s == 0
+}
 
-pub fn main Void world World !
-  if lucasLehmer 5
-    check world.out.write "lucas lehmer ok\n"
+pub fn main(world: World) -> Void raises {
+    if lucasLehmer(5) {
+        check world.out.write("lucas lehmer ok\n")
+    }
+}

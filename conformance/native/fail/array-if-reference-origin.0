@@ -1,7 +1,9 @@
-pub fn main Void flag Bool
-  mut x 1
-  let y 2
-  mut refs [&x]
-  if flag
-    set refs [&y]
-  set x 3
+pub fn main(flag: Bool) -> Void {
+    var x: i32 = 1
+    let y: i32 = 2
+    var refs: [1]ref<i32> = [&x]
+    if flag {
+        refs = [&y]
+    }
+    x = 3
+}

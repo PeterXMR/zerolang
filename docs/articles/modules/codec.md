@@ -23,15 +23,18 @@ Current limits:
 
 ```zero
 use std.codec
+
 use std.mem
 
-pub fn main Void world World !
-  let len std.codec.encodedVarintLen 300
-  let checksum std.codec.crc32 "zero"
-  let bytes std.mem.span "zero"
-  let byte_checksum std.codec.crc32Bytes bytes
-  if && (== len 2) (== checksum byte_checksum)
-    check world.out.write "codec primitives ok\n"
+pub fn main(world: World) -> Void raises {
+    let len: usize = std.codec.encodedVarintLen(300)
+    let checksum: u32 = std.codec.crc32("zero")
+    let bytes: Span<u8> = std.mem.span("zero")
+    let byte_checksum: u32 = std.codec.crc32Bytes(bytes)
+    if len == 2 && checksum == byte_checksum {
+        check world.out.write("codec primitives ok\n")
+    }
+}
 ```
 
 ## Design Notes

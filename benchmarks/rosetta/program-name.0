@@ -1,4 +1,6 @@
-pub fn main Void world World !
-  let name String "zero"
-  if == (std.mem.len name) 4
-    check world.out.write "program name ok\n"
+pub fn main(world: World) -> Void raises {
+    let name: String = "zero"
+    if std.mem.len(name) == 4 {
+        check world.out.write("program name ok\n")
+    }
+}

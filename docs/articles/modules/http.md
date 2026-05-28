@@ -58,68 +58,77 @@ Metadata labels:
 Metadata helpers:
 
 ```zero
-pub fn main Void world World !
-  let net std.net.host()
-  let addr std.net.address "localhost" 8080_u16
-  let _client std.http.client net
-  let _server std.http.server net addr
-  let method std.http.parseMethod "GET"
-  if && (== method (std.http.parseMethod "GET")) (== (std.mem.len (std.mem.span "body")) 4)
-    check world.out.write "http ok\n"
+pub fn main(world: World) -> Void raises {
+    let net: Net = std.net.host()
+    let addr: Address = std.net.address("localhost", 8080_u16)
+    let _client: HttpClient = std.http.client(net)
+    let _server: HttpServer = std.http.server(net, addr)
+    let method: HttpMethod = std.http.parseMethod("GET")
+    if method == std.http.parseMethod("GET") && std.mem.len(std.mem.span("body")) == 4 {
+        check world.out.write("http ok\n")
+    }
+}
 ```
 
 GET request:
 
 ```zero
-pub fn main Void world World !
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [0_u8;512]
-  let request std.mem.span "GET https://example.com\n\n"
-  let result std.http.fetch client request response (std.time.ms 1000)
-  if std.http.resultOk result
-    check world.out.write "http get ok\n"
-    ret
-  check world.err.write "http get failed\n"
+pub fn main(world: World) -> Void raises {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [0_u8; 512]
+    let request: Span<u8> = std.mem.span("GET https://example.com\n\n")
+    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
+    if std.http.resultOk(result) {
+        check world.out.write("http get ok\n")
+        return
+    }
+    check world.err.write("http get failed\n")
+}
 ```
 
 Request with headers and body:
 
 ```zero
-pub fn main Void world World !
-  let net std.net.host()
-  let client std.http.client net
-  let request std.mem.span "POST https://example.com/api\ncontent-type: application/json\n\n{\"ping\":1}"
-  mut response [512]u8 [0_u8;512]
-  let result std.http.fetch client request response (std.time.ms 1000)
-  if std.http.resultOk result
-    check world.out.write "http post ok\n"
-    ret
-  check world.err.write "http post failed\n"
+pub fn main(world: World) -> Void raises {
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    let request: Span<u8> = std.mem.span("POST https://example.com/api\ncontent-type: application/json\n\n{\"ping\":1}")
+    var response: [512]u8 = [0_u8; 512]
+    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
+    if std.http.resultOk(result) {
+        check world.out.write("http post ok\n")
+        return
+    }
+    check world.err.write("http post failed\n")
+}
 ```
 
 Response bytes:
 
 ```zero
-pub fn main Void world World !
-  let maybe_request std.args.get 1
-  if == maybe_request.has false
-    check world.err.write "usage: pass HTTP request envelope\n"
-    ret
-  let net std.net.host()
-  let client std.http.client net
-  mut response [512]u8 [0_u8;512]
-  let result std.http.fetch client (std.mem.span maybe_request.value) response (std.time.ms 5000)
-  let body_len std.http.resultBodyLen result
-  let body_offset std.http.responseBodyOffset response
-  let bytes response[body_offset..+ body_offset body_len]
-  mut arena_buf [16]u8 [0_u8;16]
-  mut arena std.mem.fixedBufAlloc arena_buf
-  let parsed std.json.parseBytes arena bytes
-  if && (std.http.resultOk result) parsed.has
-    check world.out.write "http response json ok\n"
-    ret
-  check world.err.write "http response json failed\n"
+pub fn main(world: World) -> Void raises {
+    let maybe_request: Maybe<String> = std.args.get(1)
+    if !maybe_request.has {
+        check world.err.write("usage: pass HTTP request envelope\n")
+        return
+    }
+    let net: Net = std.net.host()
+    let client: HttpClient = std.http.client(net)
+    var response: [512]u8 = [0_u8; 512]
+    let result: HttpResult = std.http.fetch(client, std.mem.span(maybe_request.value), response, std.time.ms(5000))
+    let body_len: usize = std.http.resultBodyLen(result)
+    let body_offset: usize = std.http.responseBodyOffset(response)
+    let bytes: Span<u8> = response[body_offset..body_offset + body_len]
+    var arena_buf: [16]u8 = [0_u8; 16]
+    var arena: FixedBufAlloc = std.mem.fixedBufAlloc(arena_buf)
+    let parsed: Maybe<JsonDoc> = std.json.parseBytes(arena, bytes)
+    if std.http.resultOk(result) && parsed.has {
+        check world.out.write("http response json ok\n")
+        return
+    }
+    check world.err.write("http response json failed\n")
+}
 ```
 
 ## Design Notes

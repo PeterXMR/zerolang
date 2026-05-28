@@ -1,5 +1,7 @@
-export c fn bad_export i32 bytes Span<u8>
-  ret 0
+export c fn bad_export(bytes: Span<u8>) -> i32 {
+    return 0
+}
 
-pub fn main Void world World !
-  check world.out.write "bad c export"
+pub fn main(world: World) -> Void raises {
+    check world.out.write("bad c export")
+}

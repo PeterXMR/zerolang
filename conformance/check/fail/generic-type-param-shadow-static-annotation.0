@@ -1,8 +1,11 @@
-const T usize 4
+const T: usize = 4
 
-type Sized<static N: usize>
-  value i32
+type Sized<static N: usize> {
+    value: i32,
+}
 
-fn caller<T: Type> Void item Sized<T>
+fn caller<T: Type>(item: Sized<T>) -> Void {
+}
 
-pub fn main Void
+pub fn main() -> Void {
+}

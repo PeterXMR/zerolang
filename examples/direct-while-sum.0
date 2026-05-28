@@ -1,7 +1,9 @@
-export c fn main i32
-  mut i i32 0
-  mut sum i32 0
-  while < i 5
-    set sum + sum i
-    set i + i 1
-  ret sum
+export c fn main() -> i32 {
+    var i: i32 = 0
+    var sum: i32 = 0
+    while i < 5 {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}

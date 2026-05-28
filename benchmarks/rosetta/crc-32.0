@@ -1,11 +1,15 @@
-fn checksum u32 bytes Span<u8>
-  mut sum u32 0
-  mut i usize 0
-  while < i (std.mem.len bytes)
-    set sum % (+ sum (bytes[i] as u32)) 256
-    set i + i 1
-  ret sum
+fn checksum(bytes: Span<u8>) -> u32 {
+    var sum: u32 = 0
+    var i: usize = 0
+    while i < std.mem.len(bytes) {
+        sum = (sum + bytes[i] as u32) % 256
+        i = i + 1
+    }
+    return sum
+}
 
-pub fn main Void world World !
-  if == (checksum (std.mem.span "abc")) 38
-    check world.out.write "crc ok\n"
+pub fn main(world: World) -> Void raises {
+    if checksum(std.mem.span("abc")) == 38 {
+        check world.out.write("crc ok\n")
+    }
+}

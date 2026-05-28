@@ -1,5 +1,7 @@
-fn helper i32 value i32
-  ret + value 1
+fn helper(value: i32) -> i32 {
+    return value + 1
+}
 
-export c fn main i32
-  ret 42
+export c fn main() -> i32 {
+    return 42
+}

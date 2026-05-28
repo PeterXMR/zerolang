@@ -1,6 +1,9 @@
-fn square i32 value i32
-  ret * value value
+fn square(value: i32) -> i32 {
+    return value * value
+}
 
-pub fn main Void world World !
-  if == (square 9) 81
-    check world.out.write "function definition ok\n"
+pub fn main(world: World) -> Void raises {
+    if square(9) == 81 {
+        check world.out.write("function definition ok\n")
+    }
+}

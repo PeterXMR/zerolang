@@ -1,3 +1,4 @@
-pub fn inputName String
-  let name rescue (std.args.get 1) missing "batch3.txt"
-  ret name
+pub fn inputName() -> String {
+    let name: String = rescue std.args.get(1) err "batch3.txt"
+    return name
+}

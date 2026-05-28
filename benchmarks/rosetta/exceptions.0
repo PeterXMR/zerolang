@@ -1,9 +1,13 @@
-fn guarded i32 value i32 ![Negative]
-  if < value 0
-    raise Negative
-  ret value
+fn guarded(value: i32) -> i32 raises [Negative] {
+    if value < 0 {
+        raise Negative
+    }
+    return value
+}
 
-pub fn main Void world World !
-  let value check (guarded 7)
-  if == value 7
-    check world.out.write "exceptions ok\n"
+pub fn main(world: World) -> Void raises {
+    let value: i32 = check guarded(7)
+    if value == 7 {
+        check world.out.write("exceptions ok\n")
+    }
+}

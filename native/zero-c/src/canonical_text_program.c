@@ -529,6 +529,40 @@ static int canon_expr_precedence(const ZCanonicalToken *token) {
   return 0;
 }
 
+static bool canon_cast_type_boundary(const ZCanonicalTokenVec *tokens, size_t index, size_t start, int angle, int bracket, int paren) {
+  if (!tokens || index <= start || angle != 0 || bracket != 0 || paren != 0) return false;
+  const ZCanonicalToken *token = &tokens->items[index];
+  if (token->kind == Z_CANON_TOKEN_WORD &&
+      (canon_ast_is_text(token, "as") || canon_ast_is_text(token, "rescue") ||
+       canon_ast_is_text(token, "err") || canon_ast_is_text(token, "in"))) {
+    return true;
+  }
+  if (canon_ast_is_text(token, "<")) {
+    const ZCanonicalToken *previous = &tokens->items[index - 1];
+    if ((previous->kind == Z_CANON_TOKEN_WORD || canon_ast_is_text(previous, ">") || canon_ast_is_text(previous, "]")) && canon_ast_tokens_connected(previous, token)) return false;
+  }
+  return canon_expr_precedence(token) > 0;
+}
+
+static size_t canon_cast_type_end(const ZCanonicalTokenVec *tokens, size_t start, size_t end) {
+  int angle = 0;
+  int bracket = 0;
+  int paren = 0;
+  size_t index = start;
+  while (tokens && index < end) {
+    const ZCanonicalToken *token = &tokens->items[index];
+    if (canon_cast_type_boundary(tokens, index, start, angle, bracket, paren)) break;
+    if (canon_ast_is_text(token, "<")) angle++;
+    else if (canon_ast_is_text(token, ">") && angle > 0) angle--;
+    else if (canon_ast_is_text(token, "[")) bracket++;
+    else if (canon_ast_is_text(token, "]") && bracket > 0) bracket--;
+    else if (canon_ast_is_text(token, "(")) paren++;
+    else if (canon_ast_is_text(token, ")") && paren > 0) paren--;
+    index++;
+  }
+  return index;
+}
+
 static Expr *canon_parse_expr_prec(CanonExprParser *parser, int min_prec);
 
 static bool canon_expr_accept(CanonExprParser *parser, const char *text) {
@@ -841,8 +875,15 @@ static Expr *canon_parse_expr_prec(CanonExprParser *parser, int min_prec) {
     if (canon_ast_is_text(op, "as")) {
       Expr *cast = canon_ast_new_expr(EXPR_CAST, op);
       cast->left = left;
-      cast->text = canon_ast_join_tokens(parser->tokens, parser->pos, parser->end, true);
-      parser->pos = parser->end;
+      size_t type_start = parser->pos;
+      size_t type_end = canon_cast_type_end(parser->tokens, type_start, parser->end);
+      if (type_end == type_start) {
+        canon_ast_fail(parser->diag, op, "cast requires a target type", "type", "missing");
+        left = cast;
+        continue;
+      }
+      cast->text = canon_ast_join_tokens(parser->tokens, type_start, type_end, true);
+      parser->pos = type_end;
       left = cast;
       continue;
     }
@@ -1313,10 +1354,11 @@ static void canon_parse_const_decl_ast(CanonAstParser *parser, Program *program,
   const ZCanonicalToken *name = canon_ast_expect_word(parser, "expected const name");
   ConstDecl item = {.is_public = is_public, .line = canon_ast_line_or_one(start ? start : name), .column = canon_ast_column_or_one(start ? start : name)};
   if (name) item.name = z_strdup(name->text);
-  canon_ast_expect(parser, ":", "expected const type");
-  size_t type_start = parser->pos;
-  while (parser->pos < parser->tokens->len && !canon_ast_is_text(canon_ast_peek(parser), "=")) parser->pos++;
-  item.type = canon_parse_type_between(parser, type_start, parser->pos);
+  if (canon_ast_accept(parser, ":")) {
+    size_t type_start = parser->pos;
+    while (parser->pos < parser->tokens->len && !canon_ast_is_text(canon_ast_peek(parser), "=")) parser->pos++;
+    item.type = canon_parse_type_between(parser, type_start, parser->pos);
+  }
   canon_ast_expect(parser, "=", "expected const value");
   size_t end = canon_ast_line_end(parser->tokens, parser->pos);
   item.expr = canon_parse_expr_span(parser->tokens, parser->pos, end, parser->diag);

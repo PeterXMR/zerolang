@@ -26,6 +26,21 @@ function loadDocsRegistry() {
   return module.exports.docs;
 }
 
+function loadDocsModule(relativePath) {
+  const sourcePath = join(docsSiteRoot, relativePath);
+  const source = readFileSync(sourcePath, "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: sourcePath,
+  });
+  const module = { exports: {} };
+  new Function("exports", "module", outputText)(module.exports, module);
+  return module.exports;
+}
+
 const docs = loadDocsRegistry();
 const publicTargets = [
   "darwin-arm64",
@@ -189,7 +204,7 @@ describe("docs registry", () => {
       assert.match(examples, new RegExp(releaseLoopTerm));
     }
     const learnZeroCleanup = await readDoc("learn-zero");
-    assert.match(learnZeroCleanup, /canonical non-raising `fn drop Void self mutref<Self>`/);
+    assert.match(learnZeroCleanup, /canonical non-raising `fn drop\(self: mutref<Self>\) -> Void`/);
     assert.doesNotMatch(learnZeroCleanup, /More advanced ownership and `?\.drop\(\)`? behavior is still implementation work/);
     assert.match(buildingFromSource, /Building From Source/);
     for (const demoTerm of ["--release tiny", "fixed-capacity", "vtables", "generic registries", "hello-linux-musl", "hello-win32", "target report", "artifact size"]) {
@@ -263,5 +278,14 @@ describe("docs registry", () => {
       const source = await readFile(join(docsSiteRoot, doc.sourcePath.slice(1)), "utf8");
       assert.doesNotMatch(source, internalNarrative, `${doc.sourcePath} should read like public docs`);
     }
+  });
+});
+
+describe("docs highlighter", () => {
+  it("highlights mut as canonical source keyword", () => {
+    const { highlight } = loadDocsModule("lib/highlight.ts");
+    const html = highlight("fn bump(value: &mut i32) -> Void {}", "zero");
+
+    assert.match(html, /<span class="hl-keyword">mut<\/span>/);
   });
 });

@@ -1,10 +1,14 @@
-fn inner Void flag Bool ![Bad]
-  if flag
-    raise Bad
+fn inner(flag: Bool) -> Void raises [Bad] {
+    if flag {
+        raise Bad
+    }
+}
 
-fn wrapper Void !
-  check inner false
+fn wrapper() -> Void raises {
+    check inner(false)
+}
 
-pub fn main Void world World !
-  check wrapper()
-  check world.out.write "checked fallible wrapper ok\n"
+pub fn main(world: World) -> Void raises {
+    check wrapper()
+    check world.out.write("checked fallible wrapper ok\n")
+}

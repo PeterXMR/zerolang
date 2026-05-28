@@ -19,15 +19,18 @@ Optimized for:
 
 ## Agent Workflow Interfaces
 
-A small program shows function definitions, return rows, prefix calls, fallibility, and indentation:
+A small program shows function definitions, typed signatures, infix expressions, fallibility, and explicit capability passing:
 
 ```zero
-fn answer i32
-  ret + 40 2
+fn answer() -> i32 {
+    return 40 + 2
+}
 
-pub fn main Void world World !
-  if == answer() 42
-    check world.out.write "math works\n"
+pub fn main(world: World) -> Void raises {
+    if answer() == 42 {
+        check world.out.write("math works\n")
+    }
+}
 ```
 
 The compiler exposes the workflow through CLI commands with stable structured output.

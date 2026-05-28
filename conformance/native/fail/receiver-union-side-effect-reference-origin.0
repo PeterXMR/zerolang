@@ -1,20 +1,24 @@
-type Holder
-  value ref<i32>
+type Holder {
+    value: ref<i32>,
+    fn replace(self: mutref<Self>, next: ref<i32>) -> Void {
+        self.value = next
+    }
+}
 
-  fn replace Void self mutref<Self> next ref<i32>
-    set self.value next
+fn choose(flag: Bool, left: mutref<Holder>, right: mutref<Holder>) -> mutref<Holder> {
+    if flag {
+        return left
+    }
+    return right
+}
 
-fn choose mutref<Holder> flag Bool left mutref<Holder> right mutref<Holder>
-  if flag
-    ret left
-  ret right
-
-pub fn main Void flag Bool
-  mut x 1
-  let y 2
-  let z 3
-  mut left Holder . value (&x)
-  mut right Holder . value (&y)
-  let selected choose flag (&mut left) (&mut right)
-  selected.replace (&z)
-  set x 4
+pub fn main(flag: Bool) -> Void {
+    var x: i32 = 1
+    let y: i32 = 2
+    let z: i32 = 3
+    var left: Holder = Holder { value: &x }
+    var right: Holder = Holder { value: &y }
+    let selected: mutref<Holder> = choose(flag, &mut left, &mut right)
+    selected.replace(&z)
+    x = 4
+}

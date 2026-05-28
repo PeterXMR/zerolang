@@ -1,8 +1,11 @@
-pub fn main Void world World !
-  mut i u32 0
-  mut sum u32 0
-  while < i 10
-    set sum + sum i
-    set i + i 1
-  if == sum 45
-    check world.out.write "for loop ok\n"
+pub fn main(world: World) -> Void raises {
+    var i: u32 = 0
+    var sum: u32 = 0
+    while i < 10 {
+        sum = sum + i
+        i = i + 1
+    }
+    if sum == 45 {
+        check world.out.write("for loop ok\n")
+    }
+}

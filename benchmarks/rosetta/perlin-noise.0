@@ -1,6 +1,9 @@
-fn fade u32 t u32
-  ret * (* t t) (- 3 (* 2 t))
+fn fade(t: u32) -> u32 {
+    return t * t * (3 - 2 * t)
+}
 
-pub fn main Void world World !
-  if == (fade 1) 1
-    check world.out.write "perlin ok\n"
+pub fn main(world: World) -> Void raises {
+    if fade(1) == 1 {
+        check world.out.write("perlin ok\n")
+    }
+}

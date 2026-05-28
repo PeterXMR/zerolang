@@ -1,5 +1,7 @@
-pub fn main Void world World !
-  let source String "zero"
-  let copy String source
-  if == (std.mem.len copy) 4
-    check world.out.write "copy string ok\n"
+pub fn main(world: World) -> Void raises {
+    let source: String = "zero"
+    let copy: String = source
+    if std.mem.len(copy) == 4 {
+        check world.out.write("copy string ok\n")
+    }
+}
