@@ -32,7 +32,7 @@ const fileBudgets = {
   "native/zero-c/src/call_resolve.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/canonical_text.c": { maxLines: 1400, maxStrcmpCalls: 0 },
   "native/zero-c/src/canonical_text_format.c": { maxLines: 330, maxStrcmpCalls: 0 },
-  "native/zero-c/src/canonical_text_program.c": { maxLines: 1340, maxStrcmpCalls: 0 },
+  "native/zero-c/src/canonical_text_program.c": { maxLines: 1380, maxStrcmpCalls: 0 },
   "native/zero-c/src/canonical_text.h": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.c": { maxLines: 370, maxStrcmpCalls: 0 },
   "native/zero-c/src/coff_format.h": { maxLines: 100, maxStrcmpCalls: 0 },

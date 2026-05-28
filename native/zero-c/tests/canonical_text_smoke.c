@@ -191,7 +191,7 @@ static void formats_angles_comparisons_and_ranges_canonically(void) {
     "if value<limit{return}\n"
     "if value >limit{return}\n"
     "for item in 0 .. 4{return}\n"
-    "let box:Box < i32 > = Box<i32>{value:value}\n"
+    "let box:Box < i32 > = Box{value:value}\n"
     "}\n";
   const char *expected =
     "type Box<T> {\n"
@@ -208,7 +208,7 @@ static void formats_angles_comparisons_and_ranges_canonically(void) {
     "    for item in 0..4 {\n"
     "        return\n"
     "    }\n"
-    "    let box: Box<i32> = Box<i32> { value: value }\n"
+    "    let box: Box<i32> = Box { value: value }\n"
     "}\n";
   expect_formats_to(source, expected, "angle, comparison, and range formatting");
 }
@@ -554,7 +554,7 @@ static void parses_generic_calls_and_array_repeats(void) {
     "\n"
     "fn caller(a: i32, b: u8) -> Void {\n"
     "    let value: i32 = choose<i32, u8>(a, b)\n"
-    "    let box: Box<i32> = Box<i32> { value: value }\n"
+    "    let box: Box<i32> = Box { value: value }\n"
     "    let bytes: [4]u8 = [0_u8; 4]\n"
     "    check value == 1 || bytes[0] == 0_u8\n"
     "}\n";
@@ -744,6 +744,31 @@ static void imports_decoded_literals_and_prefix_forms(void) {
   z_free_program(&invalid);
 }
 
+static void imports_call_arguments_with_casts(void) {
+  const char *source =
+    "fn take(first: u8, second: u8) -> u8 {\n"
+    "    return second\n"
+    "}\n"
+    "\n"
+    "fn caller(value: u32, other: u8) -> u8 {\n"
+    "    return take(value as u8, other)\n"
+    "}\n";
+  ZDiag diag = {0};
+  Program program = {0};
+  expect(z_parse_canonical_text_program_source(source, &program, &diag), diag.message);
+  expect(program.functions.len == 2, "expected take and caller functions");
+  Function *caller = &program.functions.items[1];
+  expect(caller->body.len == 1, "expected caller return body");
+  Expr *call = caller->body.items[0]->expr;
+  expect(call && call->kind == EXPR_CALL, "expected return call expression");
+  expect(call->args.len == 2, "expected cast call to keep both arguments");
+  expect(call->args.items[0] && call->args.items[0]->kind == EXPR_CAST, "expected first argument cast");
+  expect(strcmp(call->args.items[0]->text, "u8") == 0, "expected cast target to stop before comma");
+  expect(call->args.items[1] && call->args.items[1]->kind == EXPR_IDENT, "expected second argument identifier");
+  expect(strcmp(call->args.items[1]->text, "other") == 0, "expected second argument to survive cast parsing");
+  z_free_program(&program);
+}
+
 static void expect_program_checks_and_roundtrips(const char *source, const char *label, bool library) {
   ZDiag diag = {0};
   Program program = {0};
@@ -837,7 +862,7 @@ static void parses_checks_and_graph_roundtrips_generic_shape_literal(void) {
     "}\n"
     "\n"
     "fn caller(value: i32) -> Box<i32> {\n"
-    "    let box: Box<i32> = Box<i32> { value: value }\n"
+    "    let box: Box<i32> = Box { value: value }\n"
     "    return box\n"
     "}\n";
   expect_program_checks_and_roundtrips(source, "canonical generic shape literal", true);
@@ -877,6 +902,7 @@ static void rejects_noncanonical_spellings(void) {
   expect_rejects("fn bad(items: Items) -> Void {\n    for item in 1 < 2 < 3 {\n        return\n    }\n}\n", "chained comparison in for range");
   expect_rejects("type Pair<T U> {\n    left: T,\n    right: U,\n}\n", "missing type parameter comma");
   expect_rejects("fn id<T U>(value: T) -> T {\n    return value\n}\n", "missing function type parameter comma");
+  expect_rejects("type Box<T> {\n    value: T,\n}\n\nfn bad(value: i32) -> Void {\n    let box: Box<i32> = Box<i32> { value: value }\n}\n", "generic shape literal type arguments");
   expect_rejects("fn missing_initializer() -> Void {\n    let value: i32 = // missing\n}\n", "comment-only initializer");
   expect_rejects("type Point {\n    x: i32\n    y: i32,\n}\n", "missing field comma before later comma");
   expect_rejects("fn bad(a: i32\n    b: i32) -> Void {\n    return\n}\n", "missing parameter comma before close");
@@ -987,6 +1013,7 @@ int main(int argc, char **argv) {
   parses_assignment_statements();
   parses_effectful_expression_forms();
   imports_decoded_literals_and_prefix_forms();
+  imports_call_arguments_with_casts();
   parses_checks_and_graph_roundtrips_core_program();
   parses_checks_and_graph_roundtrips_library_program();
   parses_checks_and_graph_roundtrips_generic_shape_literal();

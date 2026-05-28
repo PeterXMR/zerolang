@@ -460,8 +460,7 @@ static bool canon_generic_call_span(CanonParser *parser, size_t expr_start, size
 
     if (index + 1 >= expr_end) return false;
     const ZCanonicalToken *next = &parser->tokens->items[index + 1];
-    if (!(canon_is_symbol_text(next, "(") || canon_is_symbol_text(next, "{"))) return false;
-    if (canon_is_symbol_text(next, "(") && !canon_tokens_connected(token, next)) return false;
+    if (!canon_is_symbol_text(next, "(") || !canon_tokens_connected(token, next)) return false;
     *close_index = index;
     return true;
   }
