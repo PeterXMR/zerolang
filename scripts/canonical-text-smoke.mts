@@ -26,6 +26,10 @@ async function fixtureArgs(root: string) {
 }
 
 try {
+  const nativeSources = (await readdir("native/zero-c/src"))
+    .filter((name) => name.endsWith(".c") && name !== "main.c")
+    .sort()
+    .map((name) => path.join("native/zero-c/src", name));
   await execFileAsync(cc, [
     "-std=c11",
     "-Wall",
@@ -35,9 +39,7 @@ try {
     "native/zero-c/include",
     "-I",
     "native/zero-c/src",
-    "native/zero-c/src/ast.c",
-    "native/zero-c/src/canonical_text.c",
-    "native/zero-c/src/canonical_text_format.c",
+    ...nativeSources,
     "native/zero-c/tests/canonical_text_smoke.c",
     "-o",
     out,

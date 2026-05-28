@@ -258,7 +258,7 @@ static ZProgramGraphNodeKind graph_expr_kind(const Expr *expr) {
 static const char *graph_build_expr(ZProgramGraph *graph, const SourceInput *input, const Expr *expr);
 
 static void graph_build_expr_edges(ZProgramGraph *graph, const SourceInput *input, const Expr *expr, const char *node_id) {
-  if (expr->left) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->left), "left", 0);
+  if (expr->left && expr->kind != EXPR_SHAPE_LITERAL) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->left), "left", 0);
   if (expr->right) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->right), "right", 1);
   for (size_t i = 0; i < expr->args.len; i++) graph_add_edge(graph, node_id, graph_build_expr(graph, input, expr->args.items[i]), "arg", i);
   for (size_t i = 0; i < expr->fields.len; i++) {

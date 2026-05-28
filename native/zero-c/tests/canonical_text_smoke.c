@@ -1,60 +1,16 @@
 #include "canonical_text.h"
+#include "program_graph_compare.h"
+#include "program_graph_import.h"
+#include "program_graph_roundtrip.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void *z_checked_malloc(size_t size) {
-  void *ptr = malloc(size ? size : 1);
-  if (!ptr) abort();
-  return ptr;
-}
-
-void *z_checked_reallocarray(void *ptr, size_t count, size_t item_size) {
-  if (item_size && count > ((size_t)-1) / item_size) abort();
-  void *next = realloc(ptr, count * item_size);
-  if (!next && count) abort();
-  return next;
-}
-
-size_t z_grow_capacity(size_t current, size_t required, size_t initial) {
-  size_t next = current ? current : initial;
-  while (next < required) next *= 2;
-  return next;
-}
-
-char *z_strndup(const char *text, size_t len) {
-  char *copy = z_checked_malloc(len + 1);
-  memcpy(copy, text, len);
-  copy[len] = 0;
-  return copy;
-}
-
-char *z_strdup(const char *text) {
-  size_t len = strlen(text ? text : "");
-  char *copy = z_checked_malloc(len + 1);
-  memcpy(copy, text ? text : "", len + 1);
-  return copy;
-}
-
 static void expect(bool ok, const char *message) {
   if (ok) return;
   fprintf(stderr, "%s\n", message);
   exit(1);
-}
-
-static void smoke_append_char(ZBuf *buf, char ch) {
-  size_t required = buf->len + 2;
-  if (required > buf->cap) {
-    buf->cap = z_grow_capacity(buf->cap, required, 64);
-    buf->data = z_checked_reallocarray(buf->data, buf->cap, sizeof(char));
-  }
-  buf->data[buf->len++] = ch;
-  buf->data[buf->len] = 0;
-}
-
-static void smoke_append(ZBuf *buf, const char *text) {
-  while (text && *text) smoke_append_char(buf, *text++);
 }
 
 static char *read_text_file(const char *path) {
@@ -259,11 +215,11 @@ static void formats_angles_comparisons_and_ranges_canonically(void) {
 
 static void formats_deep_nested_blocks(void) {
   ZBuf source = {0};
-  smoke_append(&source, "fn deep(flag: Bool) -> Void {\n");
-  for (size_t i = 0; i < 260; i++) smoke_append(&source, "if flag {\n");
-  smoke_append(&source, "return\n");
-  for (size_t i = 0; i < 260; i++) smoke_append(&source, "}\n");
-  smoke_append(&source, "}\n");
+  zbuf_append(&source, "fn deep(flag: Bool) -> Void {\n");
+  for (size_t i = 0; i < 260; i++) zbuf_append(&source, "if flag {\n");
+  zbuf_append(&source, "return\n");
+  for (size_t i = 0; i < 260; i++) zbuf_append(&source, "}\n");
+  zbuf_append(&source, "}\n");
   expect_format_roundtrip(source.data ? source.data : "", "deep nested block formatting");
   free(source.data);
 }
@@ -714,6 +670,92 @@ static void parses_effectful_expression_forms(void) {
   expect_accepts(source, "effectful expression forms");
 }
 
+static void expect_program_checks_and_roundtrips(const char *source, const char *label, bool library) {
+  ZDiag diag = {0};
+  Program program = {0};
+  if (!z_parse_canonical_text_program_source(source, &program, &diag)) {
+    fprintf(stderr, "%s:%d:%d: canonical Program parse failed: %s\n", label, diag.line, diag.column, diag.message);
+    exit(1);
+  }
+
+  bool checked = library ? z_check_program_library(&program, &diag) : z_check_program(&program, &diag);
+  if (!checked) {
+    fprintf(stderr, "%s:%d:%d: canonical Program check failed: %s\n", label, diag.line, diag.column, diag.message);
+    z_free_program(&program);
+    exit(1);
+  }
+
+  SourceInput input = {.source_file = (char *)label, .source = (char *)source};
+  ZProgramGraph graph = {0};
+  ZProgramGraph roundtrip = {0};
+  ZProgramGraphCompare comparison = {0};
+  if (!z_program_graph_from_program(&input, &program, &graph)) {
+    fprintf(stderr, "%s: canonical Program graph import failed\n", label);
+    z_free_program(&program);
+    exit(1);
+  }
+  if (!z_program_graph_direct_roundtrip_graph(&graph, label, &roundtrip, &comparison, &diag)) {
+    fprintf(stderr, "%s:%d:%d: canonical Program graph roundtrip failed: %s\n", label, diag.line, diag.column, diag.message);
+    z_program_graph_free(&graph);
+    z_free_program(&program);
+    exit(1);
+  }
+  if (!comparison.ok) {
+    fprintf(stderr, "%s: canonical Program graph comparison failed: %s %s\n", label, comparison.code, comparison.message);
+    z_program_graph_free(&roundtrip);
+    z_program_graph_free(&graph);
+    z_free_program(&program);
+    exit(1);
+  }
+  z_program_graph_free(&roundtrip);
+  z_program_graph_free(&graph);
+  z_free_program(&program);
+}
+
+static void parses_checks_and_graph_roundtrips_core_program(void) {
+  const char *source =
+    "type Point {\n"
+    "    x: i32,\n"
+    "    y: i32,\n"
+    "}\n"
+    "\n"
+    "fn sum(point: Point) -> i32 {\n"
+    "    return point.x + point.y\n"
+    "}\n"
+    "\n"
+    "pub fn main(world: World) -> Void raises {\n"
+    "    let point: Point = Point { x: 40, y: 2 }\n"
+    "    let total: i32 = sum(point)\n"
+    "    if total == 42 {\n"
+    "        check world.out.write(\"canonical program ok\\n\")\n"
+    "    } else {\n"
+    "        check world.err.write(\"canonical program failed\\n\")\n"
+    "    }\n"
+    "}\n";
+  expect_program_checks_and_roundtrips(source, "canonical core program", false);
+}
+
+static void parses_checks_and_graph_roundtrips_library_program(void) {
+  const char *source =
+    "fn fib(n: u32) -> u32 {\n"
+    "    var index: u32 = 0\n"
+    "    var a: u32 = 0\n"
+    "    var b: u32 = 1\n"
+    "    while index < n {\n"
+    "        let next: u32 = a + b\n"
+    "        a = b\n"
+    "        b = next\n"
+    "        index = index + 1\n"
+    "    }\n"
+    "    return a\n"
+    "}\n"
+    "\n"
+    "test \"fibonacci\" {\n"
+    "    expect fib(10) == 55\n"
+    "}\n";
+  expect_program_checks_and_roundtrips(source, "canonical library program", true);
+}
+
 static void rejects_noncanonical_spellings(void) {
   expect_format_rejects_without_diag("fn ok() -> Void {}\n123abc\n", "formatter rejects malformed trailing input without diag");
   expect_rejects("fun main() -> Void {}\n", "fun keyword");
@@ -836,6 +878,8 @@ int main(int argc, char **argv) {
   parses_use_declarations_and_zero_arg_calls();
   parses_assignment_statements();
   parses_effectful_expression_forms();
+  parses_checks_and_graph_roundtrips_core_program();
+  parses_checks_and_graph_roundtrips_library_program();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
   printf("canonical text smoke ok\n");
