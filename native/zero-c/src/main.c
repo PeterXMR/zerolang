@@ -9971,11 +9971,6 @@ static bool graph_build_from_source_program(const SourceInput *input, const Prog
   return true;
 }
 
-static bool load_graph_from_canonical_source_file(const char *path, SourceInput *input, Program *program, ZProgramGraph *graph, ZDiag *diag) {
-  if (!load_canonical_source_program(path, input, program, diag)) return false;
-  return graph_build_from_source_program(input, program, true, graph, diag);
-}
-
 static bool load_graph_from_checked_canonical_source_file(const char *path, SourceInput *input, Program *program, ZProgramGraph *graph, ZDiag *diag) {
   SourceInput parsed_input = {0};
   Program parsed_program = {0};
@@ -9989,22 +9984,9 @@ static bool load_graph_from_checked_canonical_source_file(const char *path, Sour
 }
 
 static bool load_graph_from_current_source(const Command *command, const ZTargetInfo *target, SourceInput *input, Program *program, ZProgramGraph *graph, GraphInputKind *kind, ZDiag *diag) {
-  ZDiag canonical_diag = {0};
-  if (graph_input_is_source_path(command) && load_graph_from_canonical_source_file(command->input, input, program, graph, &canonical_diag)) {
-    if (kind) *kind = GRAPH_INPUT_CANONICAL_SOURCE;
-    return true;
-  }
-  z_program_graph_free(graph);
-  z_free_program(program);
-  z_free_source(input);
-  memset(input, 0, sizeof(*input));
-  memset(program, 0, sizeof(*program));
-  memset(graph, 0, sizeof(*graph));
-  if (diag) memset(diag, 0, sizeof(*diag));
-
   if (!compile_input(command->input, target, input, program, diag)) return false;
-  if (!graph_build_from_source_program(input, program, false, graph, diag)) return false;
-  if (kind) *kind = GRAPH_INPUT_CURRENT_SOURCE;
+  if (!graph_build_from_source_program(input, program, input->canonical_text_source, graph, diag)) return false;
+  if (kind) *kind = input->canonical_text_source ? GRAPH_INPUT_CANONICAL_SOURCE : GRAPH_INPUT_CURRENT_SOURCE;
   return true;
 }
 
