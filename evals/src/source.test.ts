@@ -30,6 +30,27 @@ describe("eval source helpers", () => {
     );
   });
 
+  it("accepts canonical top-level declaration starts", () => {
+    const sources = [
+      "use std.fs\n",
+      "pub alias ByteCount = usize\n",
+      "alias BytePair = Pair<u8, u8>\n",
+      "interface Reader {\n}\n",
+      "pub interface Writer {\n}\n",
+      "extern c \"vendor/math.h\" as math\n",
+      "extern type CPoint {\n}\n",
+      "pub extern type CHandle {}\n",
+      "packed type Header {\n}\n",
+      "pub packed type Packet {}\n",
+      "export c fn main() -> i32 {\n    return 0\n}\n",
+      "pub export c fn zero_main() -> i32 {\n    return 0\n}\n",
+    ];
+
+    for (const source of sources) {
+      assert.deepEqual(finalSourceResponseFailures(source, source), []);
+    }
+  });
+
   it("rejects prose or Markdown around final source", () => {
     assert.deepEqual(
       finalSourceResponseFailures(

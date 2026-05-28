@@ -41,6 +41,11 @@ describe("VS Code extension manifest", () => {
     assert.match(matches, /type/);
     assert.match(matches, /World/);
     assert.doesNotMatch(matches, /Vercel|Request|Response/);
+
+    const declarationKeywords = grammar.repository.keywords.patterns.find(
+      (pattern) => pattern.name === "keyword.declaration.zero"
+    )?.match;
+    assert.match(declarationKeywords, /\|mut\|/);
   });
 
   it("highlights comments, strings, and numbers", async () => {

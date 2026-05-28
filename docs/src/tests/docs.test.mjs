@@ -26,6 +26,21 @@ function loadDocsRegistry() {
   return module.exports.docs;
 }
 
+function loadDocsModule(relativePath) {
+  const sourcePath = join(docsSiteRoot, relativePath);
+  const source = readFileSync(sourcePath, "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+    fileName: sourcePath,
+  });
+  const module = { exports: {} };
+  new Function("exports", "module", outputText)(module.exports, module);
+  return module.exports;
+}
+
 const docs = loadDocsRegistry();
 const publicTargets = [
   "darwin-arm64",
@@ -263,5 +278,14 @@ describe("docs registry", () => {
       const source = await readFile(join(docsSiteRoot, doc.sourcePath.slice(1)), "utf8");
       assert.doesNotMatch(source, internalNarrative, `${doc.sourcePath} should read like public docs`);
     }
+  });
+});
+
+describe("docs highlighter", () => {
+  it("highlights mut as canonical source keyword", () => {
+    const { highlight } = loadDocsModule("lib/highlight.ts");
+    const html = highlight("fn bump(value: &mut i32) -> Void {}", "zero");
+
+    assert.match(html, /<span class="hl-keyword">mut<\/span>/);
   });
 });

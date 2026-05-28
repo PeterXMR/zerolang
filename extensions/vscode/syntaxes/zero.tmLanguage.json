@@ -81,7 +81,7 @@
         },
         {
           "name": "keyword.declaration.zero",
-          "match": "\\b(?:alias|choice|const|enum|export|extern|fn|interface|let|meta|packed|pub|static|test|type|use|var)\\b"
+          "match": "\\b(?:alias|choice|const|enum|export|extern|fn|interface|let|meta|mut|packed|pub|static|test|type|use|var)\\b"
         },
         {
           "name": "constant.language.zero",

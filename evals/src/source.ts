@@ -13,6 +13,9 @@ export function sourcePatternFailures(
     .map((pattern) => pattern.toString());
 }
 
+const ZERO_SOURCE_START_PATTERN =
+  /^\s*(?:(?:pub\s+)?(?:export\s+c\s+fn|extern\s+(?:c|type)|packed\s+type|fn|const|type|enum|choice|alias|interface)\s+|use\s+|test\s+)/;
+
 export function finalSourceResponseFailures(
   responseText: string,
   source: string,
@@ -24,7 +27,7 @@ export function finalSourceResponseFailures(
   if (trimmed.startsWith("```") || /(^|\n)```/.test(trimmed)) {
     return ["final response included prose or Markdown around the source"];
   }
-  if (!/^\s*((pub\s+)?fn\s+|use\s+|(pub\s+)?(const|type|enum|choice)\s+|test\s+)/.test(trimmed)) {
+  if (!ZERO_SOURCE_START_PATTERN.test(trimmed)) {
     return ["final response did not start with Zero source"];
   }
   return [];
