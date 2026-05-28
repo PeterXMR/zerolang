@@ -830,6 +830,19 @@ static void parses_checks_and_graph_roundtrips_library_program(void) {
   expect_program_checks_and_roundtrips(source, "canonical library program", true);
 }
 
+static void parses_checks_and_graph_roundtrips_generic_shape_literal(void) {
+  const char *source =
+    "type Box<T> {\n"
+    "    value: T,\n"
+    "}\n"
+    "\n"
+    "fn caller(value: i32) -> Box<i32> {\n"
+    "    let box: Box<i32> = Box<i32> { value: value }\n"
+    "    return box\n"
+    "}\n";
+  expect_program_checks_and_roundtrips(source, "canonical generic shape literal", true);
+}
+
 static void rejects_noncanonical_spellings(void) {
   expect_format_rejects_without_diag("fn ok() -> Void {}\n123abc\n", "formatter rejects malformed trailing input without diag");
   expect_rejects("fun main() -> Void {}\n", "fun keyword");
@@ -963,6 +976,7 @@ int main(int argc, char **argv) {
   imports_decoded_literals_and_prefix_forms();
   parses_checks_and_graph_roundtrips_core_program();
   parses_checks_and_graph_roundtrips_library_program();
+  parses_checks_and_graph_roundtrips_generic_shape_literal();
   rejects_noncanonical_spellings();
   for (int i = 1; i + 1 < argc; i += 2) parse_file_arg(argv[i], argv[i + 1]);
   printf("canonical text smoke ok\n");

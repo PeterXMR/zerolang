@@ -426,26 +426,18 @@ static size_t canon_ast_block_open(const ZCanonicalTokenVec *tokens, size_t star
   return CANON_AST_NO_INDEX;
 }
 
-static char *canon_expr_type_text(const Expr *expr) {
+static char *canon_expr_shape_name_text(const Expr *expr) {
   ZBuf buf;
   zbuf_init(&buf);
   if (!expr) return z_strdup("Unknown");
   if (expr->kind == EXPR_MEMBER) {
-    char *left = canon_expr_type_text(expr->left);
+    char *left = canon_expr_shape_name_text(expr->left);
     zbuf_append(&buf, left);
     zbuf_append_char(&buf, '.');
     zbuf_append(&buf, expr->text ? expr->text : "");
     free(left);
   } else {
     zbuf_append(&buf, expr->text ? expr->text : "Unknown");
-  }
-  if (expr->type_args.len > 0) {
-    zbuf_append_char(&buf, '<');
-    for (size_t i = 0; i < expr->type_args.len; i++) {
-      if (i > 0) zbuf_append(&buf, ", ");
-      zbuf_append(&buf, expr->type_args.items[i].type ? expr->type_args.items[i].type : "");
-    }
-    zbuf_append_char(&buf, '>');
   }
   return buf.data ? buf.data : z_strdup("Unknown");
 }
@@ -615,7 +607,7 @@ static Expr *canon_parse_postfix(CanonExprParser *parser, Expr *expr) {
       size_t close = canon_ast_matching(parser->tokens, parser->pos, parser->end);
       if (close == CANON_AST_NO_INDEX) break;
       Expr *literal = canon_ast_new_expr(EXPR_SHAPE_LITERAL, &parser->tokens->items[parser->pos]);
-      literal->text = canon_expr_type_text(expr);
+      literal->text = canon_expr_shape_name_text(expr);
       literal->left = expr;
       canon_parse_shape_fields(parser, literal, close);
       expr = literal;
