@@ -3989,6 +3989,8 @@ for (const [fixture, code] of [
   ["maybe-value-mutspan-alias-invalidated.0", /MEM002/],
   ["maybe-value-mutspan-call-invalidated.0", /MEM002/],
   ["maybe-value-mutspan-condition-call-invalidated.0", /MEM002/],
+  ["maybe-value-mutspan-alias-guard-invalidated.0", /MEM002/],
+  ["maybe-value-match-guard-mutates-subject.0", /MEM002/],
   ["read-while-mutably-borrowed.0", /BOR001/],
   ["array-reference-borrow-origin.0", /BOR001/],
   ["return-array-reference-escape.0", /BOR002/],

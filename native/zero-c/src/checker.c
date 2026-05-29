@@ -712,6 +712,24 @@ static bool scope_add_maybe_present(Scope *guard_scope, Scope *lookup_scope, con
   return place_vec_add(&guard_scope->maybe_present, root, root_scope, path);
 }
 
+static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place *guard_place, Scope *mutation_root_scope, const char *mutation_root, const char *mutation_path);
+
+static void place_vec_clear_maybe_present_for_place(PlaceVec *places, Scope *lookup_scope, Scope *root_scope, const char *root, const char *path) {
+  if (!places || !root || !root[0]) return;
+  size_t write = 0;
+  for (size_t read = 0; read < places->len; read++) {
+    Place *place = &places->items[read];
+    bool remove = maybe_guard_place_overlaps_mutation(lookup_scope, place, root_scope, root, path);
+    if (remove) {
+      place_free(place);
+      continue;
+    }
+    if (write != read) places->items[write] = places->items[read];
+    write++;
+  }
+  places->len = write;
+}
+
 static void scope_add_maybe_present_all(Scope *target, Scope *source) {
   if (!target || !source) return;
   for (size_t i = 0; i < source->maybe_present.len; i++) {
@@ -741,18 +759,18 @@ static void scope_clear_maybe_present_for_place(Scope *scope, const char *root, 
   if (!scope || !root || !root[0]) return;
   Scope *root_scope = scope_binding_scope(scope, root);
   for (Scope *cursor = scope; cursor; cursor = cursor->parent) {
-    place_vec_clear_for_place(&cursor->maybe_present, root_scope, root, path);
+    place_vec_clear_maybe_present_for_place(&cursor->maybe_present, scope, root_scope, root, path);
   }
 }
 
 static void scope_clear_maybe_present_in_scope_for_place(Scope *target, Scope *lookup_scope, const char *root, const char *path) {
   if (!target || !lookup_scope || !root || !root[0]) return;
-  place_vec_clear_for_place(&target->maybe_present, scope_binding_scope(lookup_scope, root), root, path);
+  place_vec_clear_maybe_present_for_place(&target->maybe_present, lookup_scope, scope_binding_scope(lookup_scope, root), root, path);
 }
 
-static void scope_clear_maybe_present_in_scope_for_resolved_place(Scope *target, const Place *place) {
+static void scope_clear_maybe_present_in_scope_for_resolved_place(Scope *target, Scope *lookup_scope, const Place *place) {
   if (!target || !place || !place->root || !place->root[0]) return;
-  place_vec_clear_for_place(&target->maybe_present, place->root_scope, place->root, place->path);
+  place_vec_clear_maybe_present_for_place(&target->maybe_present, lookup_scope, place->root_scope, place->root, place->path);
 }
 
 static bool scope_add_moved_place(Scope *scope, const char *root, const char *path) {
@@ -1635,6 +1653,51 @@ static bool type_is_named_generic(const char *type, const char *name) {
   const char *inner = NULL;
   size_t inner_len = 0;
   return type_has_generic_arg(type, name, &inner, &inner_len);
+}
+
+static bool place_root_scope_matches(Scope *left, Scope *right) {
+  return !left || !right || left == right;
+}
+
+static bool maybe_guard_place_overlaps_mutation(Scope *lookup_scope, const Place *guard_place, Scope *mutation_root_scope, const char *mutation_root, const char *mutation_path) {
+  if (!guard_place || !guard_place->root || !guard_place->root[0] || !mutation_root || !mutation_root[0]) return false;
+  if (strcmp(guard_place->root, mutation_root) == 0 &&
+      place_root_scope_matches(guard_place->root_scope, mutation_root_scope) &&
+      origin_path_overlaps(guard_place->path, mutation_path)) {
+    return true;
+  }
+  if (!lookup_scope || !origin_path_text(guard_place->path)[0]) return false;
+
+  const char *root_type = scope_type_in_binding_scope(lookup_scope, guard_place->root_scope, guard_place->root);
+  char storage_type[192];
+  const char *target_storage_type = root_type;
+  bool root_ref_like = false;
+  if (named_ref_inner_text(root_type, "ref", storage_type, sizeof(storage_type)) ||
+      named_ref_inner_text(root_type, "mutref", storage_type, sizeof(storage_type))) {
+    root_ref_like = true;
+    target_storage_type = storage_type;
+  }
+  bool root_view_like = type_is_named_generic(target_storage_type, "Span") || type_is_named_generic(target_storage_type, "MutSpan");
+  if (!root_ref_like && !root_view_like) return false;
+
+  bool overlaps = false;
+  ValueProvenance root_origins = {0};
+  if (scope_copy_value_provenance_from_scope(lookup_scope, guard_place->root_scope, guard_place->root, &root_origins)) {
+    for (size_t i = 0; i < root_origins.len; i++) {
+      ProvenanceEntry *entry = &root_origins.items[i];
+      if (origin_path_text(entry->value_path)[0]) continue;
+      char *generalized_path = root_view_like ? origin_path_generalize_indexes(guard_place->path) : NULL;
+      char *target_path = origin_path_join(entry->origin.path, generalized_path ? generalized_path : guard_place->path);
+      bool same_storage_root = strcmp(entry->origin.root, mutation_root) == 0 &&
+        place_root_scope_matches(entry->origin.root_scope, mutation_root_scope);
+      if (same_storage_root && origin_path_overlaps(target_path, mutation_path)) overlaps = true;
+      free(generalized_path);
+      free(target_path);
+      if (overlaps) break;
+    }
+  }
+  value_provenance_free(&root_origins);
+  return overlaps;
 }
 
 static void scope_clear_maybe_guards_for_expr_mutations(CheckContext *ctx, const Program *program, const Expr *expr, Scope *lookup_scope, Scope *guard_scope);
@@ -8973,7 +9036,7 @@ static void scope_clear_maybe_guards_for_resolved_call_mutations(CheckContext *c
     PlaceVec places = {0};
     if (collect_effect_target_places(ctx, program, actual, lookup_scope, &places)) {
       for (size_t i = 0; i < places.len; i++) {
-        scope_clear_maybe_present_in_scope_for_resolved_place(guard_scope, &places.items[i]);
+        scope_clear_maybe_present_in_scope_for_resolved_place(guard_scope, lookup_scope, &places.items[i]);
       }
     }
     place_vec_free(&places);
@@ -9510,7 +9573,8 @@ static bool check_scalar_match(CheckContext *ctx, const Program *program, const 
         scope_add_maybe_guards_from_condition_false(ctx, program, stmt->expr, scope, &arm_scope);
       }
     }
-    scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, scope, &arm_scope);
+    scope_clear_maybe_guards_for_expr_mutations(ctx, program, arm->guard, &arm_scope, &arm_scope);
+    scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, &arm_scope, &arm_scope);
     bool ok = check_stmt_vec_with_loop(ctx, program, fun, &arm->body, &arm_scope, diag, loop_depth);
     scope_free(&arm_scope);
     if (!ok) {
@@ -9795,7 +9859,8 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
           register_match_payload_binding_provenance(ctx, program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
         }
       }
-      scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, scope, &arm_scope);
+      scope_clear_maybe_guards_for_expr_mutations(ctx, program, arm->guard, &arm_scope, &arm_scope);
+      scope_add_maybe_guards_from_condition_true(ctx, program, arm->guard, &arm_scope, &arm_scope);
       bool ok = check_stmt_vec_with_loop(ctx, program, fun, &arm->body, &arm_scope, diag, loop_depth);
       scope_free(&arm_scope);
       if (!ok) {
