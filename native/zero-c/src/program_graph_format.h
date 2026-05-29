@@ -11,7 +11,8 @@ static inline bool z_program_graph_path_is_source_text(const char *path) {
   const char *end = path;
   if (!end) return false;
   while (*end) end++;
-  return end - path >= 2 && end[-2] == '.' && end[-1] == '0';
+  return (end - path >= 2 && end[-2] == '.' && end[-1] == '0') ||
+         (end - path >= 4 && end[-4] == '.' && end[-3] == 'r' && end[-2] == 'o' && end[-1] == 'w');
 }
 bool z_program_graph_save(const char *path, const ZProgramGraph *graph, ZDiag *diag);
 void z_append_program_graph_json(ZBuf *buf, const SourceInput *input, const Program *program);

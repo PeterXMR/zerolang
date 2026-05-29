@@ -9582,7 +9582,7 @@ static bool reject_graph_source_text_out(const Command *command, const char *exp
   snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
   snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "zero graph <subcommand> --out <program-graph-artifact> <input>");
   snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-  snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+  snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
   if (command->json) print_diag_json(command->out, diag);
   else print_diag(command->out, diag);
   return true;
@@ -10238,7 +10238,7 @@ static bool save_graph_patch_output(const Command *command, ZProgramGraph *graph
     snprintf(diag->message, sizeof(diag->message), "program graph output must not use source text extension");
     snprintf(diag->expected, sizeof(diag->expected), "zero graph patch --out <program-graph-artifact> <program-graph-artifact> (<patch-file>|--op <operation>)");
     snprintf(diag->actual, sizeof(diag->actual), "%s", command->out);
-    snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; write derived ProgramGraph artifacts to a non-source path");
+    snprintf(diag->help, sizeof(diag->help), ".0 files are canonical source text; .row is a legacy source suffix, not a ProgramGraph artifact path");
     return false;
   }
   if (!z_program_graph_save(command->out, graph, diag)) return false;
