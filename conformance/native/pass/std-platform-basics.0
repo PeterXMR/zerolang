@@ -1,5 +1,8 @@
 pub fn main(world: World) -> Void raises {
     let duration: Duration = std.time.sub(std.time.seconds(2), std.time.ms(500))
+    let short: Duration = std.time.ms(250)
+    let minimum: Duration = std.time.min(short, duration)
+    let maximum: Duration = std.time.max(short, duration)
     let _now: Duration = std.time.monotonic()
     let wall: i64 = std.time.wallSeconds()
     var rng: RandSource = std.rand.seed(7_u32)
@@ -10,7 +13,7 @@ pub fn main(world: World) -> Void raises {
     let hash: u32 = std.crypto.hash32(std.mem.span("message"))
     let hmac: u32 = std.crypto.hmac32(std.mem.span("key"), std.mem.span("message"))
     let _secure: u32 = std.crypto.secureRandomU32()
-    if std.time.asMsFloor(duration) == 1500 && wall > 0 && first != second && std.proc.exitCode(status) == 0 && hash != 0_u32 && hmac != 0_u32 && std.crypto.constantTimeEql(std.mem.span("same"), std.mem.span("same")) {
+    if std.time.asMsFloor(duration) == 1500 && std.time.asMsFloor(minimum) == 250 && std.time.asMsFloor(maximum) == 1500 && std.time.lessThan(short, duration) && wall > 0 && first != second && std.proc.exitCode(status) == 0 && hash != 0_u32 && hmac != 0_u32 && std.crypto.constantTimeEql(std.mem.span("same"), std.mem.span("same")) {
         check world.out.write("std platform basics ok\n")
     }
 }

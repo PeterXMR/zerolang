@@ -36,6 +36,7 @@
     "native:sanitize": "bash scripts/sanitizer-smoke.sh",
     "rosetta:local": "make -C native/zero-c && node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/rosetta.mts",
     "compiler:metrics": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/compiler-metrics.mts",
+    "stdlib:contracts": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stdlib-contracts.mts",
     "reliability:smoke": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/reliability-smoke.mts",
     "native:test": "pnpm run native:test:sandbox",
     "native:test:local": "ZERO_NATIVE_TEST_ALLOW_LOCAL=1 bash scripts/test-native.sh",

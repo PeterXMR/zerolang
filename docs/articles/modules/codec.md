@@ -12,6 +12,11 @@ Runnable today:
 | `std.codec.readU32(bytes)` | `u32` | Reads four bytes as little-endian. |
 | `std.codec.writeU16(value)` | `u32` | Packs a `u16` value into the current write representation. |
 | `std.codec.writeU32(value)` | `u32` | Packs a `u32` value into the current write representation. |
+| `std.codec.base64EncodedLen(len)` | `usize` | Returns the encoded length for a base64 payload. |
+| `std.codec.base64Encode(buffer, bytes)` | `Maybe<String>` | Writes base64 text into caller storage. |
+| `std.codec.hexEncode(buffer, bytes)` | `Maybe<String>` | Writes lowercase hexadecimal text into caller storage. |
+| `std.codec.utf8Valid(bytes)` | `Bool` | Validates a byte span as UTF-8. |
+| `std.codec.urlEncode(buffer, text)` | `Maybe<String>` | Percent-encodes a string into caller storage. |
 
 Current limits:
 

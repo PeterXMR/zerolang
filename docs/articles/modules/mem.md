@@ -9,6 +9,7 @@ Runnable today:
 | `std.mem.eql(a, b)` | `Bool` | Compares string-backed byte inputs. |
 | `std.mem.span(value)` | `Span<u8>` | Builds a native `Span<u8>` view over a string literal. |
 | `std.mem.len(bytes)` | `usize` | Returns the length of a fixed array, `Span<T>`, or `MutSpan<T>`. |
+| `std.mem.get(bytes, index)` | `Maybe<T>` | Reads one indexed element from an array/span-like value when the index is in bounds. |
 | `std.mem.eqlBytes(a, b)` | `Bool` | Compares two `Span<T>`/`MutSpan<T>` values with the same element type. |
 | `std.mem.nullAlloc()` | `NullAlloc` | Creates an allocator that always returns `null`, useful for proving code does not allocate. |
 | `std.mem.fixedBufAlloc(buffer)` | `FixedBufAlloc` | Creates a mutable fixed-buffer allocator from caller-owned `MutSpan<u8>` bytes. |

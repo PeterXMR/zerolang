@@ -51,6 +51,9 @@ jobs:
       - name: Rosetta tasks
         run: pnpm run rosetta:local
 
+      - name: Stdlib contracts
+        run: pnpm run stdlib:contracts
+
       - name: Native sanitizer smoke
         run: pnpm run native:sanitize
 
