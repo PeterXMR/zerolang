@@ -8568,8 +8568,8 @@ static bool stdlib_borrowed_result_arg_index(const ZStdHelperInfo *helper, size_
 static bool stdlib_result_value_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || !origins) return false;
   ZCallResolution resolution = {0};
-  if (!resolve_stdlib_call(expr, &resolution)) return false;
   bool added = false;
+  if (!resolve_stdlib_call(expr, &resolution) || z_call_resolution_expected_arg_count(&resolution) != expr->args.len || !check_stdlib_known_call_expected(ctx, program, expr, scope, &(ZDiag){0}, &resolution)) goto done;
   const char *value_prefix = NULL;
   size_t arg_index = 0;
   if (!stdlib_return_type_is_borrowed_view(resolution.return_type, &value_prefix) ||

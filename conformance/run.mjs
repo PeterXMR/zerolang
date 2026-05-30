@@ -4071,6 +4071,8 @@ for (const [fixture, code] of [
   ["span-choice-return-local-array.0", /BOR002/],
   ["string-return-local-array.0", /BOR002/],
   ["stdlib-span-return-local-buffer.0", /BOR002/],
+  ["std-mem-prefix-return-local-array.0", /BOR002/],
+  ["std-mem-drop-prefix-return-local-array.0", /BOR002/],
   ["check-array-reference-origin.0", /BOR001/],
   ["check-maybe-reference-origin.0", /BOR001/],
   ["rescue-reference-origin.0", /BOR001/],
