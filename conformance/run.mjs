@@ -3682,6 +3682,7 @@ for (const fixture of [
   "owned-mutspan-alias-use-after-move.0",
   "owned-mutspan-alias-inverse-use-after-move.0",
   "maybe-owned-check-use-after-move.0",
+  "maybe-owned-stmt-check-use-after-move.0",
   "maybe-owned-rescue-fallback-use-after-move.0",
 ]) {
   const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);

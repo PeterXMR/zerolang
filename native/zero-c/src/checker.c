@@ -10027,6 +10027,11 @@ static bool check_stmt(CheckContext *ctx, const Program *program, const Function
     if (type_is_named_generic(checked_type, "Maybe") && !type_is_named_generic(fun->return_type, "Maybe")) {
       return set_diag_detail(diag, 1001, "`check` on Maybe<T> requires a Maybe return type", stmt->line, stmt->column, "function returning Maybe<T>", fun->return_type ? fun->return_type : "Void", "return Maybe<T> from this function or handle the Maybe value explicitly");
     }
+    if (maybe_value) {
+      char *inner_type = z_strndup(inner, inner_len);
+      if (type_contains_owned(program, inner_type, 0)) mark_owned_payload_move_from_maybe_expr(stmt->expr, scope);
+      free(inner_type);
+    }
     return true;
   }
   if (stmt->kind == STMT_RAISE) {
