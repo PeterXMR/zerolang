@@ -36,6 +36,7 @@ const publicModuleDocsDir = "docs/articles/modules";
 const skillPath = "skill-data/stdlib.md";
 const stdSigPath = "native/zero-c/src/std_sig.c";
 const stdSourcePath = "native/zero-c/src/std_source.c";
+const embeddedStdlibPath = "native/zero-c/src/embedded_stdlib.inc";
 const fixtureRoots = ["examples", "conformance", "benchmarks/rosetta"];
 
 function cBlock(text: string, marker: string): string {
@@ -71,6 +72,21 @@ function duplicateValues(values: string[]): string[] {
     seen.add(value);
   }
   return [...duplicates].sort((a, b) => a.localeCompare(b));
+}
+
+function cIdent(text: string): string {
+  return text.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+function parseEmbeddedStdlibSource(text: string, sourcePath: string): string | null {
+  const ident = `zero_embedded_stdlib_${cIdent(sourcePath)}_chunks`;
+  const block = cBlock(text, `static const char *const ${ident}[] =`);
+  if (block.length === 0) return null;
+  let source = "";
+  for (const match of block.matchAll(/"((?:\\.|[^"\\])*)"/g)) {
+    source += JSON.parse(match[0]);
+  }
+  return source;
 }
 
 function parseStdHelpers(text: string): StdHelper[] {
@@ -132,9 +148,10 @@ function pushIf(condition: boolean, failures: string[], message: string) {
   if (condition) failures.push(message);
 }
 
-const [stdSig, stdSource, skill] = await Promise.all([
+const [stdSig, stdSource, embeddedStdlib, skill] = await Promise.all([
   readFile(stdSigPath, "utf8"),
   readFile(stdSourcePath, "utf8"),
+  readFile(embeddedStdlibPath, "utf8"),
   readFile(skillPath, "utf8"),
 ]);
 
@@ -202,6 +219,10 @@ for (const sourceModule of sourceModules) {
   pushIf(!moduleNamePattern.test(sourceModule.module), failures, `${sourceModule.module}: invalid source-backed std module name`);
   pushIf(!existsSync(sourceModule.path), failures, `${sourceModule.module}: missing source-backed std module ${sourceModule.path}`);
   pushIf(!modules.includes(sourceModule.module), failures, `${sourceModule.module}: source-backed module has no public helpers`);
+  const embedded = parseEmbeddedStdlibSource(embeddedStdlib, sourceModule.path);
+  const source = existsSync(sourceModule.path) ? await readFile(sourceModule.path, "utf8") : null;
+  pushIf(embedded === null, failures, `${sourceModule.module}: embedded stdlib source is missing for ${sourceModule.path}`);
+  pushIf(source !== null && embedded !== null && embedded !== source, failures, `${sourceModule.module}: embedded stdlib source is stale for ${sourceModule.path}`);
 }
 for (const duplicate of duplicateValues(sourceCalls.map((call) => call.publicName))) {
   failures.push(`duplicate source-backed public helper mapping: ${duplicate}`);

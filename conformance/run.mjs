@@ -2863,6 +2863,9 @@ for (const fixture of [
   assert.equal(roundtrip.comparison.ok, true);
   assert.deepEqual(roundtrip.semanticCounts.original, roundtrip.semanticCounts.roundtrip);
 }
+const stdPathRecursiveView = (await execFileAsync(zero, ["graph", "view", "conformance/native/pass/std-path-io-breadth.0"])).stdout;
+assert.match(stdPathRecursiveView, /std\.path\.relative\(rel_buf, "src", "src\/main\.0"\)/);
+assert.doesNotMatch(stdPathRecursiveView, /__zero_std_/);
 assert.equal(programGraphBody.schemaVersion, 1);
 assert.equal(programGraphBody.canonicalSource, true);
 assert.equal(programGraphBody.moduleIdentity, "module:hello");

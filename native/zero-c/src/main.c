@@ -3967,45 +3967,179 @@ static bool direct_input_add_program_symbols(SourceInput *input, const Program *
   return !diag || diag->code == 0;
 }
 
-static bool direct_canonical_token_text(const ZCanonicalTokenVec *tokens, size_t index, const char *text) {
-  return tokens && index < tokens->len && tokens->items[index].text && strcmp(tokens->items[index].text, text) == 0;
+static bool direct_canonical_append_std_source_recursive(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len);
+static bool direct_canonical_append_referenced_std_sources_recursive(SourceInput *input, ZBuf *combined, const Program *program, const ZStdSourceModule *owner, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len);
+
+static bool direct_std_module_name_matches(const char *qualified, const char *name) {
+  if (!qualified || !name || strncmp(qualified, "std.", strlen("std.")) != 0) return false;
+  const char *module = qualified + strlen("std.");
+  size_t len = strlen(name);
+  return strncmp(module, name, len) == 0 && (module[len] == 0 || module[len] == '.');
 }
 
-static bool direct_canonical_references_std_module(const ZCanonicalTokenVec *tokens, const char *name) {
-  for (size_t i = 0; tokens && name && i + 2 < tokens->len; i++) {
-    if (!direct_canonical_token_text(tokens, i, "std")) continue;
-    if (!direct_canonical_token_text(tokens, i + 1, ".")) continue;
-    if (direct_canonical_token_text(tokens, i + 2, name)) return true;
+static bool direct_expr_references_std_module(const Expr *expr, const char *name) {
+  if (!expr) return false;
+  if (expr->kind == EXPR_MEMBER) {
+    char *member = expr_callee_name(expr);
+    bool matches = direct_std_module_name_matches(member, name);
+    free(member);
+    if (matches) return true;
+  }
+  if (direct_expr_references_std_module(expr->left, name) || direct_expr_references_std_module(expr->right, name)) return true;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    if (direct_expr_references_std_module(expr->args.items[i], name)) return true;
+  }
+  for (size_t i = 0; i < expr->fields.len; i++) {
+    if (direct_expr_references_std_module(expr->fields.items[i].value, name)) return true;
   }
   return false;
 }
 
-static bool direct_canonical_append_std_source(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag) {
+static bool direct_stmt_vec_references_std_module(const StmtVec *body, const char *name);
+
+static bool direct_stmt_references_std_module(const Stmt *stmt, const char *name) {
+  if (!stmt) return false;
+  if (direct_expr_references_std_module(stmt->target, name) ||
+      direct_expr_references_std_module(stmt->expr, name) ||
+      direct_expr_references_std_module(stmt->range_end, name) ||
+      direct_stmt_vec_references_std_module(&stmt->then_body, name) ||
+      direct_stmt_vec_references_std_module(&stmt->else_body, name)) return true;
+  for (size_t i = 0; i < stmt->match_arms.len; i++) {
+    if (direct_expr_references_std_module(stmt->match_arms.items[i].guard, name) ||
+        direct_stmt_vec_references_std_module(&stmt->match_arms.items[i].body, name)) return true;
+  }
+  return false;
+}
+
+static bool direct_stmt_vec_references_std_module(const StmtVec *body, const char *name) {
+  for (size_t i = 0; body && i < body->len; i++) {
+    if (direct_stmt_references_std_module(body->items[i], name)) return true;
+  }
+  return false;
+}
+
+static bool direct_params_reference_std_module(const ParamVec *params, const char *name) {
+  for (size_t i = 0; params && i < params->len; i++) {
+    if (direct_expr_references_std_module(params->items[i].default_value, name)) return true;
+  }
+  return false;
+}
+
+static bool direct_function_references_std_module(const Function *fun, const char *name) {
+  return fun && (direct_params_reference_std_module(&fun->type_params, name) ||
+                 direct_params_reference_std_module(&fun->params, name) ||
+                 direct_params_reference_std_module(&fun->errors, name) ||
+                 direct_stmt_vec_references_std_module(&fun->body, name));
+}
+
+static bool direct_function_vec_references_std_module(const FunctionVec *functions, const char *name) {
+  for (size_t i = 0; functions && i < functions->len; i++) {
+    if (direct_function_references_std_module(&functions->items[i], name)) return true;
+  }
+  return false;
+}
+
+static bool direct_program_references_std_module(const Program *program, const char *name) {
+  for (size_t i = 0; program && i < program->use_imports.len; i++) {
+    if (direct_std_module_name_matches(program->use_imports.items[i].module, name)) return true;
+  }
+  for (size_t i = 0; program && i < program->consts.len; i++) {
+    if (direct_expr_references_std_module(program->consts.items[i].expr, name)) return true;
+  }
+  for (size_t i = 0; program && i < program->shapes.len; i++) {
+    if (direct_params_reference_std_module(&program->shapes.items[i].type_params, name) ||
+        direct_params_reference_std_module(&program->shapes.items[i].fields, name) ||
+        direct_function_vec_references_std_module(&program->shapes.items[i].methods, name)) return true;
+  }
+  for (size_t i = 0; program && i < program->interfaces.len; i++) {
+    if (direct_params_reference_std_module(&program->interfaces.items[i].type_params, name) ||
+        direct_function_vec_references_std_module(&program->interfaces.items[i].methods, name)) return true;
+  }
+  return direct_function_vec_references_std_module(program ? &program->functions : NULL, name);
+}
+
+static bool direct_std_source_stack_contains(const ZStdSourceModule **stack, size_t stack_len, const ZStdSourceModule *module) {
+  for (size_t i = 0; stack && module && i < stack_len; i++) {
+    if (stack[i] && strcmp(stack[i]->module, module->module) == 0) return true;
+  }
+  return false;
+}
+
+static void direct_std_source_set_cycle_diag(ZDiag *diag, const ZStdSourceModule **stack, size_t stack_len, const ZStdSourceModule *module) {
+  if (!diag || diag->code != 0) return;
+  ZBuf chain;
+  zbuf_init(&chain);
+  for (size_t i = 0; stack && i < stack_len; i++) {
+    if (chain.len > 0) zbuf_append(&chain, " -> ");
+    zbuf_append(&chain, stack[i] && stack[i]->module ? stack[i]->module : "<unknown>");
+  }
+  if (chain.len > 0) zbuf_append(&chain, " -> ");
+  zbuf_append(&chain, module && module->module ? module->module : "<unknown>");
+  diag->code = 7002;
+  diag->path = z_strdup(module && module->path ? module->path : "");
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "source-backed stdlib import cycle detected");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", chain.data ? chain.data : "");
+  snprintf(diag->help, sizeof(diag->help), "move shared stdlib code into an acyclic lower-level module");
+  zbuf_free(&chain);
+}
+
+static bool direct_canonical_append_std_source_recursive(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len) {
   if (!module) return true;
   if (direct_input_has_file(input, module->path)) return true;
+  if (direct_std_source_stack_contains(stack, stack_len ? *stack_len : 0, module)) {
+    direct_std_source_set_cycle_diag(diag, stack, stack_len ? *stack_len : 0, module);
+    return false;
+  }
   char *source = z_std_source_module_copy_source(module);
+  if (stack && stack_len) stack[(*stack_len)++] = module;
+  ZCanonicalTokenVec tokens = z_canonical_text_tokenize(source, diag);
   Program program = {0};
-  if (!z_parse_canonical_text_program_source(source, &program, diag)) {
+  if (diag->code == 0) program = z_parse_canonical_text_program(&tokens, diag);
+  if (diag->code != 0) {
     if (!diag->path) diag->path = z_strdup(module->path);
     z_free_program(&program);
+    z_free_canonical_text_tokens(&tokens);
+    if (stack && stack_len) (*stack_len)--;
+    free(source);
+    return false;
+  }
+  if (!direct_canonical_append_referenced_std_sources_recursive(input, combined, &program, module, diag, stack, stack_len)) {
+    if (!diag->path) diag->path = z_strdup(module->path);
+    z_free_program(&program);
+    z_free_canonical_text_tokens(&tokens);
+    if (stack && stack_len) (*stack_len)--;
     free(source);
     return false;
   }
   direct_input_push_string(&input->source_files, &input->source_file_count, module->path);
   direct_input_push_module(input, module->module, module->path);
-  bool ok = direct_input_add_program_symbols(input, &program, module->module, true, diag);
+  bool ok = diag->code == 0 && direct_input_add_program_symbols(input, &program, module->module, true, diag);
   if (ok) direct_source_append(input, combined, module->path, source);
   z_free_program(&program);
+  z_free_canonical_text_tokens(&tokens);
+  if (stack && stack_len) (*stack_len)--;
   free(source);
   return ok && (!diag || diag->code == 0);
 }
 
-static bool direct_canonical_append_referenced_std_sources(SourceInput *input, ZBuf *combined, const ZCanonicalTokenVec *tokens, ZDiag *diag) {
+static bool direct_canonical_append_referenced_std_sources(SourceInput *input, ZBuf *combined, const Program *program, ZDiag *diag) {
+  const ZStdSourceModule **stack = z_checked_calloc(z_std_source_module_count(), sizeof(ZStdSourceModule *));
+  size_t stack_len = 0;
+  bool ok = direct_canonical_append_referenced_std_sources_recursive(input, combined, program, NULL, diag, stack, &stack_len);
+  free(stack);
+  return ok;
+}
+
+static bool direct_canonical_append_referenced_std_sources_recursive(SourceInput *input, ZBuf *combined, const Program *program, const ZStdSourceModule *owner, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len) {
   for (size_t i = 0; i < z_std_source_module_count(); i++) {
     const ZStdSourceModule *module = z_std_source_module_at(i);
     if (!module || strncmp(module->module, "std.", strlen("std.")) != 0) continue;
+    if (owner && strcmp(owner->module, module->module) == 0) continue;
     const char *name = module->module + strlen("std.");
-    if (direct_canonical_references_std_module(tokens, name) && !direct_canonical_append_std_source(input, combined, module, diag)) return false;
+    if (direct_program_references_std_module(program, name) && !direct_canonical_append_std_source_recursive(input, combined, module, diag, stack, stack_len)) return false;
   }
   return !diag || diag->code == 0;
 }
@@ -4178,7 +4312,7 @@ static bool direct_canonical_resolve_file(const char *path, const char *root, So
     return false;
   }
 
-  if (!direct_canonical_append_referenced_std_sources(input, combined, &tokens, diag)) {
+  if (!direct_canonical_append_referenced_std_sources(input, combined, &program, diag)) {
     if (!diag->path) diag->path = z_strdup(path);
   }
 
