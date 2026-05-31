@@ -213,6 +213,10 @@ static ElfRuntimeHelper elf_runtime_helper_for_value(IrValueKind kind) {
   }
 }
 
+static void elf_emit_normalize_u32_runtime_result(ZBuf *code, const IrValue *value) {
+  if (value && value->type == IR_TYPE_USIZE) z_x64_emit_mov_reg_from_reg(code, 0, 0, false);
+}
+
 static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
 
 static bool elf_function_propagates_to_process_exit(const IrFunction *fun) {
@@ -901,7 +905,9 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
       elf_emit_push_rax(code);
       z_x64_emit_pop_reg64(code, 7);
       size_t patch = z_x64_emit_call32_placeholder(code);
-      return z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value);
+      if (!z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value)) return false;
+      elf_emit_normalize_u32_runtime_result(code, value);
+      return true;
     }
     case IR_VALUE_HTTP_RESPONSE_LEN: case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN: case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: {
       if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
@@ -910,7 +916,9 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
       z_x64_emit_pop_reg64(code, 6);
       z_x64_emit_pop_reg64(code, 7);
       size_t patch = z_x64_emit_call32_placeholder(code);
-      return z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value);
+      if (!z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value)) return false;
+      elf_emit_normalize_u32_runtime_result(code, value);
+      return true;
     }
     case IR_VALUE_HTTP_HEADER_VALUE: {
       if (!elf_emit_byte_view_pair(code, fun, value->left, 0, 2, ctx, diag)) return false;
