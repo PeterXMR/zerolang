@@ -6372,7 +6372,7 @@ static bool stdlib_mutable_items_arg_element(CheckContext *ctx, const Program *p
   if (actual_type) *actual_type = actual;
   if (mutspan_element_text(actual, element_type, element_len)) return true;
   if (fixed_array_type_parts(actual, NULL, 0, element_type, element_len)) {
-    if (expr->kind == EXPR_IDENT && scope_is_mutable(scope, expr->text)) return true;
+    if (slice_source_is_mutable_storage(expr, scope, actual)) return true;
     char message[256];
     snprintf(message, sizeof(message), "%s expects mutable item storage", display_name);
     return set_diag_detail(diag, 3010, message, expr->line, expr->column, "mutable [N]T or MutSpan<T>", "immutable array binding", "declare the array with var or pass a MutSpan<T>");

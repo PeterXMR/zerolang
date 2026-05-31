@@ -491,6 +491,7 @@ for (const fixture of [
   "conformance/check/pass/match-fallback.0",
   "conformance/native/pass/match-choice-fallback.0",
   "conformance/check/pass/memory-types.0",
+  "conformance/check/pass/std-mem-field-items.0",
   "conformance/check/pass/checker-type-forms.0",
   "conformance/check/pass/package",
   "conformance/check/pass/imports",
@@ -3595,6 +3596,10 @@ assert.equal(memCopyImmutableDstBody.diagnostics[0].repair.id, "make-binding-mut
 const memCopyItemsImmutableDst = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-immutable-dst.0"]).catch((error) => error);
 assert.notEqual(memCopyItemsImmutableDst.code, 0);
 assert.match(memCopyItemsImmutableDst.stderr, /TYP009/);
+
+const memCopyItemsImmutableField = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-immutable-field.0"]).catch((error) => error);
+assert.notEqual(memCopyItemsImmutableField.code, 0);
+assert.match(memCopyItemsImmutableField.stderr, /TYP009/);
 
 const memCopyItemsMismatch = await execFileAsync(zero, ["check", "conformance/native/fail/std-mem-copy-items-mismatch.0"]).catch((error) => error);
 assert.notEqual(memCopyItemsMismatch.code, 0);
