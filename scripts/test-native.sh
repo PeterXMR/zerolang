@@ -22,6 +22,7 @@ bin/zero check --json std/testing.0 >/dev/null
 bin/zero check --json std/log.0 >/dev/null
 bin/zero check --json std/math.0 >/dev/null
 bin/zero check --json std/time.0 >/dev/null
+node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/stdlib-target-matrix.mts
 
 mkdir -p .zero/native-test .zero/conformance
 

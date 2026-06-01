@@ -221,7 +221,10 @@ static bool build_check_compare(const ZBuildability *ctx, const IrValue *value, 
 
 static bool build_check_call_shape(const ZBuildability *ctx, const IrValue *value, unsigned scratch_slot, ZDiag *diag) {
   if (value->kind != IR_VALUE_CALL) return true;
-  size_t max_args = ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ? 8 : (ctx->backend == Z_DIRECT_BACKEND_MACHO64 ? 8 : 6);
+  size_t max_args = (ctx->backend == Z_DIRECT_BACKEND_ELF64 ||
+                     ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 ||
+                     ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ||
+                     ctx->backend == Z_DIRECT_BACKEND_MACHO64) ? 8 : 6;
   size_t abi_slots = build_value_abi_slots(value);
   if (!z_build_backend_is_aarch64_direct(ctx->backend) && abi_slots > max_args) {
     char actual[80];

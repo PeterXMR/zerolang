@@ -1160,22 +1160,26 @@ static bool ir_lower_array_literal_byte_view(IrProgram *ir, const Expr *expr, Ir
   return true;
 }
 
-static bool ir_lower_string_literal_byte_view(IrProgram *ir, const Expr *expr, IrValue **out) {
-  const char *text = expr->text ? expr->text : "";
+static bool ir_make_string_literal_value(IrProgram *ir, const char *text, int line, int column, IrValue **out) {
   unsigned offset = 0;
+  text = text ? text : "";
   unsigned len = (unsigned)strlen(text);
   unsigned char *nul_terminated = z_checked_malloc((size_t)len + 1);
   memcpy(nul_terminated, text, len);
   nul_terminated[len] = 0;
-  bool added = ir_add_readonly_data(ir, nul_terminated, len + 1, expr->line, expr->column, &offset);
+  bool added = ir_add_readonly_data(ir, nul_terminated, len + 1, line, column, &offset);
   free(nul_terminated);
   if (!added) return false;
-  IrValue *value = ir_new_value(ir, IR_VALUE_STRING_LITERAL, IR_TYPE_BYTE_VIEW, expr->line, expr->column);
+  IrValue *value = ir_new_value(ir, IR_VALUE_STRING_LITERAL, IR_TYPE_BYTE_VIEW, line, column);
   value->data_offset = offset;
   value->data_len = len;
   value->element_type = IR_TYPE_U8;
   *out = value;
   return true;
+}
+
+static bool ir_lower_string_literal_byte_view(IrProgram *ir, const Expr *expr, IrValue **out) {
+  return ir_make_string_literal_value(ir, expr && expr->text ? expr->text : "", expr ? expr->line : 1, expr ? expr->column : 1, out);
 }
 
 static bool ir_lower_record_array_field_byte_view(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
@@ -1757,20 +1761,17 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
       }
       if (strcmp(callee_name, "std.codec.encodedVarintLen") == 0 && expr->args.len == 1) {
         unsigned long long number = 0;
-        if (!expr->args.items[0] || expr->args.items[0]->kind != EXPR_NUMBER ||
-            !ir_parse_integer_literal(expr->args.items[0]->text, &number)) {
+        if (expr->args.items[0] && expr->args.items[0]->kind == EXPR_NUMBER &&
+            ir_parse_integer_literal(expr->args.items[0]->text, &number)) {
+          unsigned long long len = 1;
+          while (number >= 128ull) {
+            number >>= 7;
+            len++;
+          }
           free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.codec.encodedVarintLen currently requires an integer literal", expr->line, expr->column, "non-literal varint value");
-          return false;
+          *out = ir_new_integer_literal_value(ir, IR_TYPE_USIZE, len, expr->line, expr->column);
+          return true;
         }
-        unsigned long long len = 1;
-        while (number >= 128ull) {
-          number >>= 7;
-          len++;
-        }
-        free(callee_name);
-        *out = ir_new_integer_literal_value(ir, IR_TYPE_USIZE, len, expr->line, expr->column);
-        return true;
       }
       if (strncmp(callee_name, "std.parse.", strlen("std.parse.")) == 0 && expr->args.len == 1) {
         const unsigned char *bytes = NULL;
@@ -2044,34 +2045,18 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
-      if ((strcmp(callee_name, "std.json.validateBytes") == 0 ||
-           strcmp(callee_name, "std.json.streamTokensBytes") == 0) &&
-          expr->args.len == 1) {
-        IrValue *view = NULL;
-        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
-          free(callee_name);
-          return false;
-        }
-        IrValueKind kind = strcmp(callee_name, "std.json.validateBytes") == 0 ? IR_VALUE_JSON_VALIDATE_BYTES : IR_VALUE_JSON_STREAM_TOKENS_BYTES;
-        IrTypeKind type = kind == IR_VALUE_JSON_VALIDATE_BYTES ? IR_TYPE_BOOL : IR_TYPE_USIZE;
-        IrValue *value = ir_new_value(ir, kind, type, expr->line, expr->column);
-        value->left = view;
-        if (ir->direct_runtime_helper_count < 1) ir->direct_runtime_helper_count = 1;
-        if (ir->direct_host_runtime_import_count < 1) ir->direct_host_runtime_import_count = 1;
-        free(callee_name);
-        *out = value;
-        return true;
-      }
-      if (strcmp(callee_name, "std.json.parseBytes") == 0 && expr->args.len == 2) {
+      if ((strcmp(callee_name, "std.json.parse") == 0 ||
+           strcmp(callee_name, "std.json.parseBytes") == 0) &&
+          expr->args.len == 2) {
         if (!expr->args.items[0] || expr->args.items[0]->kind != EXPR_IDENT) {
           free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.json.parseBytes expects a mutable FixedBufAlloc local", expr->args.items[0] ? expr->args.items[0]->line : expr->line, expr->args.items[0] ? expr->args.items[0]->column : expr->column, "non-local allocator");
+          ir_mark_unsupported(ir, "direct backend std.json.parse expects a mutable FixedBufAlloc local", expr->args.items[0] ? expr->args.items[0]->line : expr->line, expr->args.items[0] ? expr->args.items[0]->column : expr->column, "non-local allocator");
           return false;
         }
         const IrLocal *alloc = ir_function_find_local(fun, expr->args.items[0]->text);
         if (!alloc || alloc->type != IR_TYPE_ALLOC || !alloc->is_mutable) {
           free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.json.parseBytes expects a mutable FixedBufAlloc local", expr->args.items[0]->line, expr->args.items[0]->column, "non-mutable allocator");
+          ir_mark_unsupported(ir, "direct backend std.json.parse expects a mutable FixedBufAlloc local", expr->args.items[0]->line, expr->args.items[0]->column, "non-mutable allocator");
           return false;
         }
         IrValue *view = NULL;
@@ -2085,6 +2070,16 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir->direct_allocator_helper_count = ir->direct_allocator_helper_count < 2 ? 2 : ir->direct_allocator_helper_count;
         if (ir->direct_runtime_helper_count < 1) ir->direct_runtime_helper_count = 1;
         if (ir->direct_host_runtime_import_count < 1) ir->direct_host_runtime_import_count = 1;
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      if (strcmp(callee_name, "std.json.decodeBoundary") == 0 && expr->args.len == 0) {
+        IrValue *value = NULL;
+        if (!ir_make_string_literal_value(ir, "typed-decode-explicit-shape", expr->line, expr->column, &value)) {
+          free(callee_name);
+          return false;
+        }
         free(callee_name);
         *out = value;
         return true;

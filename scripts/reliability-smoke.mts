@@ -92,6 +92,47 @@ record("stdlib-parser-golden", "golden", stdlibJson.body.usedStdlibHelpers?.some
   helperCount: stdlibJson.body.usedStdlibHelpers?.length ?? 0,
 });
 
+const stdlibEdges = join(outDir, "stdlib-codec-json-http-edges.0");
+await writeFile(stdlibEdges, String.raw`export c fn main() -> i32 {
+    var ok: Bool = true
+
+    let bad_hex: Maybe<usize> = std.codec.hexDecodedLen("41z")
+    var base64_buf: [2]u8 = [0_u8; 2]
+    let bad_base64: Maybe<Span<u8>> = std.codec.base64Decode(base64_buf, "AAB=")
+    let bad_varint: Maybe<u32> = std.codec.varintDecode("\xff\xff\xff\xff\xff")
+    if bad_hex.has || bad_base64.has || bad_varint.has {
+        ok = false
+    }
+
+    if std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("{\"a\":1}") != std.json.errorNone() {
+        ok = false
+    }
+
+    var request_buf: [128]u8 = [0_u8; 128]
+    let request: Maybe<Span<u8>> = std.http.writeJsonRequest(request_buf, "POST https://example.com/api?name=zero", "{\"ping\":1}")
+    if !request.has {
+        ok = false
+    }
+    if request.has {
+        let body: Maybe<Span<u8>> = std.http.requestBodyWithin(request.value, 16)
+        let too_large: Maybe<Span<u8>> = std.http.requestBodyWithin(request.value, 4)
+        let missing: Maybe<Span<u8>> = std.http.requestQueryValue(request.value, "missing")
+        if !body.has || !std.mem.eql(body.value, "{\"ping\":1}") || too_large.has || missing.has {
+            ok = false
+        }
+    }
+
+    if ok {
+        return 0
+    }
+    return 1
+}
+`);
+const stdlibEdgesRun = await run(["run", stdlibEdges]);
+record("stdlib-codec-json-http-edges", "golden", stdlibEdgesRun.code === 0 && stdlibEdgesRun.stdout === "", {
+  fixture: stdlibEdges,
+});
+
 const crasher = join(outDir, "crasher-repro-unclosed-string.0");
 await writeFile(crasher, "pub fn main() -> Void {\n    let value: String = \"unterminated\n}\n");
 const crasherResult = await json(["check", "--json", crasher], { allowFailure: true });

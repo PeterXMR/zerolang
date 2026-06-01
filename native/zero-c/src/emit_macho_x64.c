@@ -532,18 +532,38 @@ static bool machx64_emit_call_value(ZBuf *text, const IrFunction *fun, const IrV
     const IrValue *arg = value->args[i];
     bool byte_view = arg && arg->type == IR_TYPE_BYTE_VIEW;
     abi_slots += byte_view ? 2u : 1u;
-    if (abi_slots > 6) return machx64_diag_at(diag, "direct x86_64 Mach-O call supports at most six ABI argument slots", value->line, value->column, "too many arguments");
+    if (abi_slots > 8) return machx64_diag_at(diag, "direct x86_64 Mach-O call supports at most eight ABI argument slots", value->line, value->column, "too many arguments");
+  }
+  unsigned stack_slots = abi_slots > 6 ? (unsigned)(abi_slots - 6) : 0;
+  unsigned call_frame = (unsigned)machx64_align(stack_slots * 8u, 16);
+  unsigned temp_base = call_frame;
+  unsigned total_stack = (unsigned)machx64_align(call_frame + (unsigned)abi_slots * 8u, 16);
+  if (total_stack > 0) z_x64_emit_sub_rsp(text, total_stack);
+  size_t abi_slot = 0;
+  for (size_t i = 0; i < value->arg_len; i++) {
+    const IrValue *arg = value->args[i];
+    bool byte_view = arg && arg->type == IR_TYPE_BYTE_VIEW;
     if (byte_view) {
       if (!machx64_emit_byte_view_pair(text, fun, arg, 0, 2, ctx, diag)) return false;
-      z_x64_emit_push_rax(text);
-      z_x64_emit_push_reg64(text, 2);
+      z_x64_emit_store_rsp_offset_reg(text, 0, temp_base + (unsigned)abi_slot * 8u, true);
+      z_x64_emit_store_rsp_offset_reg(text, 2, temp_base + (unsigned)(abi_slot + 1u) * 8u, true);
+      abi_slot += 2;
       continue;
     }
     if (!machx64_emit_value(text, fun, arg, ctx, diag)) return false;
-    z_x64_emit_push_rax(text);
+    z_x64_emit_store_rsp_offset_reg(text, 0, temp_base + (unsigned)abi_slot * 8u, true);
+    abi_slot++;
   }
-  for (size_t i = abi_slots; i > 0; i--) z_x64_emit_pop_reg64(text, param_regs[i - 1]);
+  for (size_t slot = 6; slot < abi_slots; slot++) {
+    z_x64_emit_load_rsp_offset_reg(text, 0, temp_base + (unsigned)slot * 8u, true);
+    z_x64_emit_store_rsp_offset_reg(text, 0, (unsigned)(slot - 6u) * 8u, true);
+  }
+  size_t register_slots = abi_slots < 6 ? abi_slots : 6;
+  for (size_t slot = 0; slot < register_slots; slot++) {
+    z_x64_emit_load_rsp_offset_reg(text, param_regs[slot], temp_base + (unsigned)slot * 8u, true);
+  }
   size_t patch = z_x64_emit_call32_placeholder(text);
+  if (total_stack > 0) z_x64_emit_add_rsp(text, total_stack);
   return z_macho_record_call_patch(ctx, patch, value->callee_index, value, diag);
 }
 
@@ -954,7 +974,7 @@ static bool machx64_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr
 static bool machx64_validate_function(const IrFunction *fun, ZDiag *diag) {
   size_t abi_slots = 0;
   for (size_t i = 0; i < fun->param_count; i++) abi_slots += fun->locals[i].type == IR_TYPE_BYTE_VIEW ? 2u : 1u;
-  if (abi_slots > 6) return machx64_diag_at(diag, "direct x86_64 Mach-O object backend supports at most six ABI parameter slots", fun->line, fun->column, fun->name);
+  if (abi_slots > 8) return machx64_diag_at(diag, "direct x86_64 Mach-O object backend supports at most eight ABI parameter slots", fun->line, fun->column, fun->name);
   if (fun->return_type != IR_TYPE_VOID && !machx64_type_is_supported_scalar(fun->return_type) &&
       fun->return_type != IR_TYPE_BYTE_VIEW && fun->return_type != IR_TYPE_MAYBE_BYTE_VIEW && fun->return_type != IR_TYPE_MAYBE_SCALAR) {
     return machx64_diag_at(diag, "direct x86_64 Mach-O object backend currently supports Void, integer, byte-view, Maybe byte-view, and Maybe scalar returns", fun->line, fun->column, fun->name);
@@ -977,11 +997,29 @@ static bool machx64_emit_function_text(ZBuf *text, const IrFunction *fun, MachOE
   size_t abi_slot = 0;
   for (size_t i = 0; i < fun->param_count; i++) {
     if (fun->locals[i].type == IR_TYPE_BYTE_VIEW) {
-      machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, param_regs[abi_slot++], 0, true);
-      machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, param_regs[abi_slot++], 8, false);
+      if (abi_slot < 6) {
+        machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, param_regs[abi_slot], 0, true);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot - 6u) * 8u, true);
+        machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, 0, 0, true);
+      }
+      abi_slot++;
+      if (abi_slot < 6) {
+        machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, param_regs[abi_slot], 8, false);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot - 6u) * 8u, true);
+        machx64_emit_store_local_slot_from_reg(text, fun, (unsigned)i, 0, 8, false);
+      }
+      abi_slot++;
       continue;
     }
-    machx64_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[abi_slot++]);
+    if (abi_slot < 6) {
+      machx64_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[abi_slot]);
+    } else {
+      z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot - 6u) * 8u, true);
+      machx64_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+    }
+    abi_slot++;
   }
   if (!machx64_emit_instrs(text, fun, fun->instrs, fun->instr_len, ctx, diag)) return false;
   if (fun->instr_len == 0 || (fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RETURN && fun->instrs[fun->instr_len - 1].kind != IR_INSTR_RAISE)) z_x64_emit_epilogue(text);

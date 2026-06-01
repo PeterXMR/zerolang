@@ -938,6 +938,48 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
   }
 }
 
+static bool elf_emit_call_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  const IrFunction *callee = ctx && ctx->ir && value->callee_index < ctx->ir->function_len ? &ctx->ir->functions[value->callee_index] : NULL;
+  if (!callee) return elf_diag(diag, "direct ELF64 call target is unavailable", value->line, value->column, "invalid callee");
+  size_t abi_slots = 0;
+  for (size_t i = 0; i < value->arg_len; i++) {
+    if (i >= callee->param_count) return elf_diag(diag, "direct ELF64 call parameter metadata is unavailable", value->line, value->column, "invalid callee parameter");
+    unsigned slots = callee->locals[i].type == IR_TYPE_BYTE_VIEW ? 2 : 1;
+    if (abi_slots + slots > 8) return elf_diag(diag, "direct ELF64 call supports at most eight ABI argument slots", value->line, value->column, "too many arguments");
+    abi_slots += slots;
+  }
+  unsigned stack_slots = abi_slots > 6 ? (unsigned)(abi_slots - 6) : 0;
+  unsigned call_frame = (unsigned)z_elf_align(stack_slots * 8u, 16);
+  unsigned temp_base = call_frame;
+  unsigned total_stack = (unsigned)z_elf_align(call_frame + (unsigned)abi_slots * 8u, 16);
+  if (total_stack > 0) z_x64_emit_sub_rsp(code, total_stack);
+  size_t abi_slot = 0;
+  for (size_t i = 0; i < value->arg_len; i++) {
+    const IrLocal *param = &callee->locals[i];
+    if (param->type == IR_TYPE_BYTE_VIEW) {
+      if (!elf_emit_byte_view_pair(code, fun, value->args[i], 0, 2, ctx, diag)) return false;
+      z_x64_emit_store_rsp_offset_reg(code, 0, temp_base + (unsigned)abi_slot * 8u, true);
+      z_x64_emit_store_rsp_offset_reg(code, 2, temp_base + (unsigned)(abi_slot + 1u) * 8u, true);
+      abi_slot += 2;
+    } else {
+      if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) return false;
+      z_x64_emit_store_rsp_offset_reg(code, 0, temp_base + (unsigned)abi_slot * 8u, true);
+      abi_slot++;
+    }
+  }
+  for (size_t slot = 6; slot < abi_slots; slot++) {
+    z_x64_emit_load_rsp_offset_reg(code, 0, temp_base + (unsigned)slot * 8u, true);
+    z_x64_emit_store_rsp_offset_reg(code, 0, (unsigned)(slot - 6u) * 8u, true);
+  }
+  size_t register_slots = abi_slots < 6 ? abi_slots : 6;
+  for (size_t slot = 0; slot < register_slots; slot++) {
+    z_x64_emit_load_rsp_offset_reg(code, elf_param_regs[slot], temp_base + (unsigned)slot * 8u, true);
+  }
+  size_t patch = z_x64_emit_call32_placeholder(code);
+  if (total_stack > 0) z_x64_emit_add_rsp(code, total_stack);
+  return z_elf_record_call_patch(ctx, patch, value->callee_index, diag, value);
+}
+
 static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
     case IR_VALUE_BOOL:
@@ -1020,29 +1062,8 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
       z_x64_emit_cmp_rax_rcx_to_bool(code, elf_setcc_opcode(value->compare_op, elf_type_is_unsigned(value->left->type)), wide);
       return true;
     }
-    case IR_VALUE_CALL: {
-      const IrFunction *callee = ctx && ctx->ir && value->callee_index < ctx->ir->function_len ? &ctx->ir->functions[value->callee_index] : NULL;
-      if (!callee) return elf_diag(diag, "direct ELF64 call target is unavailable", value->line, value->column, "invalid callee");
-      size_t abi_slots = 0;
-      for (size_t i = 0; i < value->arg_len; i++) {
-        if (i >= callee->param_count) return elf_diag(diag, "direct ELF64 call parameter metadata is unavailable", value->line, value->column, "invalid callee parameter");
-        const IrLocal *param = &callee->locals[i];
-        unsigned slots = param->type == IR_TYPE_BYTE_VIEW ? 2 : 1;
-        if (abi_slots + slots > 6) return elf_diag(diag, "direct ELF64 call supports at most six ABI argument slots", value->line, value->column, "too many arguments");
-        if (param->type == IR_TYPE_BYTE_VIEW) {
-          if (!elf_emit_byte_view_pair(code, fun, value->args[i], 0, 2, ctx, diag)) return false;
-          elf_emit_push_rax(code);
-          z_x64_emit_push_reg64(code, 2);
-        } else {
-          if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) return false;
-          elf_emit_push_rax(code);
-        }
-        abi_slots += slots;
-      }
-      for (size_t i = abi_slots; i > 0; i--) z_x64_emit_pop_reg64(code, elf_param_regs[i - 1]);
-      size_t patch = z_x64_emit_call32_placeholder(code);
-      return z_elf_record_call_patch(ctx, patch, value->callee_index, diag, value);
-    }
+    case IR_VALUE_CALL:
+      return elf_emit_call_value(code, fun, value, ctx, diag);
     default: return elf_diag(diag, "direct ELF64 core value kind is invalid for this helper", value->line, value->column, "invalid core value");
   }
 }
@@ -1350,7 +1371,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
 static bool elf_validate_function(const IrFunction *fun, ZDiag *diag) {
   size_t abi_slots = 0;
   for (size_t i = 0; i < fun->param_count; i++) abi_slots += fun->locals[i].type == IR_TYPE_BYTE_VIEW ? 2 : 1;
-  if (abi_slots > 6) return elf_diag(diag, "direct ELF64 object backend supports at most six ABI argument slots", fun->line, fun->column, fun->name);
+  if (abi_slots > 8) return elf_diag(diag, "direct ELF64 object backend supports at most eight ABI argument slots", fun->line, fun->column, fun->name);
   if (fun->return_type != IR_TYPE_VOID && !elf_type_is_supported_scalar(fun->return_type) &&
       fun->return_type != IR_TYPE_BYTE_VIEW && fun->return_type != IR_TYPE_MAYBE_BYTE_VIEW && fun->return_type != IR_TYPE_MAYBE_SCALAR) {
     return elf_diag(diag, "direct ELF64 object backend currently supports Void, primitive integer, byte-view, Maybe byte-view, and Maybe scalar returns", fun->line, fun->column, elf_type_name(fun->return_type));
@@ -1980,12 +2001,27 @@ static bool elf_emit_function_text(ZBuf *text, const IrFunction *fun, ElfEmitCon
   for (size_t i = 0; i < fun->param_count; i++) {
     const IrLocal *local = &fun->locals[i];
     unsigned slots = local->type == IR_TYPE_BYTE_VIEW ? 2 : 1;
-    if (abi_slot + slots > 6) return elf_diag(diag, "direct ELF64 function has too many ABI argument slots", fun->line, fun->column, fun->name);
+    if (abi_slot + slots > 8) return elf_diag(diag, "direct ELF64 function has too many ABI argument slots", fun->line, fun->column, fun->name);
     if (local->type == IR_TYPE_BYTE_VIEW) {
-      elf_emit_store_local_slot_reg(text, local, 0, elf_param_regs[abi_slot], true);
-      elf_emit_store_local_slot_reg(text, local, 8, elf_param_regs[abi_slot + 1], true);
+      if (abi_slot < 6) {
+        elf_emit_store_local_slot_reg(text, local, 0, elf_param_regs[abi_slot], true);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot - 6u) * 8u, true);
+        elf_emit_store_local_slot_reg(text, local, 0, 0, true);
+      }
+      if (abi_slot + 1 < 6) {
+        elf_emit_store_local_slot_reg(text, local, 8, elf_param_regs[abi_slot + 1], true);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot + 1u - 6u) * 8u, true);
+        elf_emit_store_local_slot_reg(text, local, 8, 0, true);
+      }
     } else {
-      elf_emit_store_local_from_reg(text, fun, (unsigned)i, elf_param_regs[abi_slot]);
+      if (abi_slot < 6) {
+        elf_emit_store_local_from_reg(text, fun, (unsigned)i, elf_param_regs[abi_slot]);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(abi_slot - 6u) * 8u, true);
+        elf_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+      }
     }
     abi_slot += slots;
   }

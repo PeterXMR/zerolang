@@ -1,3 +1,31 @@
+fn __zero_std_json_decode_boundary() -> String {
+    return "typed-decode-explicit-shape"
+}
+
+fn __zero_std_json_write_string(buffer: MutSpan<u8>, text: Span<u8>) -> Maybe<Span<u8>> {
+    return __zero_std_json_write_string_bytes(buffer, text)
+}
+
+fn __zero_std_json_validate(bytes: Span<u8>) -> Bool {
+    return __zero_std_json_validate_error(bytes) == __zero_std_json_error_none()
+}
+
+fn __zero_std_json_validate_bytes(bytes: Span<u8>) -> Bool {
+    return __zero_std_json_validate(bytes)
+}
+
+fn __zero_std_json_stream_tokens(bytes: Span<u8>) -> usize {
+    let count: Maybe<usize> = __zero_std_json_token_count(bytes)
+    if count.has {
+        return count.value
+    }
+    return 0_usize
+}
+
+fn __zero_std_json_stream_tokens_bytes(bytes: Span<u8>) -> usize {
+    return __zero_std_json_stream_tokens(bytes)
+}
+
 fn __zero_std_json_error_none() -> u32 {
     return 0_u32
 }
@@ -469,6 +497,221 @@ fn __zero_std_json_value_end(bytes: Span<u8>, start: usize) -> Maybe<usize> {
                     index = index + 1
                     if depth == 0 {
                         return index
+                    }
+                } else {
+                    return null
+                }
+            } else {
+                return null
+            }
+        }
+    }
+    return null
+}
+
+fn __zero_std_json_token_count(bytes: Span<u8>) -> Maybe<usize> {
+    var index: usize = __zero_std_json_skip_ws(bytes, 0)
+    if index >= std.mem.len(bytes) {
+        return null
+    }
+    var states: [64]u8 = [0_u8; 64]
+    var depth: usize = 0
+    var tokens: usize = 0
+    while index < std.mem.len(bytes) {
+        if depth == 0 {
+            let byte: u8 = bytes[index]
+            if byte == 123_u8 {
+                tokens = tokens + 1
+                states[depth] = 2_u8
+                depth = depth + 1
+                index = index + 1
+            } else if byte == 91_u8 {
+                tokens = tokens + 1
+                states[depth] = 0_u8
+                depth = depth + 1
+                index = index + 1
+            } else {
+                var end: Maybe<usize> = null
+                if byte == 34_u8 {
+                    end = __zero_std_json_string_end(bytes, index)
+                } else if byte == 116_u8 {
+                    end = __zero_std_json_literal_end(bytes, index, "true")
+                } else if byte == 102_u8 {
+                    end = __zero_std_json_literal_end(bytes, index, "false")
+                } else if byte == 110_u8 {
+                    end = __zero_std_json_literal_end(bytes, index, "null")
+                } else {
+                    end = __zero_std_json_number_end(bytes, index)
+                }
+                if !end.has {
+                    return null
+                }
+                let trailing: usize = __zero_std_json_skip_ws(bytes, end.value)
+                if trailing == std.mem.len(bytes) {
+                    return tokens + 1
+                }
+                return null
+            }
+        } else {
+            index = __zero_std_json_skip_ws(bytes, index)
+            if index >= std.mem.len(bytes) {
+                return null
+            }
+            let state: u8 = states[depth - 1]
+            if state == 0_u8 {
+                let byte: u8 = bytes[index]
+                if byte == 93_u8 {
+                    depth = depth - 1
+                    index = index + 1
+                    if depth == 0 {
+                        let trailing: usize = __zero_std_json_skip_ws(bytes, index)
+                        if trailing == std.mem.len(bytes) {
+                            return tokens
+                        }
+                        return null
+                    }
+                } else if byte == 123_u8 {
+                    tokens = tokens + 1
+                    states[depth - 1] = 1_u8
+                    if depth >= 64 {
+                        return null
+                    }
+                    states[depth] = 2_u8
+                    depth = depth + 1
+                    index = index + 1
+                } else if byte == 91_u8 {
+                    tokens = tokens + 1
+                    states[depth - 1] = 1_u8
+                    if depth >= 64 {
+                        return null
+                    }
+                    states[depth] = 0_u8
+                    depth = depth + 1
+                    index = index + 1
+                } else {
+                    var end: Maybe<usize> = null
+                    if byte == 34_u8 {
+                        end = __zero_std_json_string_end(bytes, index)
+                    } else if byte == 116_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "true")
+                    } else if byte == 102_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "false")
+                    } else if byte == 110_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "null")
+                    } else {
+                        end = __zero_std_json_number_end(bytes, index)
+                    }
+                    if !end.has {
+                        return null
+                    }
+                    tokens = tokens + 1
+                    index = end.value
+                    states[depth - 1] = 1_u8
+                }
+            } else if state == 1_u8 {
+                if bytes[index] == 44_u8 {
+                    index = index + 1
+                    let next: usize = __zero_std_json_skip_ws(bytes, index)
+                    if next >= std.mem.len(bytes) || bytes[next] == 93_u8 {
+                        return null
+                    }
+                    states[depth - 1] = 0_u8
+                } else if bytes[index] == 93_u8 {
+                    depth = depth - 1
+                    index = index + 1
+                    if depth == 0 {
+                        let trailing: usize = __zero_std_json_skip_ws(bytes, index)
+                        if trailing == std.mem.len(bytes) {
+                            return tokens
+                        }
+                        return null
+                    }
+                } else {
+                    return null
+                }
+            } else if state == 2_u8 {
+                if bytes[index] == 125_u8 {
+                    depth = depth - 1
+                    index = index + 1
+                    if depth == 0 {
+                        let trailing: usize = __zero_std_json_skip_ws(bytes, index)
+                        if trailing == std.mem.len(bytes) {
+                            return tokens
+                        }
+                        return null
+                    }
+                } else {
+                    let end: Maybe<usize> = __zero_std_json_string_end(bytes, index)
+                    if !end.has {
+                        return null
+                    }
+                    tokens = tokens + 1
+                    index = end.value
+                    states[depth - 1] = 3_u8
+                }
+            } else if state == 3_u8 {
+                if bytes[index] != 58_u8 {
+                    return null
+                }
+                states[depth - 1] = 4_u8
+                index = index + 1
+            } else if state == 4_u8 {
+                let byte: u8 = bytes[index]
+                if byte == 123_u8 {
+                    tokens = tokens + 1
+                    states[depth - 1] = 5_u8
+                    if depth >= 64 {
+                        return null
+                    }
+                    states[depth] = 2_u8
+                    depth = depth + 1
+                    index = index + 1
+                } else if byte == 91_u8 {
+                    tokens = tokens + 1
+                    states[depth - 1] = 5_u8
+                    if depth >= 64 {
+                        return null
+                    }
+                    states[depth] = 0_u8
+                    depth = depth + 1
+                    index = index + 1
+                } else {
+                    var end: Maybe<usize> = null
+                    if byte == 34_u8 {
+                        end = __zero_std_json_string_end(bytes, index)
+                    } else if byte == 116_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "true")
+                    } else if byte == 102_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "false")
+                    } else if byte == 110_u8 {
+                        end = __zero_std_json_literal_end(bytes, index, "null")
+                    } else {
+                        end = __zero_std_json_number_end(bytes, index)
+                    }
+                    if !end.has {
+                        return null
+                    }
+                    tokens = tokens + 1
+                    index = end.value
+                    states[depth - 1] = 5_u8
+                }
+            } else if state == 5_u8 {
+                if bytes[index] == 44_u8 {
+                    index = index + 1
+                    let next: usize = __zero_std_json_skip_ws(bytes, index)
+                    if next >= std.mem.len(bytes) || bytes[next] == 125_u8 {
+                        return null
+                    }
+                    states[depth - 1] = 2_u8
+                } else if bytes[index] == 125_u8 {
+                    depth = depth - 1
+                    index = index + 1
+                    if depth == 0 {
+                        let trailing: usize = __zero_std_json_skip_ws(bytes, index)
+                        if trailing == std.mem.len(bytes) {
+                            return tokens
+                        }
+                        return null
                     }
                 } else {
                     return null

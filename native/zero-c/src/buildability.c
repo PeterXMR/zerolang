@@ -181,7 +181,10 @@ static bool build_check_function_shape(const ZBuildability *ctx, const IrFunctio
   if (!fun) return z_build_diag(ctx, diag, "direct backend buildability found a missing function", 1, 1, "missing function");
   size_t abi_slots = 0;
   for (size_t i = 0; i < fun->param_count; i++) abi_slots += fun->locals[i].type == IR_TYPE_BYTE_VIEW ? 2 : 1;
-  size_t max_slots = ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ? 8 : (ctx->backend == Z_DIRECT_BACKEND_MACHO64 ? 8 : 6);
+  size_t max_slots = (ctx->backend == Z_DIRECT_BACKEND_ELF64 ||
+                      ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 ||
+                      ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ||
+                      ctx->backend == Z_DIRECT_BACKEND_MACHO64) ? 8 : 6;
   if (!z_build_backend_is_aarch64_direct(ctx->backend) && abi_slots > max_slots) {
     return z_build_diag(ctx, diag, "direct backend object buildability has too many ABI argument slots", fun->line, fun->column, fun->name);
   }
