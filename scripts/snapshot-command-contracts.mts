@@ -3830,7 +3830,7 @@ const machOMemoryPackageBytes = readFileSync(machOMemoryPackagePath);
 assert.equal(machOMemoryPackageReport.compiler, "zero-macho64");
 assert.equal(machOMemoryPackageReport.generatedCBytes, 0);
 assert.equal(machOMemoryPackageReport.objectBackend.objectEmission.path, "direct-macho64-object");
-assert.equal(machOMemoryPackageReport.objectBackend.directFacts.moduleCount, 4);
+assert.equal(machOMemoryPackageReport.objectBackend.directFacts.moduleCount, 3);
 assert.equal(machOMemoryPackageReport.objectBackend.directFacts.runtimeHelperCount, 1);
 assert.equal(machOMemoryPackageBytes.readUInt32LE(0), 0xfeedfacf);
 assert(machOMemoryPackageBytes.includes(Buffer.from("memory package ok")));
@@ -3905,6 +3905,18 @@ const stdDataSize = json(["size", "--json", "conformance/native/pass/std-codec-j
 const sizeUrlHostHelper = stdDataSize.stdlibHelpers.find((helper) => helper.name === "std.url.host");
 assert.equal(sizeUrlHostHelper.module, "std.url");
 assert.equal(sizeUrlHostHelper.example, "conformance/native/pass/std-codec-json-url.0");
+
+const crcOnlySource = join(outDir, "std-codec-crc-only.0");
+writeFileSync(crcOnlySource, `pub fn main() -> Void {
+    let checksum: u32 = std.codec.crc32("zero")
+}
+`);
+const crcOnlyGraph = json(["graph", "--json", crcOnlySource]).body;
+assert(!crcOnlyGraph.sourceFiles.some((path) => path.endsWith("std/codec.0")));
+assert(!crcOnlyGraph.requiresCapabilities.includes("parse"));
+const crcOnlySize = json(["size", "--json", crcOnlySource]).body;
+assert(!crcOnlySize.incrementalInvalidation.changedInputs.sourceFiles.some((path) => path.endsWith("std/codec.0")));
+assert(!crcOnlySize.retentionReasons.some((item) => item.name === "__zero_std_codec_hex_decode"));
 
 const httpErrorsGraph = json(["graph", "--json", "conformance/native/pass/std-http-errors.0"]).body;
 assert.deepEqual(httpErrorsGraph.requiresCapabilities, []);

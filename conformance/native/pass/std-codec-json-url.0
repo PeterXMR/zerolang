@@ -97,12 +97,14 @@ pub fn main(world: World) -> Void raises {
     let scheme: Maybe<Span<u8>> = std.url.scheme(url)
     let authority: Maybe<Span<u8>> = std.url.authority(url)
     let host: Maybe<Span<u8>> = std.url.host(url)
+    let ipv6_host: Maybe<Span<u8>> = std.url.host("https://[::1]:443/path")
+    let malformed_ipv6_host: Maybe<Span<u8>> = std.url.host("https://[::1]extra/path")
     let path: Span<u8> = std.url.path(url)
     let relative_path: Span<u8> = std.url.path("search?q=zero")
     let rootless_scheme_path: Span<u8> = std.url.path("mailto:user@example.com")
     let query: Maybe<Span<u8>> = std.url.query(url)
     let fragment_query: Maybe<Span<u8>> = std.url.query("https://example.com/path#frag?q=1")
-    if !scheme.has || !std.mem.eql(scheme.value, "https") || !authority.has || !std.mem.eql(authority.value, "user@example.com:443") || !host.has || !std.mem.eql(host.value, "example.com") || !std.mem.eql(path, "/path/to") || !std.mem.eql(relative_path, "search") || !std.mem.eql(rootless_scheme_path, "user@example.com") || !query.has {
+    if !scheme.has || !std.mem.eql(scheme.value, "https") || !authority.has || !std.mem.eql(authority.value, "user@example.com:443") || !host.has || !std.mem.eql(host.value, "example.com") || !ipv6_host.has || !std.mem.eql(ipv6_host.value, "[::1]") || malformed_ipv6_host.has || !std.mem.eql(path, "/path/to") || !std.mem.eql(relative_path, "search") || !std.mem.eql(rootless_scheme_path, "user@example.com") || !query.has {
         ok = false
     }
     if query.has {
@@ -134,7 +136,7 @@ pub fn main(world: World) -> Void raises {
     if std.json.errorNone() != 0_u32 || std.json.errorInvalid() != 1_u32 || std.json.errorTrailing() != 2_u32 {
         ok = false
     }
-    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("\"\\u20ac\"") != std.json.errorNone() || std.json.validateError("\"\\ud834\\udd1e\"") != std.json.errorNone() || std.json.validateError("\"\\ud800\"") != std.json.errorInvalid() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
+    if std.json.validateError(json) != std.json.errorNone() || std.json.validateError("\"\\u20ac\"") != std.json.errorNone() || std.json.validateError("\"\\ud834\\udd1e\"") != std.json.errorNone() || std.json.validateError("\"\\ud800\"") != std.json.errorInvalid() || std.json.validateError("\"\xff\"") != std.json.errorInvalid() || std.json.validateError("{") != std.json.errorInvalid() || std.json.validateError("{} x") != std.json.errorTrailing() || std.json.validateError("[1,]") != std.json.errorInvalid() || std.json.validateError("{\"a\":1,}") != std.json.errorInvalid() {
         ok = false
     }
     let count_field: Maybe<Span<u8>> = std.json.field(json, "count")
@@ -154,10 +156,14 @@ pub fn main(world: World) -> Void raises {
     let decoded_unicode: Maybe<Span<u8>> = std.json.stringDecode(decoded_unicode_buf, "\"\\u20ac\"")
     var decoded_pair_buf: [8]u8 = [0_u8; 8]
     let decoded_pair: Maybe<Span<u8>> = std.json.stringDecode(decoded_pair_buf, "\"\\ud834\\udd1e\"")
+    var invalid_string_buf: [8]u8 = [0_u8; 8]
+    let invalid_string: Maybe<Span<u8>> = std.json.stringDecode(invalid_string_buf, "\"\xff\"")
     let unicode_key_field: Maybe<Span<u8>> = std.json.field("{\"\\u20ac\":1}", "\xe2\x82\xac")
     var string_out_buf: [16]u8 = [0_u8; 16]
     let string_out: Maybe<Span<u8>> = std.json.writeStringBytes(string_out_buf, "a\nb")
-    if !decoded_string.has || !std.mem.eql(decoded_string.value, "a\"b") || !decoded_unicode.has || !std.mem.eql(decoded_unicode.value, "\xe2\x82\xac") || !decoded_pair.has || !std.mem.eql(decoded_pair.value, "\xf0\x9d\x84\x9e") || !unicode_key_field.has || !std.mem.eql(unicode_key_field.value, "1") || !string_out.has || !std.mem.eql(string_out.value, "\"a\\nb\"") {
+    var invalid_out_buf: [8]u8 = [0_u8; 8]
+    let invalid_out: Maybe<Span<u8>> = std.json.writeStringBytes(invalid_out_buf, "\xff")
+    if !decoded_string.has || !std.mem.eql(decoded_string.value, "a\"b") || !decoded_unicode.has || !std.mem.eql(decoded_unicode.value, "\xe2\x82\xac") || !decoded_pair.has || !std.mem.eql(decoded_pair.value, "\xf0\x9d\x84\x9e") || invalid_string.has || !unicode_key_field.has || !std.mem.eql(unicode_key_field.value, "1") || !string_out.has || !std.mem.eql(string_out.value, "\"a\\nb\"") || invalid_out.has {
         ok = false
     }
 

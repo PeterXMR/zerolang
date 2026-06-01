@@ -182,6 +182,19 @@ fn __zero_std_url_host(url: Span<u8>) -> Maybe<Span<u8>> {
         }
         index = index + 1
     }
+    if start < std.mem.len(authority.value) && authority.value[start] == 91_u8 {
+        var close: usize = start + 1
+        while close < std.mem.len(authority.value) && authority.value[close] != 93_u8 {
+            close = close + 1
+        }
+        if close >= std.mem.len(authority.value) || close == start + 1 {
+            return null
+        }
+        if close + 1 < std.mem.len(authority.value) && authority.value[close + 1] != 58_u8 {
+            return null
+        }
+        return authority.value[start..close + 1]
+    }
     var end: usize = start
     while end < std.mem.len(authority.value) && authority.value[end] != 58_u8 {
         end = end + 1

@@ -4065,92 +4065,83 @@ static bool direct_input_add_program_symbols(SourceInput *input, const Program *
 static bool direct_canonical_append_std_source_recursive(SourceInput *input, ZBuf *combined, const ZStdSourceModule *module, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len);
 static bool direct_canonical_append_referenced_std_sources_recursive(SourceInput *input, ZBuf *combined, const Program *program, const ZStdSourceModule *owner, ZDiag *diag, const ZStdSourceModule **stack, size_t *stack_len);
 
-static bool direct_std_module_name_matches(const char *qualified, const char *name) {
-  if (!qualified || !name || strncmp(qualified, "std.", strlen("std.")) != 0) return false;
-  const char *module = qualified + strlen("std.");
-  size_t len = strlen(name);
-  return strncmp(module, name, len) == 0 && (module[len] == 0 || module[len] == '.');
-}
-
-static bool direct_expr_references_std_module(const Expr *expr, const char *name) {
+static bool direct_expr_references_source_backed_std_module(const Expr *expr, const ZStdSourceModule *module) {
   if (!expr) return false;
-  if (expr->kind == EXPR_MEMBER) {
-    char *member = expr_callee_name(expr);
-    bool matches = direct_std_module_name_matches(member, name);
-    free(member);
+  if (expr->kind == EXPR_CALL) {
+    char *callee = expr_callee_name(expr->left);
+    const ZStdSourceModule *callee_module = z_std_source_module_for_public_call(callee);
+    bool matches = callee_module && module && strcmp(callee_module->module, module->module) == 0;
+    free(callee);
     if (matches) return true;
   }
-  if (direct_expr_references_std_module(expr->left, name) || direct_expr_references_std_module(expr->right, name)) return true;
+  if (direct_expr_references_source_backed_std_module(expr->left, module) || direct_expr_references_source_backed_std_module(expr->right, module)) return true;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (direct_expr_references_std_module(expr->args.items[i], name)) return true;
+    if (direct_expr_references_source_backed_std_module(expr->args.items[i], module)) return true;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (direct_expr_references_std_module(expr->fields.items[i].value, name)) return true;
+    if (direct_expr_references_source_backed_std_module(expr->fields.items[i].value, module)) return true;
   }
   return false;
 }
 
-static bool direct_stmt_vec_references_std_module(const StmtVec *body, const char *name);
+static bool direct_stmt_vec_references_source_backed_std_module(const StmtVec *body, const ZStdSourceModule *module);
 
-static bool direct_stmt_references_std_module(const Stmt *stmt, const char *name) {
+static bool direct_stmt_references_source_backed_std_module(const Stmt *stmt, const ZStdSourceModule *module) {
   if (!stmt) return false;
-  if (direct_expr_references_std_module(stmt->target, name) ||
-      direct_expr_references_std_module(stmt->expr, name) ||
-      direct_expr_references_std_module(stmt->range_end, name) ||
-      direct_stmt_vec_references_std_module(&stmt->then_body, name) ||
-      direct_stmt_vec_references_std_module(&stmt->else_body, name)) return true;
+  if (direct_expr_references_source_backed_std_module(stmt->target, module) ||
+      direct_expr_references_source_backed_std_module(stmt->expr, module) ||
+      direct_expr_references_source_backed_std_module(stmt->range_end, module) ||
+      direct_stmt_vec_references_source_backed_std_module(&stmt->then_body, module) ||
+      direct_stmt_vec_references_source_backed_std_module(&stmt->else_body, module)) return true;
   for (size_t i = 0; i < stmt->match_arms.len; i++) {
-    if (direct_expr_references_std_module(stmt->match_arms.items[i].guard, name) ||
-        direct_stmt_vec_references_std_module(&stmt->match_arms.items[i].body, name)) return true;
+    if (direct_expr_references_source_backed_std_module(stmt->match_arms.items[i].guard, module) ||
+        direct_stmt_vec_references_source_backed_std_module(&stmt->match_arms.items[i].body, module)) return true;
   }
   return false;
 }
 
-static bool direct_stmt_vec_references_std_module(const StmtVec *body, const char *name) {
+static bool direct_stmt_vec_references_source_backed_std_module(const StmtVec *body, const ZStdSourceModule *module) {
   for (size_t i = 0; body && i < body->len; i++) {
-    if (direct_stmt_references_std_module(body->items[i], name)) return true;
+    if (direct_stmt_references_source_backed_std_module(body->items[i], module)) return true;
   }
   return false;
 }
 
-static bool direct_params_reference_std_module(const ParamVec *params, const char *name) {
+static bool direct_params_reference_source_backed_std_module(const ParamVec *params, const ZStdSourceModule *module) {
   for (size_t i = 0; params && i < params->len; i++) {
-    if (direct_expr_references_std_module(params->items[i].default_value, name)) return true;
+    if (direct_expr_references_source_backed_std_module(params->items[i].default_value, module)) return true;
   }
   return false;
 }
 
-static bool direct_function_references_std_module(const Function *fun, const char *name) {
-  return fun && (direct_params_reference_std_module(&fun->type_params, name) ||
-                 direct_params_reference_std_module(&fun->params, name) ||
-                 direct_params_reference_std_module(&fun->errors, name) ||
-                 direct_stmt_vec_references_std_module(&fun->body, name));
+static bool direct_function_references_source_backed_std_module(const Function *fun, const ZStdSourceModule *module) {
+  return fun && (direct_params_reference_source_backed_std_module(&fun->type_params, module) ||
+                 direct_params_reference_source_backed_std_module(&fun->params, module) ||
+                 direct_params_reference_source_backed_std_module(&fun->errors, module) ||
+                 direct_stmt_vec_references_source_backed_std_module(&fun->body, module));
 }
 
-static bool direct_function_vec_references_std_module(const FunctionVec *functions, const char *name) {
+static bool direct_function_vec_references_source_backed_std_module(const FunctionVec *functions, const ZStdSourceModule *module) {
   for (size_t i = 0; functions && i < functions->len; i++) {
-    if (direct_function_references_std_module(&functions->items[i], name)) return true;
+    if (direct_function_references_source_backed_std_module(&functions->items[i], module)) return true;
   }
   return false;
 }
 
-static bool direct_program_references_std_module(const Program *program, const char *name) {
-  for (size_t i = 0; program && i < program->use_imports.len; i++) {
-    if (direct_std_module_name_matches(program->use_imports.items[i].module, name)) return true;
-  }
+static bool direct_program_references_source_backed_std_module(const Program *program, const ZStdSourceModule *module) {
   for (size_t i = 0; program && i < program->consts.len; i++) {
-    if (direct_expr_references_std_module(program->consts.items[i].expr, name)) return true;
+    if (direct_expr_references_source_backed_std_module(program->consts.items[i].expr, module)) return true;
   }
   for (size_t i = 0; program && i < program->shapes.len; i++) {
-    if (direct_params_reference_std_module(&program->shapes.items[i].type_params, name) ||
-        direct_params_reference_std_module(&program->shapes.items[i].fields, name) ||
-        direct_function_vec_references_std_module(&program->shapes.items[i].methods, name)) return true;
+    if (direct_params_reference_source_backed_std_module(&program->shapes.items[i].type_params, module) ||
+        direct_params_reference_source_backed_std_module(&program->shapes.items[i].fields, module) ||
+        direct_function_vec_references_source_backed_std_module(&program->shapes.items[i].methods, module)) return true;
   }
   for (size_t i = 0; program && i < program->interfaces.len; i++) {
-    if (direct_params_reference_std_module(&program->interfaces.items[i].type_params, name) ||
-        direct_function_vec_references_std_module(&program->interfaces.items[i].methods, name)) return true;
+    if (direct_params_reference_source_backed_std_module(&program->interfaces.items[i].type_params, module) ||
+        direct_function_vec_references_source_backed_std_module(&program->interfaces.items[i].methods, module)) return true;
   }
-  return direct_function_vec_references_std_module(program ? &program->functions : NULL, name);
+  return direct_function_vec_references_source_backed_std_module(program ? &program->functions : NULL, module);
 }
 
 static bool direct_std_source_stack_contains(const ZStdSourceModule **stack, size_t stack_len, const ZStdSourceModule *module) {
@@ -4238,8 +4229,7 @@ static bool direct_canonical_append_referenced_std_sources_recursive(SourceInput
     const ZStdSourceModule *module = z_std_source_module_at(i);
     if (!module || strncmp(module->module, "std.", strlen("std.")) != 0) continue;
     if (owner && strcmp(owner->module, module->module) == 0) continue;
-    const char *name = module->module + strlen("std.");
-    if (direct_program_references_std_module(program, name) && !direct_canonical_append_std_source_recursive(input, combined, module, diag, stack, stack_len)) return false;
+    if (direct_program_references_source_backed_std_module(program, module) && !direct_canonical_append_std_source_recursive(input, combined, module, diag, stack, stack_len)) return false;
   }
   return !diag || diag->code == 0;
 }

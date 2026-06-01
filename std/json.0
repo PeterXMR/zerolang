@@ -66,6 +66,69 @@ fn __zero_std_json_surrogate_codepoint(high: u16, low: u16) -> u32 {
     return 65536_u32 + (((high as u32) - 55296_u32) * 1024_u32) + ((low as u32) - 56320_u32)
 }
 
+fn __zero_std_json_utf8_sequence_len(first: u8) -> usize {
+    if first < 128_u8 {
+        return 1
+    }
+    if first >= 194_u8 && first <= 223_u8 {
+        return 2
+    }
+    if first >= 224_u8 && first <= 239_u8 {
+        return 3
+    }
+    if first >= 240_u8 && first <= 244_u8 {
+        return 4
+    }
+    return 0
+}
+
+fn __zero_std_json_is_utf8_cont(byte: u8) -> Bool {
+    return byte >= 128_u8 && byte <= 191_u8
+}
+
+fn __zero_std_json_raw_utf8_width(bytes: Span<u8>, start: usize, end: usize) -> Maybe<usize> {
+    if start >= end {
+        return null
+    }
+    let first: u8 = bytes[start]
+    let width: usize = __zero_std_json_utf8_sequence_len(first)
+    if width == 0 || start + width > end {
+        return null
+    }
+    if width == 1 {
+        return 1_usize
+    }
+    let second: u8 = bytes[start + 1]
+    if width == 2 {
+        if !__zero_std_json_is_utf8_cont(second) {
+            return null
+        }
+        return 2_usize
+    }
+    if width == 3 {
+        if !__zero_std_json_is_utf8_cont(second) || !__zero_std_json_is_utf8_cont(bytes[start + 2]) {
+            return null
+        }
+        if first == 224_u8 && second < 160_u8 {
+            return null
+        }
+        if first == 237_u8 && second > 159_u8 {
+            return null
+        }
+        return 3_usize
+    }
+    if !__zero_std_json_is_utf8_cont(second) || !__zero_std_json_is_utf8_cont(bytes[start + 2]) || !__zero_std_json_is_utf8_cont(bytes[start + 3]) {
+        return null
+    }
+    if first == 240_u8 && second < 144_u8 {
+        return null
+    }
+    if first == 244_u8 && second > 143_u8 {
+        return null
+    }
+    return 4_usize
+}
+
 fn __zero_std_json_write_utf8(buffer: MutSpan<u8>, output: usize, codepoint: u32) -> Maybe<usize> {
     if codepoint <= 127_u32 {
         if output >= std.mem.len(buffer) {
@@ -150,6 +213,12 @@ fn __zero_std_json_string_end(bytes: Span<u8>, start: usize) -> Maybe<usize> {
             } else {
                 return null
             }
+        } else if byte >= 128_u8 {
+            let width: Maybe<usize> = __zero_std_json_raw_utf8_width(bytes, index, std.mem.len(bytes))
+            if !width.has {
+                return null
+            }
+            index = index + width.value
         } else {
             index = index + 1
         }
@@ -695,6 +764,7 @@ fn __zero_std_json_write_string_bytes(buffer: MutSpan<u8>, text: Span<u8>) -> Ma
     var input: usize = 0
     while input < std.mem.len(text) {
         let byte: u8 = text[input]
+        var next_input: usize = input + 1
         if byte == 34_u8 {
             let next: Maybe<usize> = __zero_std_json_write_escape(buffer, output, 34_u8)
             if !next.has {
@@ -743,6 +813,18 @@ fn __zero_std_json_write_string_bytes(buffer: MutSpan<u8>, text: Span<u8>) -> Ma
                 return null
             }
             output = next.value
+        } else if byte >= 128_u8 {
+            let width: Maybe<usize> = __zero_std_json_raw_utf8_width(text, input, std.mem.len(text))
+            if !width.has || output + width.value > std.mem.len(buffer) {
+                return null
+            }
+            var utf8_index: usize = 0
+            while utf8_index < width.value {
+                buffer[output] = text[input + utf8_index]
+                output = output + 1
+                utf8_index = utf8_index + 1
+            }
+            next_input = input + width.value
         } else {
             if output >= std.mem.len(buffer) {
                 return null
@@ -750,7 +832,7 @@ fn __zero_std_json_write_string_bytes(buffer: MutSpan<u8>, text: Span<u8>) -> Ma
             buffer[output] = byte
             output = output + 1
         }
-        input = input + 1
+        input = next_input
     }
     if output >= std.mem.len(buffer) {
         return null
