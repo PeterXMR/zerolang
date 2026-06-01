@@ -188,6 +188,19 @@ async function runHttpHeadersExample(baseUrl) {
   assert.equal(run.stdout, "http header found\n");
 }
 
+async function runJsonApiClientExample(baseUrl) {
+  const exe = `${outDir}/json-api-client-example`;
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-client.0", "--", `${baseUrl}/client`], { timeout: 5000 });
+  assert.equal(run.stdout, "json api client ok\n");
+}
+
+async function runJsonApiRouterExample() {
+  const exe = `${outDir}/json-api-router-example`;
+  const request = "POST /users?tenant=demo\ncontent-type: application/json\n\n{\"id\":7}";
+  const run = await execFileAsync(zero, ["run", "--out", exe, "examples/json-api-router.0", "--", request], { timeout: 5000 });
+  assert.equal(run.stdout, "json api router ok\n");
+}
+
 function okSource(baseUrl) {
   return `export c fn main() -> i32 {
     let net: Net = std.net.host()
@@ -301,7 +314,7 @@ function headersSource(baseUrl) {
     var response: [512]u8 = [${zeroArray(512)}]
     let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok\\n\\n"), response, std.time.ms(1000))
     let reply: HttpHeaderValue = std.http.headerValue(response, std.mem.span("x-zero-reply"))
-    let reply_offset: usize = std.http.headerOffset(reply)
+    let reply_bytes: Maybe<Span<u8>> = std.http.headerBytes(response, reply)
     if std.http.resultOk(result) == false {
         return 99
     }
@@ -320,7 +333,10 @@ function headersSource(baseUrl) {
     if std.http.headerLen(reply) != 3 {
         return 99
     }
-    if response[reply_offset] != 121_u8 {
+    if !reply_bytes.has {
+        return 99
+    }
+    if reply_bytes.value[0] != 121_u8 {
         return 99
     }
     if response[24] != 72_u8 {
@@ -427,28 +443,32 @@ function jsonResultSource(baseUrl) {
     let client: HttpClient = std.http.client(net)
     var response: [512]u8 = [${zeroArray(512)}]
     let result: HttpResult = std.http.fetch(client, std.mem.span("GET ${baseUrl}/ok\\n\\n"), response, std.time.ms(1000))
-    let body_len: usize = std.http.resultBodyLen(result)
-    let body_offset: usize = std.http.responseBodyOffset(response)
-    let bytes: Span<u8> = response[body_offset..body_offset + body_len]
+    let bytes: Maybe<Span<u8>> = std.http.responseBody(response, result)
     var arena_buf: [16]u8 = [${zeroArray(16)}]
     var arena: FixedBufAlloc = std.mem.fixedBufAlloc(arena_buf)
-    let parsed: Maybe<JsonDoc> = std.json.parseBytes(arena, bytes)
+    var parsed: Maybe<JsonDoc> = null
+    if bytes.has {
+        parsed = std.json.parseBytes(arena, bytes.value)
+    }
     if std.http.resultOk(result) == false {
         return 99
     }
     if std.http.resultStatus(result) != 200 {
         return 99
     }
-    if body_len != 8 {
+    if !bytes.has {
+        return 99
+    }
+    if std.mem.len(bytes.value) != 8 {
         return 99
     }
     if parsed.has == false {
         return 99
     }
-    if std.json.validateBytes(bytes) == false {
+    if std.json.validateBytes(bytes.value) == false {
         return 99
     }
-    if std.json.streamTokensBytes(bytes) != 3 {
+    if std.json.streamTokensBytes(bytes.value) != 3 {
         return 99
     }
     return 37
@@ -586,6 +606,21 @@ function handleRequest(request, response) {
         response.end("bad request");
       }
     });
+  } else if (request.url === "/client") {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      if (request.method === "POST" &&
+          request.headers["content-type"] === "application/json" &&
+          body === "{\"ping\":1}") {
+        response.writeHead(201, { "content-type": "application/json", "x-zero-reply": "yes" });
+        response.end("{\"echo\":1}");
+      } else {
+        response.writeHead(400, { "content-type": "text/plain" });
+        response.end("bad request");
+      }
+    });
   } else if (request.url === "/replace") {
     const chunks = [];
     request.on("data", (chunk) => chunks.push(chunk));
@@ -660,6 +695,8 @@ try {
   await runHttpJsonExample(baseUrl);
   await runHttpRequestExample(baseUrl);
   await runHttpHeadersExample(baseUrl);
+  await runJsonApiClientExample(baseUrl);
+  await runJsonApiRouterExample();
   await buildAndRun("http-runtime-shorthand-rejected", shorthandRejectedSource(baseUrl), 48);
   await buildAndRun("http-runtime-unterminated-envelope", unterminatedEnvelopeSource(baseUrl), 49);
   await buildAndRun("http-runtime-invalid-url", invalidUrlSource(), 36);

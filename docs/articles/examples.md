@@ -77,6 +77,8 @@ Core examples:
 - `examples/std-http-json.0`: hosted HTTP request envelope into caller-owned storage followed by byte-span JSON parsing.
 - `examples/std-http-request.0`: hosted HTTP request envelope with custom method, headers, and request body.
 - `examples/std-http-headers.0`: hosted HTTP request envelope, response buffer, and header-value lookup.
+- `examples/json-api-client.0`: hosted JSON API client with request-envelope writing and response-body parsing.
+- `examples/json-api-router.0`: dependency-free JSON API request parsing and response-envelope writing.
 - `examples/std-platform.0`: `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers.
 - `examples/cli-file.0`: args, env, file writes, stdout, and stderr.
 - `examples/cli-config.0`: option parsing, environment fallback, and JSON output checks.

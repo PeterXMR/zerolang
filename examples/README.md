@@ -83,6 +83,8 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `std-http-json.0` | hosted HTTP request envelope into caller storage, then byte-span JSON parsing | `bin/zero check examples/std-http-json.0` |
 | `std-http-request.0` | hosted HTTP request envelope with custom method, headers, and body | `bin/zero check examples/std-http-request.0` |
 | `std-http-headers.0` | hosted HTTP request envelope, response buffer, and header-value lookup | `bin/zero check examples/std-http-headers.0` |
+| `json-api-client.0` | hosted JSON API client with request-envelope writing and response-body parsing | `bin/zero check examples/json-api-client.0` |
+| `json-api-router.0` | dependency-free JSON API request parsing and response-envelope writing | `bin/zero check examples/json-api-router.0` |
 | `std-platform.0` | `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers | `bin/zero check examples/std-platform.0` |
 | `cli-file.0` | `std.args`, `std.env`, byte-span file writes, stderr/stdout | `bin/zero check examples/cli-file.0` |
 | `cli-config.0` | `std.cli`, `std.env`, and JSON output checks | `bin/zero check examples/cli-config.0` |

@@ -31,15 +31,36 @@ Runnable today:
 | `std.http.headerOffset(value)` | `usize` | Reads the header value byte offset within the response buffer. |
 | `std.http.headerLen(value)` | `usize` | Reads the header value byte length. |
 | `std.http.tlsBoundary()` | `String` | Names the platform or C-library TLS boundary. |
+| `std.http.statusReason(status)` | `String` | Returns a common reason phrase for status-line writing. |
+| `std.http.statusIsInformational(status)` | `Bool` | True for 1xx statuses. |
+| `std.http.statusIsSuccess(status)` | `Bool` | True for 2xx statuses. |
+| `std.http.statusIsRedirect(status)` | `Bool` | True for 3xx statuses. |
+| `std.http.statusIsClientError(status)` | `Bool` | True for 4xx statuses. |
+| `std.http.statusIsServerError(status)` | `Bool` | True for 5xx statuses. |
+| `std.http.writeRequest(buffer, startLine, body)` | `Maybe<Span<u8>>` | Writes `METHOD URL`, optional content length, blank line, and body into caller storage. |
+| `std.http.writeJsonRequest(buffer, startLine, body)` | `Maybe<Span<u8>>` | Writes a JSON request envelope with `content-type` and `content-length`. |
+| `std.http.writeResponse(buffer, status, body)` | `Maybe<Span<u8>>` | Writes an HTTP/1.1 response envelope into caller storage. |
+| `std.http.writeJsonResponse(buffer, status, body)` | `Maybe<Span<u8>>` | Writes a JSON HTTP/1.1 response envelope into caller storage. |
+| `std.http.requestMethodName(request)` | `Maybe<Span<u8>>` | Borrows the method token from a request envelope. |
+| `std.http.requestTarget(request)` | `Maybe<Span<u8>>` | Borrows the raw target from a request envelope. |
+| `std.http.requestPath(request)` | `Maybe<Span<u8>>` | Borrows the path from an absolute or origin-form request target. |
+| `std.http.requestQuery(request)` | `Maybe<Span<u8>>` | Borrows the query string from a request target. |
+| `std.http.requestQueryValue(request, name)` | `Maybe<Span<u8>>` | Borrows a query value by name from a request envelope. |
+| `std.http.requestHeader(request, name)` | `Maybe<Span<u8>>` | Borrows a case-insensitive request header value. |
+| `std.http.requestBody(request)` | `Maybe<Span<u8>>` | Borrows the request body after the blank line. |
+| `std.http.requestBodyWithin(request, max)` | `Maybe<Span<u8>>` | Borrows the request body only when it is at most `max` bytes. |
+| `std.http.requestMatches(request, method, path)` | `Bool` | True when a request envelope has the exact method and normalized path. |
+| `std.http.headerBytes(response, value)` | `Maybe<Span<u8>>` | Borrows a response header value after validating packed metadata. |
+| `std.http.responseBody(response, result)` | `Maybe<Span<u8>>` | Borrows the response body when the transport result succeeded. |
 
 Metadata labels:
 
 - effects: net, memory, parse, or none for named error constants
 - allocation behavior: metadata helpers do not allocate; `fetch` writes into a
   caller-owned response buffer and uses the provider runtime internally
-- target support: parsing helpers are target-neutral; client/server require a
-  net-capable target; `fetch` runs on supported Darwin arm64 and Linux x64 host
-  executable targets
+- target support: request/response parsing and writing helpers are
+  target-neutral; client/server require a net-capable target; `fetch` runs on
+  supported Darwin arm64 and Linux x64 host executable targets
 - error behavior: metadata helpers are infallible; `fetch` returns status,
   body length, and error metadata so non-2xx responses are distinguishable from
   transport failures
@@ -49,6 +70,9 @@ Metadata labels:
   `conformance/native/pass/std-http-fetch.0`,
   `conformance/native/pass/std-http-errors.0`,
   `conformance/native/pass/std-http-response-helpers.0`,
+  `conformance/native/pass/std-http-api-helpers.0`,
+  `examples/json-api-client.0`,
+  `examples/json-api-router.0`,
   `examples/std-http-json.0`,
   `examples/std-http-request.0`,
   `examples/std-http-headers.0`
@@ -93,18 +117,43 @@ Request with headers and body:
 pub fn main(world: World) -> Void raises {
     let net: Net = std.net.host()
     let client: HttpClient = std.http.client(net)
-    let request: Span<u8> = std.mem.span("POST https://example.com/api\ncontent-type: application/json\n\n{\"ping\":1}")
+    var request_buf: [256]u8 = [0_u8; 256]
+    let request: Maybe<Span<u8>> = std.http.writeJsonRequest(request_buf, "POST https://example.com/api", "{\"ping\":1}")
     var response: [512]u8 = [0_u8; 512]
-    let result: HttpResult = std.http.fetch(client, request, response, std.time.ms(1000))
-    if std.http.resultOk(result) {
-        check world.out.write("http post ok\n")
-        return
+    if request.has {
+        let result: HttpResult = std.http.fetch(client, request.value, response, std.time.ms(1000))
+        if std.http.resultOk(result) {
+            check world.out.write("http post ok\n")
+            return
+        }
     }
     check world.err.write("http post failed\n")
 }
 ```
 
-Response bytes:
+Request routing:
+
+```zero
+pub fn main(world: World) -> Void raises {
+    let request: Span<u8> = std.mem.span("POST /users?tenant=demo\ncontent-type: application/json\n\n{\"id\":7}")
+    var response: [256]u8 = [0_u8; 256]
+    let body: Maybe<Span<u8>> = std.http.requestBodyWithin(request, 64)
+    let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
+    if std.http.requestMatches(request, "POST", "/users") && tenant.has && body.has && std.json.validateBytes(body.value) {
+        let written: Maybe<Span<u8>> = std.http.writeJsonResponse(response, 201_u16, "{\"created\":true}")
+        if written.has {
+            check world.out.write("http route ok\n")
+            return
+        }
+    }
+    let failed: Maybe<Span<u8>> = std.http.writeJsonResponse(response, 400_u16, "{\"error\":\"bad_request\"}")
+    if failed.has {
+        check world.err.write("http route failed\n")
+    }
+}
+```
+
+Response body:
 
 ```zero
 pub fn main(world: World) -> Void raises {
@@ -117,13 +166,14 @@ pub fn main(world: World) -> Void raises {
     let client: HttpClient = std.http.client(net)
     var response: [512]u8 = [0_u8; 512]
     let result: HttpResult = std.http.fetch(client, std.mem.span(maybe_request.value), response, std.time.ms(5000))
-    let body_len: usize = std.http.resultBodyLen(result)
-    let body_offset: usize = std.http.responseBodyOffset(response)
-    let bytes: Span<u8> = response[body_offset..body_offset + body_len]
+    let bytes: Maybe<Span<u8>> = std.http.responseBody(response, result)
     var arena_buf: [16]u8 = [0_u8; 16]
     var arena: FixedBufAlloc = std.mem.fixedBufAlloc(arena_buf)
-    let parsed: Maybe<JsonDoc> = std.json.parseBytes(arena, bytes)
-    if std.http.resultOk(result) && parsed.has {
+    var parsed: Maybe<JsonDoc> = null
+    if bytes.has {
+        parsed = std.json.parseBytes(arena, bytes.value)
+    }
+    if std.http.resultOk(result) && bytes.has && parsed.has {
         check world.out.write("http response json ok\n")
         return
     }
@@ -135,8 +185,10 @@ pub fn main(world: World) -> Void raises {
 
 `std.http.fetch` is the outbound HTTP client primitive. The request argument is
 one byte envelope: `METHOD URL`, followed by zero or more `Header-Name: value`
-lines, a blank line, and optional request body bytes. The timeout is a
-`Duration`, typically built with `std.time.ms(...)`.
+lines, a blank line, and optional request body bytes. Use `writeRequest` and
+`writeJsonRequest` when you want the standard library to write that envelope
+into caller storage. The timeout is a `Duration`, typically built with
+`std.time.ms(...)`.
 
 `fetch` supports `http://` and `https://` URLs on supported host executable
 targets, uses the C-library curl provider, does not follow redirects, and
@@ -149,11 +201,13 @@ headers and then the response body. Use `responseHeadersLen` and
 `responseBodyOffset` rather than hard-coding offsets. `headerValue` scans the
 response buffer and returns packed offset/length metadata for the matching
 value; `headerFound`, `headerOffset`, and `headerLen` inspect that metadata
-without allocating.
+without allocating. Prefer `headerBytes` and `responseBody` when you need a
+borrowed byte span and want metadata bounds checked in one call.
 
 Compare `resultError` with the named `HttpError` helpers rather than raw
 numbers. `errorNone` means the transport succeeded; HTTP non-2xx statuses still
 carry `errorNone` and can be inspected with `resultStatus`.
 
 The module does not expose raw socket read/write APIs, structured header
-collections, streaming bodies, redirects, or a heap-allocated response object.
+collections, streaming bodies, redirects, a global router, or a heap-allocated
+response object.

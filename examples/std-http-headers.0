@@ -12,7 +12,8 @@ pub fn main(world: World) -> Void raises {
     let len: usize = std.http.responseHeadersLen(response)
     if maybe_name.has {
         let value: HttpHeaderValue = std.http.headerValue(response, std.mem.span(maybe_name.value))
-        if std.http.headerFound(value) && std.http.headerLen(value) > 0 {
+        let bytes: Maybe<Span<u8>> = std.http.headerBytes(response, value)
+        if bytes.has && std.mem.len(bytes.value) > 0 {
             check world.out.write("http header found\n")
             return
         }

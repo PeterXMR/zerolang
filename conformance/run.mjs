@@ -357,6 +357,7 @@ for (const fixture of [
   "conformance/native/pass/std-http-fetch.0",
   "conformance/native/pass/std-http-errors.0",
   "conformance/native/pass/std-http-response-helpers.0",
+  "conformance/native/pass/std-http-api-helpers.0",
   "conformance/native/pass/std-data-formats.0",
   "conformance/native/pass/std-codec-json-url.0",
   "conformance/native/pass/std-json-bytes.0",

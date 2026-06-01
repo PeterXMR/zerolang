@@ -324,7 +324,7 @@ export const docs: Doc[] = [
   {
     slug: "module-net",
     title: "std.net",
-    description: "Network capability metadata and bootstrap connection/listener handles.",
+    description: "Network capability metadata, address builders, timeouts, and bootstrap handles.",
     path: "/modules/net",
     sourcePath: "/articles/modules/net.md",
     section: "Modules",
@@ -332,7 +332,7 @@ export const docs: Doc[] = [
   {
     slug: "module-http",
     title: "std.http",
-    description: "HTTP method, body-length, client/server metadata, and TLS-boundary helpers.",
+    description: "HTTP envelope writing, request parsing, hosted fetch, and response metadata helpers.",
     path: "/modules/http",
     sourcePath: "/articles/modules/http.md",
     section: "Modules",

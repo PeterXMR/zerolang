@@ -12,13 +12,14 @@ pub fn main(world: World) -> Void raises {
         check world.err.write("http json fetch failed\n")
         return
     }
-    let body_len: usize = std.http.resultBodyLen(result)
-    let body_offset: usize = std.http.responseBodyOffset(response)
-    let bytes: Span<u8> = response[body_offset..body_offset + body_len]
+    let bytes: Maybe<Span<u8>> = std.http.responseBody(response, result)
     var arena_buf: [16]u8 = [0_u8; 16]
     var arena: FixedBufAlloc = std.mem.fixedBufAlloc(arena_buf)
-    let parsed: Maybe<JsonDoc> = std.json.parseBytes(arena, bytes)
-    if parsed.has && std.json.validateBytes(bytes) && std.json.streamTokensBytes(bytes) == 3 {
+    var parsed: Maybe<JsonDoc> = null
+    if bytes.has {
+        parsed = std.json.parseBytes(arena, bytes.value)
+    }
+    if bytes.has && parsed.has && std.json.validateBytes(bytes.value) && std.json.streamTokensBytes(bytes.value) == 3 {
         check world.out.write("http json ok\n")
         return
     }

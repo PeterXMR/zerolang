@@ -8,6 +8,8 @@ Runnable today:
 | `std.net.address(host, port)` | `Address` | Builds an address value without allocation. |
 | `std.net.dnsName(address)` | `String` | Reads the address host name. |
 | `std.net.withTimeout(address, duration)` | `Address` | Returns address metadata with a timeout. |
+| `std.net.localhost(port)` | `Address` | Builds a `localhost` address with the requested port. |
+| `std.net.loopback(port)` | `Address` | Builds a `127.0.0.1` loopback address with the requested port. |
 | `std.net.connect(net, address)` | `Maybe<Conn>` | Returns a bootstrap connection handle when available. |
 | `std.net.listen(net, address)` | `Maybe<Listener>` | Returns a bootstrap listener handle when available. |
 
@@ -25,9 +27,10 @@ Metadata labels:
 ```zero
 pub fn main(world: World) -> Void raises {
     let net: Net = std.net.host()
-    let addr: Address = std.net.withTimeout(std.net.address("localhost", 8080_u16), std.time.ms(250))
+    let addr: Address = std.net.withTimeout(std.net.localhost(8080_u16), std.time.ms(250))
+    let loopback: Address = std.net.loopback(8080_u16)
     let conn: Maybe<Conn> = std.net.connect(net, addr)
-    if conn.has && std.mem.eql(std.net.dnsName(addr), "localhost") {
+    if conn.has && std.mem.eql(std.net.dnsName(addr), "localhost") && std.mem.eql(std.net.dnsName(loopback), "127.0.0.1") {
         check world.out.write("net ok\n")
     }
 }

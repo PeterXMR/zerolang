@@ -227,6 +227,43 @@ pub fn main(world: World) -> Void raises {
 Use `check maybeValue` only when absence should propagate as a failure in a fallible function.
 Read `maybeValue.value` only inside a visible `if maybeValue.has { ... }` guard.
 
+## HTTP Pattern
+
+Use the request/response envelope helpers instead of hand-building byte
+headers when possible. `std.http.writeRequest` and
+`std.http.writeJsonRequest` take a start line such as `"GET /health"` or
+`"POST https://example.com/api"` and write into caller-owned storage.
+
+```zero
+pub fn main() -> Void {
+    var request_buf: [128]u8 = [0_u8; 128]
+    let request: Maybe<Span<u8>> = std.http.writeJsonRequest(request_buf, "POST /users", "{\"id\":7}")
+    expect request.has
+}
+```
+
+For API-style handlers, parse the request envelope with `std.http.requestMatches`,
+`std.http.requestQueryValue`, `std.http.requestHeader`, and
+`std.http.requestBodyWithin`, then write responses with
+`std.http.writeJsonResponse`:
+
+```zero
+pub fn main() -> Void {
+    let request: Span<u8> = "POST /users?tenant=demo\ncontent-type: application/json\n\n{\"id\":7}"
+    var response_buf: [192]u8 = [0_u8; 192]
+    let body: Maybe<Span<u8>> = std.http.requestBodyWithin(request, 64)
+    let tenant: Maybe<Span<u8>> = std.http.requestQueryValue(request, "tenant")
+    if std.http.requestMatches(request, "POST", "/users") && tenant.has && body.has {
+        let response: Maybe<Span<u8>> = std.http.writeJsonResponse(response_buf, 201_u16, "{\"created\":true}")
+        expect response.has
+    }
+}
+```
+
+For hosted client calls, keep the network capability explicit and read response
+bytes through `std.http.responseBody`. Use `std.http.headerBytes` when a
+header value from `std.http.headerValue` must be borrowed as a span.
+
 ## Resource Pattern
 
 Hosted file APIs can use explicit handles:

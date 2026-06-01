@@ -30,8 +30,8 @@ Runnable modules:
 - `std.rand`: explicit deterministic random sources, random bits, and target entropy helpers.
 - `std.proc`: host process status helpers behind the process capability.
 - `std.crypto`: small hash, keyed hash, constant-time equality, and entropy helpers.
-- `std.net`: network capability metadata and bootstrap connection/listener handles.
-- `std.http`: HTTP method, body-length, client/server metadata, TLS-boundary helpers, hosted GET conveniences, raw request-envelope helpers, raw response-header capture, and header-value lookup.
+- `std.net`: network capability metadata, localhost/loopback address builders, timeouts, and bootstrap connection/listener handles.
+- `std.http`: HTTP status helpers, request/response envelope writers, request parsers, client/server metadata, TLS-boundary helpers, hosted fetch, response-body borrowing, and header-value lookup.
 
 Each module page documents target support, allocation behavior, error behavior,
 ownership notes, and runnable examples.
