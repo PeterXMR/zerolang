@@ -3751,7 +3751,10 @@ assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.readiness.directArti
 assert.equal(explicitLlvmIrBuild.body.releaseTargetContract.readiness.llvmArtifact, true);
 assert.equal(explicitLlvmIrBuild.body.objectBackend.backendFamily, "llvm");
 assert.equal(explicitLlvmIrBuild.body.objectBackend.targetFacts.status, "ir-only");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.targetLibraries, "zero-runtime");
 assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.externalToolchain, "none");
+assert.equal(explicitLlvmIrBuild.body.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
+assert.deepEqual(explicitLlvmIrBuild.body.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
 assert.equal(explicitLlvmIrBuild.body.artifactPath, join(outDir, "add-explicit.ll"));
 assert(explicitLlvmIrBuild.body.artifactBytes > 0);
 const explicitLlvmIrText = readFileSync(explicitLlvmIrBuild.body.artifactPath, "utf8");

@@ -998,8 +998,9 @@ assert.match(llvmShortCircuitIr, /br i1 1, label %L[0-9]+, label %L[0-9]+\nL[0-9
 assert.match(llvmShortCircuitIr, /%v[0-9]+ = phi i1 \[%v[0-9]+, %L[0-9]+\], \[1, %L[0-9]+\]/);
 
 const llvmAddIrPath = `${outDir}/llvm-add.ll`;
-await execFileAsync(zero, [
+const llvmAddBuild = await execFileAsync(zero, [
   "build",
+  "--json",
   "--emit",
   "llvm-ir",
   "--backend",
@@ -1008,6 +1009,10 @@ await execFileAsync(zero, [
   "--out",
   llvmAddIrPath,
 ]);
+const llvmAddBuildBody = JSON.parse(llvmAddBuild.stdout);
+assert.equal(llvmAddBuildBody.objectBackend.linking.targetLibraries, "zero-runtime");
+assert.equal(llvmAddBuildBody.objectBackend.linking.toolchainSource, "textual-llvm-ir-runtime-link-plan");
+assert.deepEqual(llvmAddBuildBody.objectBackend.linkerPlan.staticLibraries, ["zero_runtime.o"]);
 const llvmAddIr = await readFile(llvmAddIrPath, "utf8");
 assert.match(llvmAddIr, /@\.zero\.data\.0 = private unnamed_addr constant \[12 x i8\] c"math works\\0A\\00", align 1/);
 assert.match(llvmAddIr, /declare i32 @zero_world_write\(i32, ptr, i64\)/);

@@ -6012,16 +6012,16 @@ static void append_object_backend_json(ZBuf *buf, const SourceInput *input, cons
   append_json_string(buf, emit_kind ? emit_kind : "exe");
   zbuf_append(buf, "}");
 }
-
 static void append_llvm_ir_backend_json(ZBuf *buf, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind) {
+  bool links_zero_runtime = input && input->direct_runtime_helper_count > 0;
   zbuf_append(buf, "{\"internalIr\":{\"typeRepresentation\":\"Zero MIR scalar values\",\"controlFlowRepresentation\":\"LLVM textual IR blocks\",\"callRepresentation\":\"direct MIR calls\",\"debugRepresentation\":\"source spans retained on diagnostics\"}");
   zbuf_append(buf, ",\"objectEmission\":{\"path\":\"llvm-ir\",\"functions\":true,\"dataSections\":");
   zbuf_append(buf, input && input->direct_readonly_data_bytes > 0 ? "true" : "false");
   zbuf_appendf(buf, ",\"symbols\":true,\"relocations\":\"none\",\"symbolCount\":%zu,\"internalHelperCount\":0}", input ? input->direct_function_count + input->direct_runtime_helper_count : 0);
   zbuf_append(buf, ",\"linking\":{\"linkerFlavor\":\"none\",\"objectFormat\":");
   append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
-  zbuf_append(buf, ",\"targetLibraries\":\"none\",\"symbolMap\":\"llvm-module\",\"externalToolchain\":\"none\",\"toolchainSource\":\"textual-llvm-ir\",\"stripArtifacts\":false}");
-  zbuf_append(buf, ",\"linkerPlan\":{\"format\":\"llvm-ir\",\"flavor\":\"none\",\"archives\":[],\"staticLibraries\":[],\"importLibraries\":[],\"systemLibraries\":[],\"rpaths\":[],\"loadPaths\":[],\"visibility\":\"exported-c-and-main-only\",\"crossLinking\":false,\"externalToolchain\":\"none\",\"reproducible\":true,\"libcMode\":\"none\",\"requiresSysroot\":false,\"sysrootStatus\":\"not-required\"}");
+  zbuf_appendf(buf, ",\"targetLibraries\":\"%s\",\"symbolMap\":\"llvm-module\",\"externalToolchain\":\"none\",\"toolchainSource\":\"%s\",\"stripArtifacts\":false}", links_zero_runtime ? "zero-runtime" : "none", links_zero_runtime ? "textual-llvm-ir-runtime-link-plan" : "textual-llvm-ir");
+  zbuf_appendf(buf, ",\"linkerPlan\":{\"format\":\"llvm-ir\",\"flavor\":\"none\",\"archives\":[],\"staticLibraries\":%s,\"importLibraries\":[],\"systemLibraries\":[],\"rpaths\":[],\"loadPaths\":[],\"visibility\":\"exported-c-and-main-only\",\"crossLinking\":false,\"externalToolchain\":\"none\",\"reproducible\":true,\"libcMode\":\"none\",\"requiresSysroot\":false,\"sysrootStatus\":\"not-required\"}", links_zero_runtime ? "[\"zero_runtime.o\"]" : "[]");
   zbuf_append(buf, ",\"targetFacts\":{\"directAvailable\":false,\"llvmAvailable\":true,\"status\":\"ir-only\",\"selectedEmitter\":\"llvm-ir\",\"objectFormat\":");
   append_json_string(buf, target && target->object_format ? target->object_format : "unknown");
   zbuf_append(buf, ",\"arch\":");

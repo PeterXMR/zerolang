@@ -24,6 +24,11 @@ executable artifacts are not buildable until an LLVM toolchain path is wired.
 Unsupported LLVM artifact requests must report a structured backend blocker;
 they must not fall back to direct emitters.
 
+Textual LLVM IR artifacts that reference Zero runtime helpers must report that
+dependency in `objectBackend.linking.targetLibraries` and
+`objectBackend.linkerPlan.staticLibraries`. Emitting the `.ll` file still does
+not compile or link the runtime object.
+
 Unknown backend names are command errors. Known-but-unavailable backend names
 are buildability errors.
 

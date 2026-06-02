@@ -179,7 +179,8 @@ backend is not a compatibility path.
 for textual LLVM IR: use `--backend llvm --emit llvm-ir` to write a `.ll`
 artifact. Native LLVM object and executable outputs are not wired yet; those
 requests report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall
-back to direct emitters.
+back to direct emitters. If the `.ll` artifact references Zero runtime helpers,
+the JSON build report lists the required runtime object in `objectBackend`.
 
 ## Tests
 
