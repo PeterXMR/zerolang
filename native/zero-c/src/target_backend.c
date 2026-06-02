@@ -215,8 +215,16 @@ const char *z_direct_backend_reason(const ZTargetInfo *target) {
 }
 
 ZDirectBackend z_direct_backend_for_emit_kind(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend) {
-  if (emit_kind && strcmp(emit_kind, "obj") == 0) return z_direct_object_backend(target);
-  if (emit_kind && strcmp(emit_kind, "exe") == 0 && requested_backend) return z_direct_exe_backend(target);
+  if (emit_kind && strcmp(emit_kind, "obj") == 0) {
+    ZDirectBackend backend = z_direct_object_backend(target);
+    if (requested_backend && requested_backend[0] && !z_direct_requested_backend_matches(requested_backend, backend)) return Z_DIRECT_BACKEND_NONE;
+    return backend;
+  }
+  if (emit_kind && strcmp(emit_kind, "exe") == 0 && requested_backend) {
+    ZDirectBackend backend = z_direct_exe_backend(target);
+    if (requested_backend[0] && !z_direct_requested_backend_matches(requested_backend, backend)) return Z_DIRECT_BACKEND_NONE;
+    return backend;
+  }
   return Z_DIRECT_BACKEND_NONE;
 }
 
@@ -228,11 +236,9 @@ const char *z_direct_backend_emitter_for_emit_kind(const ZTargetInfo *target, co
 }
 
 const char *z_direct_backend_name_for_emit_kind(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend) {
+  if (requested_backend && requested_backend[0]) return requested_backend;
   if (emit_kind && strcmp(emit_kind, "obj") == 0) return z_direct_object_emitter(target);
-  if (emit_kind && strcmp(emit_kind, "exe") == 0) {
-    if (requested_backend && requested_backend[0]) return requested_backend;
-    return z_direct_exe_emitter(target);
-  }
+  if (emit_kind && strcmp(emit_kind, "exe") == 0) return z_direct_exe_emitter(target);
   return "none";
 }
 

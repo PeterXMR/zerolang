@@ -4967,6 +4967,57 @@ static void init_direct_backend_diag(ZDiag *diag, const Command *command, const 
   complete_backend_blocker_diag(diag, target, command, emit_kind, "select");
 }
 
+static void init_direct_backend_request_mismatch_diag(ZDiag *diag, const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind) {
+  const char *requested = z_backend_direct_request_name(command ? command->backend : NULL);
+  const char *selected = emit_kind && strcmp(emit_kind, "exe") == 0 ? z_direct_exe_emitter(target) : z_direct_object_emitter(target);
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2004;
+  diag->path = input ? input->source_file : NULL;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "direct emitter '%s' does not match target '%s' for --emit %s",
+           requested ? requested : "",
+           target && target->name ? target->name : "unknown",
+           emit_kind ? emit_kind : "unknown");
+  snprintf(diag->expected, sizeof(diag->expected), "direct emitter %s for target %s",
+           selected && selected[0] ? selected : "none",
+           target && target->name ? target->name : "unknown");
+  snprintf(diag->actual, sizeof(diag->actual), "--backend %s", requested ? requested : "");
+  snprintf(diag->help, sizeof(diag->help), "use --backend direct or --backend %s for this target", selected && selected[0] ? selected : "direct");
+  ZBackendBlocker blocker;
+  z_backend_blocker_set(&blocker,
+                        target && target->name ? target->name : "unknown",
+                        target && target->object_format ? target->object_format : "unknown",
+                        requested ? requested : "direct",
+                        "target-selection",
+                        "requested direct emitter does not match target");
+  z_diag_set_backend_blocker(diag, &blocker);
+}
+
+static void init_direct_llvm_ir_unavailable_diag(ZDiag *diag, const Command *command, const ZTargetInfo *target, const char *path) {
+  const char *requested = z_backend_direct_request_name(command ? command->backend : NULL);
+  const char *backend = requested ? requested : "direct";
+  memset(diag, 0, sizeof(*diag));
+  diag->code = 2004;
+  diag->path = path;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  snprintf(diag->message, sizeof(diag->message), "direct backend does not support --emit llvm-ir");
+  snprintf(diag->expected, sizeof(diag->expected), "LLVM backend for --emit llvm-ir");
+  snprintf(diag->actual, sizeof(diag->actual), "backend=%s emit=llvm-ir", backend);
+  snprintf(diag->help, sizeof(diag->help), "use --backend llvm to request LLVM IR; LLVM IR emission is not implemented yet");
+  ZBackendBlocker blocker;
+  z_backend_blocker_set(&blocker,
+                        target && target->name ? target->name : "unknown",
+                        target && target->object_format ? target->object_format : "unknown",
+                        backend,
+                        "buildability",
+                        "llvm-ir");
+  z_diag_set_backend_blocker(diag, &blocker);
+}
+
 static int return_direct_backend_error(const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason, IrProgram *ir, Program *program) {
   ZDiag diag;
   init_direct_backend_diag(&diag, command, input, target, emit_kind, reason);
@@ -9550,9 +9601,19 @@ static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, co
 static bool target_readiness_select_emit_target(const Command *command, const SourceInput *input, const ZTargetInfo *target, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
+  if (emit == EMIT_LLVM_IR) {
+    if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) z_backend_init_llvm_unavailable_diag(diag, target, emit_kind, input ? input->source_file : NULL);
+    else init_direct_llvm_ir_unavailable_diag(diag, command, target, input ? input->source_file : NULL);
+    return false;
+  }
   if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) { z_backend_init_llvm_unavailable_diag(diag, target, emit_kind, input ? input->source_file : NULL); return false; }
   if (emit == EMIT_OBJ) {
     ZDirectObjectTargetFacts direct_obj = z_direct_object_target_facts(target);
+    const char *direct_request = z_backend_direct_request_name(command ? command->backend : NULL);
+    if (direct_request && !z_direct_requested_backend_matches(direct_request, direct_obj.backend)) {
+      init_direct_backend_request_mismatch_diag(diag, command, input, target, emit_kind);
+      return false;
+    }
     if (direct_obj.available) return true;
     init_direct_backend_diag(diag, command, input, target, emit_kind, direct_obj.unsupported_reason);
     return false;
@@ -9597,6 +9658,10 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
   const char *direct_request = z_backend_direct_request_name(command ? command->backend : NULL);
   ZDirectExecutableTargetFacts direct_exe = z_direct_executable_target_facts(target, direct_request);
   CapabilitySummary caps = program_capabilities(program);
+  if (direct_request && !direct_exe.request_supported) {
+    init_direct_backend_request_mismatch_diag(diag, command, input, target, emit_kind);
+    return false;
+  }
   bool default_direct_exe = direct_exe.request_supported && !direct_request && self_host_subset_compatible(program, &caps);
   bool requested_direct_exe = direct_exe.request_supported && direct_exe.requested;
   if (default_direct_exe || requested_direct_exe) return target_readiness_buildability_check(command, target, ir, diag);
@@ -11097,6 +11162,12 @@ static int run_graph_check_command(const Command *command, const ZTargetInfo *ta
 }
 
 static int run_graph_size_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
+  if (command && command->emit == EMIT_LLVM_IR) {
+    if (z_backend_request_is_llvm(command->backend, emit_kind_name(command->emit))) z_backend_init_llvm_unavailable_diag(diag, target, emit_kind_name(command->emit), command->input);
+    else init_direct_llvm_ir_unavailable_diag(diag, command, target, command->input);
+    if (command->json) print_diag_json(diag->path ? diag->path : command->input, diag); else print_diag(diag->path ? diag->path : command->input, diag);
+    return 1;
+  }
   if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind_name(command ? command->emit : EMIT_EXE))) {
     z_backend_init_llvm_unavailable_diag(diag, target, emit_kind_name(command ? command->emit : EMIT_EXE), command ? command->input : NULL);
     if (command && command->json) print_diag_json(diag->path ? diag->path : command->input, diag); else print_diag(diag->path ? diag->path : (command ? command->input : NULL), diag);
@@ -11940,6 +12011,11 @@ int main(int argc, char **argv) {
   bool ship_command = strcmp(command.command, "ship") == 0;
   bool size_command = strcmp(command.command, "size") == 0;
   bool artifact_command = build_command || run_command || ship_command;
+  if ((artifact_command || size_command) && command.emit == EMIT_LLVM_IR) {
+    if (z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) z_backend_init_llvm_unavailable_diag(&diag, target, emit_kind_name(command.emit), input.source_file);
+    else init_direct_llvm_ir_unavailable_diag(&diag, &command, target, input.source_file);
+    int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc;
+  }
   if ((artifact_command || size_command) && z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
     z_backend_init_llvm_unavailable_diag(&diag, target, emit_kind_name(command.emit), input.source_file);
     int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc;
@@ -11953,6 +12029,13 @@ int main(int argc, char **argv) {
       return 1;
     }
     ZDirectObjectTargetFacts direct_obj = z_direct_object_target_facts(target);
+    const char *direct_obj_request = z_backend_direct_request_name(command.backend);
+    if (direct_obj_request && !z_direct_requested_backend_matches(direct_obj_request, direct_obj.backend)) {
+      init_direct_backend_request_mismatch_diag(&diag, &command, &input, target, "obj");
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
+      z_free_source(&input);
+      return rc;
+    }
     if (!direct_obj.available) {
       int rc = return_direct_backend_error(&command, &input, target, "obj", direct_obj.unsupported_reason, &ir, &program);
       z_free_source(&input);
@@ -12018,6 +12101,13 @@ int main(int argc, char **argv) {
     bool needs_http_runtime = runtime_import_audit_uses_http_provider(&runtime_audit);
     ZDirectRuntimeObjectFacts runtime_object = z_direct_runtime_object_facts(target, needs_http_runtime);
     ZDirectObjectTargetFacts direct_obj = z_direct_object_target_facts(target);
+    const char *direct_obj_request = z_backend_direct_request_name(command.backend);
+    if (direct_obj_request && !z_direct_requested_backend_matches(direct_obj_request, direct_obj.backend)) {
+      init_direct_backend_request_mismatch_diag(&diag, &command, &input, target, "exe");
+      int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
+      z_free_source(&input);
+      return rc;
+    }
     if (ship_command) { int rc = return_direct_backend_error(&command, &input, target, "exe", "external object link plan is not wired into ship yet; use zero build or zero run", &ir, &program); z_free_source(&input); return rc; }
     if (needs_zero_runtime && !runtime_object.supported) { int rc = return_direct_backend_error(&command, &input, target, "exe", runtime_object.blocker, &ir, &program); z_free_source(&input); return rc; }
     if (!direct_obj.available) { int rc = return_direct_backend_error(&command, &input, target, "exe", direct_obj.unsupported_reason, &ir, &program); z_free_source(&input); return rc; }
@@ -12117,6 +12207,12 @@ int main(int argc, char **argv) {
   }
   const char *direct_request = command.emit == EMIT_EXE ? z_backend_direct_request_name(command.backend) : NULL;
   ZDirectExecutableTargetFacts direct_exe = z_direct_executable_target_facts(target, direct_request);
+  if (artifact_command && command.emit == EMIT_EXE && direct_request && !direct_exe.request_supported) {
+    init_direct_backend_request_mismatch_diag(&diag, &command, &input, target, "exe");
+    int rc = return_buildability_error(&command, &input, &diag, &ir, &program);
+    z_free_source(&input);
+    return rc;
+  }
   bool default_direct_exe = artifact_command && command.emit == EMIT_EXE && direct_exe.request_supported && !direct_request && self_host_subset_compatible(&program, &direct_exe_caps);
   bool requested_direct_exe = artifact_command && command.emit == EMIT_EXE && direct_exe.requested_name;
   if (default_direct_exe || requested_direct_exe) {
