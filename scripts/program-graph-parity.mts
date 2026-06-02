@@ -1,0 +1,274 @@
+#!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const execMaxBuffer = 16 * 1024 * 1024;
+const zero = "bin/zero";
+const outDir = `/tmp/zero-program-graph-parity-${process.pid}`;
+const requireStableNodeIds = process.argv.includes("--require-stable-node-ids");
+
+function firstDiagnosticCode(diagnostics) {
+  return Array.isArray(diagnostics) && diagnostics.length > 0 ? diagnostics[0].code ?? null : null;
+}
+
+function targetReadinessSummary(readiness) {
+  if (!readiness) return null;
+  return {
+    languageOk: readiness.languageOk,
+    buildable: readiness.buildable,
+    stage: readiness.stage,
+    code: firstDiagnosticCode(readiness.diagnostics),
+  };
+}
+
+async function zeroJson(args) {
+  const result = await execFileAsync(zero, args, { maxBuffer: execMaxBuffer });
+  return JSON.parse(result.stdout);
+}
+
+async function zeroText(args) {
+  const result = await execFileAsync(zero, args, { maxBuffer: execMaxBuffer });
+  return result.stdout;
+}
+
+async function dumpGraphArtifact(fixture, name) {
+  const artifact = `${outDir}/${name}.program-graph`;
+  await zeroText(["graph", "dump", "--out", artifact, fixture]);
+  return artifact;
+}
+
+function buildSummary(result) {
+  return {
+    emit: result.emit,
+    target: result.target,
+    profile: result.profile,
+    compiler: result.compiler,
+    generatedCBytes: result.generatedCBytes,
+    cBridgeFallback: result.cBridgeFallback,
+    objectEmission: result.objectBackend?.objectEmission?.path ?? null,
+    linkFormat: result.objectBackend?.linking?.objectFormat ?? null,
+    directFacts: result.objectBackend?.directFacts ?? null,
+  };
+}
+
+function testSummary(result) {
+  return {
+    ok: result.ok,
+    target: result.target,
+    testBackend: result.testBackend,
+    selectedTests: result.selectedTests,
+    discoveredTests: result.discoveredTests,
+    passedTests: result.passedTests,
+    failedTests: result.failedTests,
+    expectedFailures: result.expectedFailures,
+    unexpectedPasses: result.unexpectedPasses,
+    stdout: result.stdout,
+  };
+}
+
+async function assertCheckParity(fixture) {
+  const source = await zeroJson(["check", "--json", fixture]);
+  const graph = await zeroJson(["graph", "check", "--json", fixture]);
+
+  assert.equal(graph.canonicalSource, true, `${fixture}: graph check should report source input`);
+  assert.equal(graph.check.phase, "typecheck", `${fixture}: graph check phase`);
+  assert.equal(graph.check.lowering, "direct-program-graph", `${fixture}: graph lowering`);
+  assert.equal(graph.check.ok, source.ok, `${fixture}: source and graph typecheck should agree`);
+  assert.equal(graph.check.target, source.targetReadiness?.target ?? graph.check.target, `${fixture}: target should agree`);
+  assert.deepEqual(targetReadinessSummary(graph.targetReadiness), targetReadinessSummary(source.targetReadiness), `${fixture}: target readiness should agree`);
+}
+
+async function assertRoundtripStable(fixture) {
+  const roundtrip = await zeroJson(["graph", "roundtrip", "--json", fixture]);
+  assert.equal(roundtrip.ok, true, `${fixture}: graph roundtrip ok`);
+  assert.equal(roundtrip.semanticStable, true, `${fixture}: graph roundtrip semantic stability`);
+  assert.equal(roundtrip.lowering, "direct-program-graph", `${fixture}: graph roundtrip lowering`);
+  assert.equal(roundtrip.roundtripModuleIdentity, roundtrip.moduleIdentity, `${fixture}: module identity`);
+  assert.equal(roundtrip.comparison.ok, true, `${fixture}: graph semantic comparison`);
+  assert.deepEqual(roundtrip.semanticCounts.original, roundtrip.semanticCounts.roundtrip, `${fixture}: semantic counts`);
+}
+
+async function assertCommandStateContracts() {
+  const sourceDump = await zeroJson(["graph", "dump", "--json", "examples/hello.0"]);
+  assert.equal(sourceDump.canonicalSource, true, "graph dump from source should report canonical source input");
+  assert.equal(sourceDump.validation.state, "shape-valid", "graph dump should produce a shape-valid graph");
+  assert.equal(sourceDump.validation.ok, true, "graph dump validation should pass");
+
+  const artifact = await dumpGraphArtifact("examples/hello.0", "state-contracts");
+  const validate = await zeroJson(["graph", "validate", "--json", artifact]);
+  assert.equal(validate.ok, true, "graph validate should accept the artifact");
+  assert.equal(validate.canonicalSource, false, "graph validate should report artifact input");
+  assert.equal(validate.validation.state, "shape-valid", "graph validate should promise shape-valid state");
+  assert.equal(validate.validation.ok, true, "graph validate state should be ok");
+
+  const view = await zeroJson(["graph", "view", "--json", artifact]);
+  assert.equal(view.ok, true, "graph view should render a valid source projection");
+  assert.equal(view.canonicalSource, false, "graph view should report artifact input");
+  assert.match(view.view, /pub fn main/, "graph view should include canonical source text");
+
+  const check = await zeroJson(["graph", "check", "--json", artifact]);
+  assert.equal(check.ok, true, "graph check should typecheck the artifact");
+  assert.equal(check.canonicalSource, false, "graph check should report artifact input");
+  assert.equal(check.check.phase, "typecheck", "graph check should promise typecheck state");
+  assert.equal(check.check.lowering, "direct-program-graph", "graph check should lower through ProgramGraph");
+  assert.equal(check.targetReadiness.languageOk, true, "graph check should include language readiness");
+
+  const size = await zeroJson(["graph", "size", "--json", "--target", "linux-musl-x64", artifact]);
+  assert.equal(size.graph.canonicalSource, false, "graph size should report artifact input");
+  assert.equal(size.graph.lowering, "direct-program-graph", "graph size should lower through ProgramGraph");
+  assert.equal(size.generatedCBytes, 0, "graph size should stay on the direct backend");
+  assert.equal(size.cBridgeFallback, false, "graph size should not use C bridge fallback");
+
+  const roundtrip = await zeroJson(["graph", "roundtrip", "--json", artifact]);
+  assert.equal(roundtrip.ok, true, "graph roundtrip should accept the artifact");
+  assert.equal(roundtrip.canonicalSource, false, "graph roundtrip should report artifact input");
+  assert.equal(roundtrip.semanticStable, true, "graph roundtrip should promise semantic stability");
+  assert.equal(roundtrip.lowering, "direct-program-graph", "graph roundtrip should lower through ProgramGraph");
+}
+
+async function assertBuildParity(fixture, name) {
+  const artifact = await dumpGraphArtifact(fixture, `${name}-build-input`);
+  const sourceOut = `${outDir}/${name}.source-build`;
+  const graphOut = `${outDir}/${name}.graph-build`;
+  const source = await zeroJson(["build", "--json", "--target", "linux-musl-x64", "--out", sourceOut, fixture]);
+  const graph = await zeroJson(["graph", "build", "--json", "--target", "linux-musl-x64", "--out", graphOut, artifact]);
+
+  assert.equal(graph.graph.artifact, artifact, `${fixture}: graph build artifact`);
+  assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph build should use artifact input`);
+  assert.equal(graph.graph.lowering, "direct-program-graph", `${fixture}: graph build lowering`);
+  assert.deepEqual(buildSummary(graph), buildSummary(source), `${fixture}: source and graph build summaries should agree`);
+  assert(source.artifactBytes > 0, `${fixture}: source build should write an artifact`);
+  assert(graph.artifactBytes > 0, `${fixture}: graph build should write an artifact`);
+}
+
+async function assertRunParity(fixture, name, args = []) {
+  const artifact = await dumpGraphArtifact(fixture, `${name}-run-input`);
+  const sourceOut = `${outDir}/${name}.source-run`;
+  const graphOut = `${outDir}/${name}.graph-run`;
+  const source = await zeroText(["run", "--out", sourceOut, fixture, "--", ...args]);
+  const graph = await zeroText(["graph", "run", "--out", graphOut, artifact, "--", ...args]);
+
+  assert.equal(graph, source, `${fixture}: source and graph run output should agree`);
+}
+
+async function assertTestParity(fixture, name) {
+  const artifact = await dumpGraphArtifact(fixture, `${name}-test-input`);
+  const source = await zeroJson(["test", "--json", fixture]);
+  const graph = await zeroJson(["graph", "test", "--json", artifact]);
+
+  assert.equal(graph.graph.artifact, artifact, `${fixture}: graph test artifact`);
+  assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph test should use artifact input`);
+  assert.equal(graph.graph.lowering, "direct-program-graph", `${fixture}: graph test lowering`);
+  assert.deepEqual(testSummary(graph), testSummary(source), `${fixture}: source and graph test summaries should agree`);
+}
+
+async function assertSourceBackedPatchParity() {
+  const fixture = `${outDir}/source-backed-patch.0`;
+  const original = await readFile("examples/hello.0", "utf8");
+  await writeFile(fixture, original);
+
+  const beforeGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  assert.equal(beforeGraph.canonicalSource, true, "source-backed patch input should import from source");
+  assert.equal(beforeGraph.validation.state, "shape-valid", "source-backed patch input should be shape-valid");
+  const literal = findStringLiteral(beforeGraph, "hello from zero\n");
+
+  const patch = await zeroJson([
+    "graph",
+    "patch",
+    "--json",
+    fixture,
+    "--expect-graph-hash",
+    beforeGraph.graphHash,
+    "--op",
+    `set node="${literal.id}" field="value" expect="hello from zero\\n" value="hello source-backed\\n"`,
+  ]);
+  assert.equal(patch.ok, true, "source-backed graph patch should succeed");
+  assert.equal(patch.canonicalSource, true, "source-backed graph patch should report source input");
+  assert.equal(patch.saved.path, fixture, "source-backed graph patch should save to the source file");
+  assert.equal(patch.originalGraphHash, beforeGraph.graphHash, "source-backed graph patch should check the expected graph hash");
+  assert.match(patch.patchedGraphHash, /^graph:[0-9a-f]{16}$/, "source-backed graph patch should report a graph hash");
+  assert.notEqual(patch.patchedGraphHash, beforeGraph.graphHash, "source-backed graph patch should change graph hash");
+  assert.equal(patch.operationCount, 1, "source-backed graph patch should report one operation");
+  assert.equal(patch.operations[0].ok, true, "source-backed graph patch operation should pass");
+  assert.equal(patch.operations[0].node, literal.id, "source-backed graph patch should target the requested node");
+
+  const patchedSource = await readFile(fixture, "utf8");
+  assert.match(patchedSource, /hello source-backed\\n/, "source-backed graph patch should rewrite source text");
+  assert.equal(await zeroText(["check", fixture]), "ok\n", "patched source should check through source command");
+  assert.equal(await zeroText(["graph", "check", fixture]), "program graph check ok\n", "patched source should check through graph command");
+
+  const artifact = await dumpGraphArtifact(fixture, "source-backed-patch-run");
+  const sourceOut = `${outDir}/source-backed-patch.source-run`;
+  const graphOut = `${outDir}/source-backed-patch.graph-run`;
+  const source = await zeroText(["run", "--out", sourceOut, fixture]);
+  const graph = await zeroText(["graph", "run", "--out", graphOut, artifact]);
+  assert.equal(source, "hello source-backed\n", "patched source run output");
+  assert.equal(graph, source, "patched graph artifact run output should match source");
+}
+
+function findStringLiteral(graph, value) {
+  const literal = graph.nodes.find((node) => node.kind === "Literal" && node.type === "String" && node.value === value);
+  assert(literal, `missing string literal ${JSON.stringify(value)}`);
+  return literal;
+}
+
+async function assertSourceEditIdentityBaseline() {
+  const fixture = `${outDir}/identity-edit.0`;
+  const original = await readFile("examples/hello.0", "utf8");
+  await writeFile(fixture, original);
+
+  const beforeGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  const before = findStringLiteral(beforeGraph, "hello from zero\n");
+
+  await writeFile(fixture, original.replace("hello from zero\\n", "hello from graph\\n"));
+  const afterGraph = await zeroJson(["graph", "dump", "--json", fixture]);
+  const after = findStringLiteral(afterGraph, "hello from graph\n");
+
+  assert.notEqual(after.nodeHash, before.nodeHash, "editing literal content should change nodeHash");
+  assert.notEqual(afterGraph.graphHash, beforeGraph.graphHash, "editing literal content should change graphHash");
+  if (requireStableNodeIds) {
+    assert.equal(after.id, before.id, "source-imported node id should survive a local content edit");
+  } else {
+    assert.notEqual(after.id, before.id, "current source-imported node ids are content-derived");
+  }
+}
+
+try {
+  await mkdir(outDir, { recursive: true });
+
+  for (const fixture of [
+    "examples/hello.0",
+    "examples/std-math.0",
+    "examples/systems-package",
+    "examples/direct-package-arrays/src/main.0",
+    "conformance/check/pass/c-header-import.0",
+    "benchmarks/rosetta/fibonacci-sequence.0",
+  ]) {
+    await assertCheckParity(fixture);
+  }
+
+  for (const fixture of [
+    "examples/hello.0",
+    "examples/std-math.0",
+    "examples/systems-package",
+    "conformance/check/pass/c-header-import.0",
+    "benchmarks/rosetta/fibonacci-sequence.0",
+  ]) {
+    await assertRoundtripStable(fixture);
+  }
+
+  await assertCommandStateContracts();
+  await assertBuildParity("examples/hello.0", "hello");
+  await assertRunParity("examples/hello.0", "hello");
+  await assertRunParity("conformance/native/pass/std-args.0", "std-args", ["alpha", "beta"]);
+  await assertTestParity("conformance/native/pass/test-blocks.0", "test-blocks");
+  await assertSourceBackedPatchParity();
+
+  await assertSourceEditIdentityBaseline();
+  console.log("program graph parity ok");
+} finally {
+  await rm(outDir, { force: true, recursive: true });
+}
