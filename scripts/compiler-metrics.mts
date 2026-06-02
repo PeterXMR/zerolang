@@ -18,7 +18,7 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 990, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11710, maxStrcmpCalls: 287 },
-  "native/zero-c/src/main.c": { maxLines: 12343, maxStrcmpCalls: 470 },
+  "native/zero-c/src/main.c": { maxLines: 12348, maxStrcmpCalls: 470 },
   "native/zero-c/src/ir.c": { maxLines: 4212, maxStrcmpCalls: 229 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
   "native/zero-c/src/backend_family.c": { maxLines: 75, maxStrcmpCalls: 5 },

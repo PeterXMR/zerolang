@@ -11999,6 +11999,11 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(command.command, "test") == 0) {
+    if (!metadata_backend_request_buildable(&command, &input, target, &diag)) {
+      int rc = return_buildability_error(&command, &input, &diag, NULL, &program);
+      z_free_source(&input);
+      return rc;
+    }
     int rc = run_tests_direct(&command, &input, &program, target);
     z_free_program(&program);
     z_free_source(&input);
