@@ -115,6 +115,8 @@ The native compiler keeps stable codes for implemented control-flow and type rul
 - `ERR003`: a fallible call was used without `check` or `rescue`
 - `ABI001`: unsupported C ABI export or extern layout surface
 - `CIMP003`: a foreign-target C dependency would use host include paths, host library paths, or implicit host `pkg-config` discovery
+- `CIMP004`: an extern C call names a function that is missing from the imported header or uses an unsupported C ABI type
+- `CIMP005`: an extern C call is missing matching package C link metadata or uses an unsafe system library name
 - `BOR001`: lexical borrow conflicts, with JSON `borrowTrace.activeBorrows`
   entries naming each reported borrowed root, path, kind, live binding,
   declaration range when known, and repair shape. `borrowTrace.truncated` is
@@ -256,6 +258,11 @@ This reports `CIMP003` with repair id `configure-target-c-dependency`.
 The canonical repair is to use package-relative vendored headers/libraries or
 configure the target sysroot. Do not rely on host include paths, host library
 paths, or host `pkg-config` discovery for cross-target builds.
+
+Extern C calls also require a matching link plan in `zero.json`. The imported
+header must appear in `c.libs.*.headers`, and that library must provide `lib` or
+`link` inputs. Missing matching inputs and unsafe `link` names report `CIMP005`
+with repair id `configure-c-link-plan`.
 
 Package dependency diagnostics are graph-level repairs:
 

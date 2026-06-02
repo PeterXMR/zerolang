@@ -242,7 +242,7 @@ describe("docs registry", () => {
       assert.match(benchmarks, new RegExp(claim));
     }
     const cInterop = await readDoc("c-interop");
-    for (const cTerm of ["generatedHeader.available", "typedModel", "header hash", "linkPlan", "CIMP003"]) {
+    for (const cTerm of ["generatedHeader.available", "typedModel", "header hash", "linkPlan", "CIMP003", "CIMP005"]) {
       assert.match(cInterop, new RegExp(cTerm));
     }
   });

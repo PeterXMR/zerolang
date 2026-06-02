@@ -1,4 +1,5 @@
 #include "zero.h"
+#include "c_import.h"
 #include "mir_verify.h"
 #include "specialize.h"
 #include "std_source.h"
@@ -814,6 +815,31 @@ static const IrLocal *ir_function_find_local(const IrFunction *fun, const char *
   return NULL;
 }
 
+static size_t ir_active_local_mark(const IrProgram *ir) {
+  return ir ? ir->active_local_len : 0;
+}
+
+static void ir_active_local_restore(IrProgram *ir, size_t mark) {
+  if (!ir) return;
+  while (ir->active_local_len > mark) {
+    free(ir->active_local_names[--ir->active_local_len]);
+    ir->active_local_names[ir->active_local_len] = NULL;
+  }
+}
+
+static void ir_active_local_push(IrProgram *ir, const char *name) {
+  if (!ir || !name) return;
+  ir->active_local_names = ir_grow_items(ir->active_local_names, ir->active_local_len, &ir->active_local_cap, 8, sizeof(char *));
+  ir->active_local_names[ir->active_local_len++] = z_strdup(name);
+}
+
+static bool ir_active_local_has(const IrProgram *ir, const char *name) {
+  for (size_t i = ir ? ir->active_local_len : 0; i > 0; i--) {
+    if (ir->active_local_names[i - 1] && name && strcmp(ir->active_local_names[i - 1], name) == 0) return true;
+  }
+  return false;
+}
+
 static const IrLocal *ir_find_mutable_rand_source_local(IrProgram *ir, const IrFunction *fun, const Expr *arg, const char *helper_name) {
   if (!arg || arg->kind != EXPR_BORROW || !arg->mutable_borrow || !arg->left || arg->left->kind != EXPR_IDENT) {
     ir_mark_unsupported(ir, "direct backend std.rand helper expects a mutable RandSource local", arg ? arg->line : 1, arg ? arg->column : 1, helper_name ? helper_name : "std.rand");
@@ -847,6 +873,52 @@ static bool ir_find_function_index(const IrProgram *ir, const char *name, unsign
     }
   }
   return false;
+}
+
+static void ir_external_function_push_param(IrProgram *ir, IrExternalFunction *function, IrTypeKind type) {
+  function->param_types = ir_grow_tracked_items(ir, function->param_types, function->param_len, &function->param_cap, 4, sizeof(IrTypeKind));
+  function->param_types[function->param_len++] = type;
+}
+
+static bool ir_find_external_function_index(const IrProgram *ir, const ZCImportFunction *function, unsigned *out_index) {
+  if (!ir || !function || !function->name) return false;
+  for (size_t i = 0; i < ir->external_function_len; i++) {
+    const IrExternalFunction *candidate = &ir->external_functions[i];
+    const char *candidate_header = candidate->import_resolved_header && candidate->import_resolved_header[0] ? candidate->import_resolved_header : candidate->import_header;
+    const char *function_header = function->import_resolved_header && function->import_resolved_header[0] ? function->import_resolved_header : function->import_header;
+    if (!candidate->symbol || strcmp(candidate->symbol, function->name) != 0 || candidate->return_type != ir_type_kind(function->return_zero_type) || candidate->param_len != function->param_len) continue;
+    if ((candidate_header && !function_header) || (!candidate_header && function_header) ||
+        (candidate_header && function_header && strcmp(candidate_header, function_header) != 0)) continue;
+    bool params_match = true;
+    for (size_t p = 0; p < function->param_len; p++) {
+      if (candidate->param_types[p] != ir_type_kind(function->params[p].zero_type)) {
+        params_match = false;
+        break;
+      }
+    }
+    if (params_match) {
+      if (out_index) *out_index = (unsigned)i;
+      return true;
+    }
+  }
+  return false;
+}
+
+static unsigned ir_add_external_function(IrProgram *ir, const ZCImportFunction *function) {
+  unsigned index = 0;
+  if (ir_find_external_function_index(ir, function, &index)) return index;
+  ir->external_functions = ir_grow_tracked_items(ir, ir->external_functions, ir->external_function_len, &ir->external_function_cap, 4, sizeof(IrExternalFunction));
+  IrExternalFunction *external = &ir->external_functions[ir->external_function_len];
+  *external = (IrExternalFunction){
+    .symbol = z_strdup(function->name),
+    .import_header = function->import_header ? z_strdup(function->import_header) : NULL,
+    .import_resolved_header = function->import_resolved_header ? z_strdup(function->import_resolved_header) : NULL,
+    .return_type = ir_type_kind(function->return_zero_type)
+  };
+  for (size_t i = 0; i < function->param_len; i++) {
+    ir_external_function_push_param(ir, external, ir_type_kind(function->params[i].zero_type));
+  }
+  return (unsigned)ir->external_function_len++;
 }
 
 typedef struct {
@@ -1381,6 +1453,95 @@ static char *ir_specialized_function_name(const Function *fun, const TypeArgVec 
 
 static char *ir_specialize_type_text(const char *type, const Function *fun, const TypeArgVec *type_args);
 
+static bool ir_program_scope_name_shadows_c_import_alias(const Program *program, const char *alias) {
+  if (!program || !alias) return false;
+  for (size_t i = 0; i < program->consts.len; i++) {
+    if (program->consts.items[i].name && strcmp(program->consts.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->shapes.len; i++) {
+    if (program->shapes.items[i].name && strcmp(program->shapes.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->interfaces.len; i++) {
+    if (program->interfaces.items[i].name && strcmp(program->interfaces.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->enums.len; i++) {
+    if (program->enums.items[i].name && strcmp(program->enums.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->choices.len; i++) {
+    if (program->choices.items[i].name && strcmp(program->choices.items[i].name, alias) == 0) return true;
+  }
+  for (size_t i = 0; i < program->aliases.len; i++) {
+    if (program->aliases.items[i].name && strcmp(program->aliases.items[i].name, alias) == 0) return true;
+  }
+  return false;
+}
+
+static bool ir_lower_c_import_call(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, IrValue **out) {
+  if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER ||
+      !expr->left->left || expr->left->left->kind != EXPR_IDENT) {
+    return false;
+  }
+  const char *alias = expr->left->left->text;
+  const char *symbol = expr->left->text;
+  if (ir_active_local_has(ir, alias)) return false;
+  if (ir_program_scope_name_shadows_c_import_alias(program, alias)) return false;
+  if (!z_c_import_alias_exists(program, alias)) return false;
+  ZCImportFunction function = {0};
+  if (!z_c_import_find_function_for_target(program, ir->target, alias, symbol, &function, NULL)) {
+    ir_mark_unsupported(ir, "direct backend extern c symbol is missing from imported header", expr->line, expr->column, symbol ? symbol : "missing C symbol");
+    return true;
+  }
+  if (function.old_style_params) {
+    ir_mark_unsupported(ir, "direct backend extern c function uses an old-style empty C parameter list", expr->line, expr->column, symbol ? symbol : "C function");
+    z_c_import_function_free(&function);
+    return true;
+  }
+  IrTypeKind return_type = ir_type_kind(function.return_zero_type);
+  if (return_type != IR_TYPE_VOID && !ir_type_is_direct_abi(return_type)) {
+    ir_mark_unsupported(ir, "direct backend extern c return type is unsupported", expr->line, expr->column, function.return_c_type ? function.return_c_type : "unsupported C return type");
+    z_c_import_function_free(&function);
+    return true;
+  }
+  if (expr->args.len != function.param_len) {
+    ir_mark_unsupported(ir, "direct backend extern c call argument count does not match header", expr->line, expr->column, symbol ? symbol : "C function");
+    z_c_import_function_free(&function);
+    return true;
+  }
+  for (size_t i = 0; i < function.param_len; i++) {
+    IrTypeKind param_type = ir_type_kind(function.params[i].zero_type);
+    if (!ir_type_is_direct_abi(param_type)) {
+      ir_mark_unsupported(ir, "direct backend extern c parameter type is unsupported", expr->line, expr->column, function.params[i].c_type ? function.params[i].c_type : "unsupported C parameter type");
+      z_c_import_function_free(&function);
+      return true;
+    }
+  }
+  IrValue *value = ir_new_value(ir, IR_VALUE_CALL, return_type, expr->line, expr->column);
+  value->external_call = true;
+  value->external_index = ir_add_external_function(ir, &function);
+  value->element_type = return_type;
+  for (size_t i = 0; i < expr->args.len; i++) {
+    IrTypeKind expected = ir_type_kind(function.params[i].zero_type);
+    IrValue *arg = NULL;
+    if (!ir_lower_call_arg(program, ir, fun, expr->args.items[i], expected, &arg)) {
+      ir_free_value(value);
+      z_c_import_function_free(&function);
+      return true;
+    }
+    if (arg->type != expected) {
+      ir_free_value(arg);
+      ir_free_value(value);
+      ir_mark_unsupported(ir, "direct backend extern c argument type does not match parameter", expr->args.items[i]->line, expr->args.items[i]->column, function.params[i].zero_type ? function.params[i].zero_type : "Unknown");
+      z_c_import_function_free(&function);
+      return true;
+    }
+    ir_value_push_arg(ir, value, arg);
+  }
+  ir->direct_c_import_call_count++;
+  *out = value;
+  z_c_import_function_free(&function);
+  return true;
+}
+
 static bool ir_lower_named_direct_call(const Program *program, IrProgram *ir, const IrFunction *fun, const Expr *expr, const char *source_name, const char *display_name, IrValue **out) {
   unsigned callee_index = 0;
   const Function *callee = ir_find_source_function(program, source_name, NULL);
@@ -1724,6 +1885,10 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
     }
     case EXPR_CALL: {
       char *callee_name = ir_expr_callee_name(expr->left);
+      if (ir_lower_c_import_call(program, ir, fun, expr, out)) {
+        free(callee_name);
+        return *out != NULL;
+      }
       if ((strcmp(callee_name, "std.codec.readU8") == 0 ||
            strcmp(callee_name, "std.codec.readU16") == 0 ||
            strcmp(callee_name, "std.codec.readU32") == 0) &&
@@ -3139,7 +3304,10 @@ static bool ir_lower_enum_match(const Program *program, IrProgram *ir, IrFunctio
         ir_mark_unsupported(ir, "direct backend enum match fallback must be the final arm", arm->line, arm->column, "fallback before concrete arms");
         return false;
       }
-      if (!ir_lower_stmt_vec(program, ir, mir_fun, &arm->body, &nested_items, &nested_len, &nested_cap, saw_return)) {
+      size_t scope_mark = ir_active_local_mark(ir);
+      bool body_ok = ir_lower_stmt_vec(program, ir, mir_fun, &arm->body, &nested_items, &nested_len, &nested_cap, saw_return);
+      ir_active_local_restore(ir, scope_mark);
+      if (!body_ok) {
         ir_free_instrs(nested_items, nested_len);
         free(nested_items);
         return false;
@@ -3174,7 +3342,10 @@ static bool ir_lower_enum_match(const Program *program, IrProgram *ir, IrFunctio
     cond->right = case_literal;
 
     IrInstr instr = {.kind = IR_INSTR_IF, .value = cond, .else_instrs = nested_items, .else_len = nested_len, .else_cap = nested_cap, .line = arm->line, .column = arm->column};
-    if (!ir_lower_stmt_vec(program, ir, mir_fun, &arm->body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return)) {
+    size_t scope_mark = ir_active_local_mark(ir);
+    bool body_ok = ir_lower_stmt_vec(program, ir, mir_fun, &arm->body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return);
+    ir_active_local_restore(ir, scope_mark);
+    if (!body_ok) {
       ir_free_value(cond);
       ir_free_instrs(nested_items, nested_len);
       free(nested_items);
@@ -3219,15 +3390,20 @@ static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFuncti
   if (stmt->kind == STMT_LET) {
     const IrLocal *local = ir_function_find_local(mir_fun, stmt->name);
     if (local && local->is_array) {
-      return ir_lower_array_initializer(program, ir, mir_fun, local, stmt->expr, out_items, out_len, out_cap, stmt->line, stmt->column);
+      if (!ir_lower_array_initializer(program, ir, mir_fun, local, stmt->expr, out_items, out_len, out_cap, stmt->line, stmt->column)) return false;
+      ir_active_local_push(ir, stmt->name);
+      return true;
     }
     if (local && local->is_record) {
-      return ir_lower_shape_initializer(program, ir, mir_fun, local, stmt->expr, out_items, out_len, out_cap, stmt->line, stmt->column);
+      if (!ir_lower_shape_initializer(program, ir, mir_fun, local, stmt->expr, out_items, out_len, out_cap, stmt->line, stmt->column)) return false;
+      ir_active_local_push(ir, stmt->name);
+      return true;
     }
     IrValue *value = NULL;
     if (!local) return false;
     if (!ir_lower_expr_for_type(program, ir, mir_fun, stmt->expr, local->type, false, stmt->line, stmt->column, &value)) return false;
     ir_instr_vec_push(ir, out_items, out_len, out_cap, (IrInstr){.kind = IR_INSTR_LOCAL_SET, .local_index = local->index, .value = value, .line = stmt->line, .column = stmt->column});
+    ir_active_local_push(ir, stmt->name);
     return true;
   }
   if (stmt->kind == STMT_ASSIGN) {
@@ -3333,8 +3509,12 @@ static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFuncti
       return false;
     }
     IrInstr instr = {.kind = IR_INSTR_IF, .value = cond, .line = stmt->line, .column = stmt->column};
-    if (!ir_lower_stmt_vec(program, ir, mir_fun, &stmt->then_body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return) ||
-        !ir_lower_stmt_vec(program, ir, mir_fun, &stmt->else_body, &instr.else_instrs, &instr.else_len, &instr.else_cap, saw_return)) {
+    size_t scope_mark = ir_active_local_mark(ir);
+    bool then_ok = ir_lower_stmt_vec(program, ir, mir_fun, &stmt->then_body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return);
+    ir_active_local_restore(ir, scope_mark);
+    bool else_ok = then_ok && ir_lower_stmt_vec(program, ir, mir_fun, &stmt->else_body, &instr.else_instrs, &instr.else_len, &instr.else_cap, saw_return);
+    ir_active_local_restore(ir, scope_mark);
+    if (!then_ok || !else_ok) {
       ir_free_value(cond);
       ir_free_instrs(instr.then_instrs, instr.then_len);
       ir_free_instrs(instr.else_instrs, instr.else_len);
@@ -3354,7 +3534,10 @@ static bool ir_lower_stmt_to_vec(const Program *program, IrProgram *ir, IrFuncti
       return false;
     }
     IrInstr instr = {.kind = IR_INSTR_WHILE, .value = cond, .line = stmt->line, .column = stmt->column};
-    if (!ir_lower_stmt_vec(program, ir, mir_fun, &stmt->then_body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return)) {
+    size_t scope_mark = ir_active_local_mark(ir);
+    bool body_ok = ir_lower_stmt_vec(program, ir, mir_fun, &stmt->then_body, &instr.then_instrs, &instr.then_len, &instr.then_cap, saw_return);
+    ir_active_local_restore(ir, scope_mark);
+    if (!body_ok) {
       ir_free_value(cond);
       ir_free_instrs(instr.then_instrs, instr.then_len);
       free(instr.then_instrs);
@@ -3495,8 +3678,14 @@ static bool ir_lower_function_body(const Program *program, IrProgram *ir, IrFunc
     return false;
   }
   if (!ir_collect_function_locals(program, ir, mir_fun, source)) return false;
+  size_t scope_mark = ir_active_local_mark(ir);
+  for (size_t i = 0; i < source->params.len; i++) {
+    ir_active_local_push(ir, source->params.items[i].name);
+  }
   bool saw_return = false;
-  if (!ir_lower_stmt_vec(program, ir, mir_fun, &source->body, &mir_fun->instrs, &mir_fun->instr_len, &mir_fun->instr_cap, &saw_return)) return false;
+  bool lowered = ir_lower_stmt_vec(program, ir, mir_fun, &source->body, &mir_fun->instrs, &mir_fun->instr_len, &mir_fun->instr_cap, &saw_return);
+  ir_active_local_restore(ir, scope_mark);
+  if (!lowered) return false;
   if (hosted_world_main && !saw_return) {
     IrValue *exit_code = ir_new_value(ir, IR_VALUE_INT, IR_TYPE_I32, source->line, source->column);
     exit_code->int_value = 0;
@@ -3886,13 +4075,15 @@ static void push_function_clone(FunctionVec *vec, const Function *source) {
   };
 }
 
-IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input) {
+IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input, const ZTargetInfo *target) {
   IrProgram ir = {0};
+  ir.target = target;
   for (size_t i = 0; i < program->c_imports.len; i++) {
     CImport *source = &program->c_imports.items[i];
     ir.program.c_imports.items = ir_grow_items(ir.program.c_imports.items, ir.program.c_imports.len, &ir.program.c_imports.cap, 4, sizeof(CImport));
     ir.program.c_imports.items[ir.program.c_imports.len++] = (CImport){
       .header = source->header ? z_strdup(source->header) : NULL,
+      .resolved_header = source->resolved_header ? z_strdup(source->resolved_header) : NULL,
       .alias = source->alias ? z_strdup(source->alias) : NULL,
       .line = source->line,
       .column = source->column
@@ -3985,7 +4176,7 @@ IrProgram z_lower_program_with_source(const Program *program, const SourceInput 
 }
 
 IrProgram z_lower_program(const Program *program) {
-  return z_lower_program_with_source(program, NULL);
+  return z_lower_program_with_source(program, NULL, NULL);
 }
 
 void z_free_ir_program(IrProgram *program) {
@@ -4004,6 +4195,15 @@ void z_free_ir_program(IrProgram *program) {
     free(fun->instrs);
   }
   free(program->functions);
+  for (size_t i = 0; i < program->external_function_len; i++) {
+    free(program->external_functions[i].symbol);
+    free(program->external_functions[i].import_header);
+    free(program->external_functions[i].import_resolved_header);
+    free(program->external_functions[i].param_types);
+  }
+  free(program->external_functions);
+  ir_active_local_restore(program, 0);
+  free(program->active_local_names);
   for (size_t i = 0; i < program->data_segment_len; i++) {
     free(program->data_segments[i].bytes);
   }

@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef struct ZTargetInfo ZTargetInfo;
+
 typedef struct {
   char *data;
   size_t len;
@@ -310,6 +312,7 @@ typedef struct {
 
 typedef struct {
   char *header;
+  char *resolved_header;
   char *alias;
   int line;
   int column;
@@ -485,6 +488,8 @@ struct IrValue {
   unsigned data_len;
   IrTypeKind element_type;
   unsigned error_code;
+  unsigned external_index;
+  bool external_call;
   IrBinaryOp binary_op;
   IrCompareOp compare_op;
   IrValue **args;
@@ -574,10 +579,24 @@ typedef struct {
 } IrFunction;
 
 typedef struct {
+  char *symbol;
+  char *import_header;
+  char *import_resolved_header;
+  IrTypeKind return_type;
+  IrTypeKind *param_types;
+  size_t param_len;
+  size_t param_cap;
+} IrExternalFunction;
+
+typedef struct {
   Program program;
+  const ZTargetInfo *target;
   IrFunction *functions;
   size_t function_len;
   size_t function_cap;
+  IrExternalFunction *external_functions;
+  size_t external_function_len;
+  size_t external_function_cap;
   IrDataSegment *data_segments;
   size_t data_segment_len;
   size_t data_segment_cap;
@@ -601,6 +620,11 @@ typedef struct {
   size_t direct_runtime_helper_count;
   size_t direct_host_runtime_import_count;
   size_t direct_http_runtime_import_count;
+  size_t direct_c_import_call_count;
+  size_t direct_c_import_symbol_count;
+  char **active_local_names;
+  size_t active_local_len;
+  size_t active_local_cap;
 } IrProgram;
 
 typedef struct {
@@ -672,6 +696,11 @@ typedef struct {
   size_t direct_runtime_helper_count;
   size_t direct_host_runtime_import_count;
   size_t direct_http_runtime_import_count;
+  size_t direct_c_import_call_count;
+  size_t direct_c_import_symbol_count;
+  char **direct_c_import_headers;
+  char **direct_c_import_resolved_headers;
+  size_t direct_c_import_header_count;
   bool parse_cache_hit;
   bool interface_cache_hit;
   bool check_cache_hit;
@@ -709,7 +738,7 @@ typedef struct {
   size_t c_lib_count;
 } ZManifest;
 
-typedef struct {
+struct ZTargetInfo {
   const char *name;
   const char *aliases;
   const char *os;
@@ -722,7 +751,7 @@ typedef struct {
   const char *object_format;
   const char *linker;
   const char *capabilities;
-} ZTargetInfo;
+};
 
 typedef enum {
   Z_DIRECT_BACKEND_NONE,
@@ -840,7 +869,7 @@ ZMetaCacheStats z_meta_cache_stats(void);
 void z_backend_blocker_set(ZBackendBlocker *blocker, const char *target, const char *object_format, const char *backend, const char *stage, const char *unsupported_feature);
 void z_diag_set_backend_blocker(ZDiag *diag, const ZBackendBlocker *blocker);
 IrProgram z_lower_program(const Program *program);
-IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input);
+IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input, const ZTargetInfo *target);
 void z_free_ir_program(IrProgram *program);
 bool z_emit_elf64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
@@ -892,7 +921,7 @@ const char *z_direct_backend_reason(const ZTargetInfo *target);
 ZDirectBackend z_direct_backend_for_emit_kind(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend);
 const char *z_direct_backend_emitter_for_emit_kind(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend);
 const char *z_direct_backend_name_for_emit_kind(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend);
-ZDirectReleaseTargetFacts z_direct_release_target_facts(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, const ZToolchainPlan *fallback_plan);
+ZDirectReleaseTargetFacts z_direct_release_target_facts(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, const ZToolchainPlan *fallback_plan, bool linked_executable);
 ZDirectObjectBackendFacts z_direct_object_backend_facts(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, bool has_runtime_imports);
 ZDirectObjectTargetFacts z_direct_object_target_facts(const ZTargetInfo *target);
 ZDirectRuntimeObjectFacts z_direct_runtime_object_facts(const ZTargetInfo *target, bool needs_http_runtime);

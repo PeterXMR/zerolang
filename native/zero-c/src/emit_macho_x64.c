@@ -1,4 +1,5 @@
 #include "zero.h"
+#include "direct_emit.h"
 #include "macho_emit_state.h"
 #include "macho_format.h"
 #include "x64_emit.h"
@@ -564,7 +565,8 @@ static bool machx64_emit_call_value(ZBuf *text, const IrFunction *fun, const IrV
   }
   size_t patch = z_x64_emit_call32_placeholder(text);
   if (total_stack > 0) z_x64_emit_add_rsp(text, total_stack);
-  return z_macho_record_call_patch(ctx, patch, value->callee_index, value, diag);
+  if (value->external_call) machx64_emit_cast_normalize_rax(text, value->type, value->type);
+  return z_macho_record_call_patch(ctx, patch, value->external_call ? 0 : value->callee_index, value, diag);
 }
 
 static bool machx64_emit_byte_view_index_load_value(ZBuf *text, const IrFunction *fun, const IrValue *value, MachOEmitContext *ctx, ZDiag *diag) {
@@ -1090,6 +1092,7 @@ typedef struct {
   ZBuf strings;
   size_t *offsets;
   uint32_t *function_string_offsets;
+  uint32_t *external_string_offsets;
   uint32_t runtime_string_offsets[MACHO_RUNTIME_HELPER_COUNT];
   uint32_t rodata_string_offset;
   ZMachOSymbol *symbols;
@@ -1105,6 +1108,7 @@ static void machx64_object_build_free(MachX64ObjectBuild *build) {
   z_macho_emit_context_free(&build->ctx);
   free(build->symbols);
   free(build->function_string_offsets);
+  free(build->external_string_offsets);
   free(build->offsets);
   zbuf_free(&build->strings);
   zbuf_free(&build->relocs);
@@ -1141,7 +1145,8 @@ static bool machx64_object_build_init(MachX64ObjectBuild *build, const IrProgram
   if (build->has_rodata) machx64_append_rodata(&build->rodata, program, build->rodata_base_offset);
   build->offsets = z_checked_calloc(program->function_len, sizeof(size_t));
   build->function_string_offsets = z_checked_calloc(program->function_len, sizeof(uint32_t));
-  if (!build->offsets || !build->function_string_offsets) {
+  build->external_string_offsets = program->external_function_len > 0 ? z_checked_calloc(program->external_function_len, sizeof(uint32_t)) : NULL;
+  if (!build->offsets || !build->function_string_offsets || (program->external_function_len > 0 && !build->external_string_offsets)) {
     machx64_object_build_free(build);
     return machx64_diag(diag, "out of memory while emitting x86_64 Mach-O object");
   }
@@ -1169,7 +1174,6 @@ static bool machx64_object_emit_functions(MachX64ObjectBuild *build, const IrPro
 
 static void machx64_object_append_relocations(MachX64ObjectBuild *build, const IrProgram *program) {
   machx64_patch_object_data_refs(&build->text, &build->ctx);
-  z_macho_append_call_relocations(&build->relocs, &build->ctx);
   if (build->has_rodata) machx64_append_data_relocations(&build->relocs, &build->ctx);
   uint32_t next_symbol = (uint32_t)program->function_len + (build->has_rodata ? 1u : 0u);
   for (unsigned helper = 0; helper < MACHO_RUNTIME_HELPER_COUNT; helper++) {
@@ -1177,6 +1181,8 @@ static void machx64_object_append_relocations(MachX64ObjectBuild *build, const I
     if (z_macho_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
     z_macho_append_runtime_relocations(&build->relocs, &build->ctx, runtime_helper, next_symbol++);
   }
+  z_macho_append_call_relocations(&build->relocs, &build->ctx, next_symbol);
+  next_symbol += (uint32_t)program->external_function_len;
   build->symbol_count = next_symbol;
 }
 
@@ -1191,6 +1197,12 @@ static void machx64_object_append_symbol_strings(MachX64ObjectBuild *build) {
     if (z_macho_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
     build->runtime_string_offsets[helper] = (uint32_t)build->strings.len;
     zbuf_append(&build->strings, z_macho_runtime_helper_symbol(runtime_helper));
+    machx64_append_u8(&build->strings, 0);
+  }
+  for (size_t i = 0; i < build->ctx.program->external_function_len; i++) {
+    build->external_string_offsets[i] = (uint32_t)build->strings.len;
+    zbuf_append_char(&build->strings, '_');
+    zbuf_append(&build->strings, build->ctx.program->external_functions[i].symbol ? build->ctx.program->external_functions[i].symbol : "zero_external");
     machx64_append_u8(&build->strings, 0);
   }
 }
@@ -1218,6 +1230,9 @@ static bool machx64_object_build_symbols(MachX64ObjectBuild *build, const IrProg
     MachORuntimeHelper runtime_helper = (MachORuntimeHelper)helper;
     if (z_macho_runtime_patch_count(&build->ctx, runtime_helper) == 0) continue;
     build->symbols[build->symbol_len++] = (ZMachOSymbol){.string_offset = build->runtime_string_offsets[helper], .type = 0x01};
+  }
+  for (size_t i = 0; i < program->external_function_len; i++) {
+    build->symbols[build->symbol_len++] = (ZMachOSymbol){.string_offset = build->external_string_offsets[i], .type = 0x01};
   }
   return true;
 }
@@ -1420,6 +1435,7 @@ bool z_emit_macho_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *di
   if (!program || !out) return machx64_diag(diag, "direct x86_64 Mach-O executable backend received no program");
   unsigned main_index = 0;
   if (!machx64_validate_exe_program(program, &main_index, diag)) return false;
+  if (!z_direct_exe_reject_c_import_calls(program, diag, "x86_64 Mach-O")) return false;
   MachX64ExeBuild build;
   if (!machx64_exe_build_init(&build, program, main_index, diag)) return false;
   bool ok = machx64_exe_emit_functions(&build, program, diag) && machx64_exe_validate_runtime(&build, diag);

@@ -1026,6 +1026,10 @@ void z_free_source(SourceInput *input) {
     free(input->dependencies[i].targets_json);
     free(input->dependencies[i].status);
   }
+  for (size_t i = 0; i < input->direct_c_import_header_count; i++) {
+    free(input->direct_c_import_headers[i]);
+    free(input->direct_c_import_resolved_headers[i]);
+  }
   free(input->source_files);
   free(input->source_line_paths);
   free(input->source_line_numbers);
@@ -1043,6 +1047,8 @@ void z_free_source(SourceInput *input) {
   free(input->symbol_modules);
   free(input->symbol_kinds);
   free(input->dependencies);
+  free(input->direct_c_import_headers);
+  free(input->direct_c_import_resolved_headers);
   free(input->symbol_public);
 }
 
@@ -1061,10 +1067,25 @@ char *z_default_out_path(const char *source_file) {
 static bool command_exists(const char *command) {
   ZBuf probe;
   zbuf_init(&probe);
-  zbuf_appendf(&probe, "command -v '%s' >/dev/null 2>&1", command);
+  zbuf_append(&probe, "command -v ");
+  zbuf_append_char(&probe, '\'');
+  for (size_t i = 0; command && command[i]; i++) {
+    if (command[i] == '\'') zbuf_append(&probe, "'\\''");
+    else zbuf_append_char(&probe, command[i]);
+  }
+  zbuf_append(&probe, "' >/dev/null 2>&1");
   bool ok = system(probe.data) == 0;
   zbuf_free(&probe);
   return ok;
+}
+
+static void append_shell_quoted_arg(ZBuf *cmd, const char *value) {
+  zbuf_append_char(cmd, '\'');
+  for (size_t i = 0; value && value[i]; i++) {
+    if (value[i] == '\'') zbuf_append(cmd, "'\\''");
+    else zbuf_append_char(cmd, value[i]);
+  }
+  zbuf_append_char(cmd, '\'');
 }
 
 static bool dir_exists_for_cc(const char *path) {
@@ -1174,12 +1195,13 @@ static bool profile_should_strip_artifact(const char *profile) {
 
 static void append_toolchain_driver_command(ZBuf *cmd, const ZToolchainPlan *plan) {
   if (strcmp(plan->driver_kind, "override-cc") == 0) {
-    zbuf_appendf(cmd, "'%s'", plan->compiler);
+    append_shell_quoted_arg(cmd, plan->compiler);
   } else if (strcmp(plan->driver_kind, "host-cc") == 0) {
     zbuf_append(cmd, "cc");
   } else {
     zbuf_append(cmd, "mkdir -p .zero/zig-global-cache .zero/zig-local-cache && ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc");
-    zbuf_appendf(cmd, " -target '%s'", plan->target_triple);
+    zbuf_append(cmd, " -target ");
+    append_shell_quoted_arg(cmd, plan->target_triple);
   }
 }
 
@@ -1191,8 +1213,14 @@ bool z_toolchain_compile_c_object(const ZToolchainPlan *plan, const char *profil
   append_toolchain_driver_command(&cmd, plan);
   zbuf_appendf(&cmd, " %s", profile_c_flags(profile));
   if (extra_c_flags && extra_c_flags[0]) zbuf_appendf(&cmd, " %s", extra_c_flags);
-  if (include_dir && include_dir[0]) zbuf_appendf(&cmd, " -I '%s'", include_dir);
-  zbuf_appendf(&cmd, " -c '%s' -o '%s'", c_file, object_file);
+  if (include_dir && include_dir[0]) {
+    zbuf_append(&cmd, " -I ");
+    append_shell_quoted_arg(&cmd, include_dir);
+  }
+  zbuf_append(&cmd, " -c ");
+  append_shell_quoted_arg(&cmd, c_file);
+  zbuf_append(&cmd, " -o ");
+  append_shell_quoted_arg(&cmd, object_file);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
   return ok;
@@ -1206,9 +1234,13 @@ bool z_toolchain_link_objects(const ZToolchainPlan *plan, const ZTargetInfo *tar
   append_toolchain_driver_command(&cmd, plan);
   if (pre_link_flags && pre_link_flags[0]) zbuf_appendf(&cmd, " %s", pre_link_flags);
   for (size_t i = 0; i < object_count; i++) {
-    if (object_files[i] && object_files[i][0]) zbuf_appendf(&cmd, " '%s'", object_files[i]);
+    if (object_files[i] && object_files[i][0]) {
+      zbuf_append_char(&cmd, ' ');
+      append_shell_quoted_arg(&cmd, object_files[i]);
+    }
   }
-  zbuf_appendf(&cmd, " -o '%s'", exe_file);
+  zbuf_append(&cmd, " -o ");
+  append_shell_quoted_arg(&cmd, exe_file);
   if (post_object_flags && post_object_flags[0]) zbuf_appendf(&cmd, " %s", post_object_flags);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
@@ -1222,7 +1254,10 @@ bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const ch
   ZBuf cmd;
   zbuf_init(&cmd);
   append_toolchain_driver_command(&cmd, &plan);
-  zbuf_appendf(&cmd, " %s '%s' -o '%s'", profile_c_flags(profile), c_file, exe_file);
+  zbuf_appendf(&cmd, " %s ", profile_c_flags(profile));
+  append_shell_quoted_arg(&cmd, c_file);
+  zbuf_append(&cmd, " -o ");
+  append_shell_quoted_arg(&cmd, exe_file);
   bool ok = system(cmd.data) == 0;
   zbuf_free(&cmd);
   if (!ok) {
@@ -1238,7 +1273,9 @@ bool z_run_cc(const char *c_file, const char *exe_file, const char *cc, const ch
   if (ok && plan.strip_artifact && command_exists("strip")) {
     ZBuf strip_cmd;
     zbuf_init(&strip_cmd);
-    zbuf_appendf(&strip_cmd, "strip '%s' >/dev/null 2>&1 || true", exe_file);
+    zbuf_append(&strip_cmd, "strip ");
+    append_shell_quoted_arg(&strip_cmd, exe_file);
+    zbuf_append(&strip_cmd, " >/dev/null 2>&1 || true");
     system(strip_cmd.data);
     zbuf_free(&strip_cmd);
   }

@@ -455,6 +455,8 @@ for (const fixture of [
   "conformance/native/pass/const-arithmetic.0",
   "conformance/native/pass/type-alias-basic.0",
   "conformance/native/pass/static-method-namespace.0",
+  "conformance/native/pass/c-import-type-shadowing.0",
+  "conformance/native/pass/c-import-alias-later-local.0",
   "conformance/native/pass/match-fallback.0",
   "conformance/native/pass/memory-types.0",
   "conformance/native/pass/owned-transfer.0",
@@ -542,6 +544,7 @@ for (const fixture of [
   "conformance/check/pass/static-method-namespace.0",
   "conformance/check/pass/fmt-core-usability.0",
   "conformance/check/pass/c-header-import.0",
+  "conformance/check/pass/c-import-local-shadowing.0",
   "conformance/check/pass/match-fallback.0",
   "conformance/native/pass/match-choice-fallback.0",
   "conformance/check/pass/memory-types.0",
@@ -3489,6 +3492,314 @@ assert(simpleHeaderImport.typedModel.enums.some((item) => item.name === "zero_c_
 assert(simpleHeaderImport.typedModel.typedefs.some((item) => item.name === "zero_c_int" && item.target === "int"));
 assert.equal(typeof simpleHeaderImport.cache.target, "string");
 
+const cImportTargetLinux = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "--target", "linux-musl-x64", "conformance/check/pass/c-import-target-linux.0"]);
+const cImportTargetLinuxBody = JSON.parse(cImportTargetLinux.stdout);
+assert.equal(cImportTargetLinuxBody.ok, true);
+assert.equal(cImportTargetLinuxBody.targetReadiness.ok, true);
+assert.equal(cImportTargetLinuxBody.targetReadiness.buildable, true);
+const cImportTargetWin = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "--target", "win32-x64.exe", "conformance/check/pass/c-import-target-win.0"]);
+const cImportTargetWinBody = JSON.parse(cImportTargetWin.stdout);
+assert.equal(cImportTargetWinBody.ok, true);
+assert.equal(cImportTargetWinBody.targetReadiness.ok, true);
+assert.equal(cImportTargetWinBody.targetReadiness.buildable, true);
+const cImportTargetLinuxGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "conformance/check/pass/c-import-target-linux.0"]);
+const cImportTargetLinuxModel = JSON.parse(cImportTargetLinuxGraph.stdout).cImports.find((item) => item.header === "conformance/c/target-conditional.h").typedModel;
+assert(cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_linux_add"));
+assert(cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_not_windows"));
+assert(!cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_windows_add"));
+const cImportTargetWinGraph = await execFileAsync(zero, ["graph", "--json", "--target", "win32-x64.exe", "conformance/check/pass/c-import-target-win.0"]);
+const cImportTargetWinModel = JSON.parse(cImportTargetWinGraph.stdout).cImports.find((item) => item.header === "conformance/c/target-conditional.h").typedModel;
+assert(cImportTargetWinModel.functions.some((item) => item.name === "zero_c_windows_add"));
+assert(!cImportTargetWinModel.functions.some((item) => item.name === "zero_c_linux_add"));
+assert(!cImportTargetWinModel.functions.some((item) => item.name === "zero_c_not_windows"));
+
+const cImportTypeShadowReadiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "conformance/native/pass/c-import-type-shadowing.0"]);
+const cImportTypeShadowReadinessBody = JSON.parse(cImportTypeShadowReadiness.stdout);
+assert.equal(cImportTypeShadowReadinessBody.ok, true);
+assert.equal(cImportTypeShadowReadinessBody.targetReadiness.buildable, false);
+assert.equal(cImportTypeShadowReadinessBody.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "Counter.zero_c_add");
+const cImportLaterLocalReadiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "conformance/native/pass/c-import-alias-later-local.0"]);
+const cImportLaterLocalReadinessBody = JSON.parse(cImportLaterLocalReadiness.stdout);
+assert.equal(cImportLaterLocalReadinessBody.ok, true);
+assert.equal(cImportLaterLocalReadinessBody.targetReadiness.ok, true);
+assert.equal(cImportLaterLocalReadinessBody.targetReadiness.buildable, true);
+assert.equal(cImportLaterLocalReadinessBody.targetReadiness.diagnostics.length, 0);
+const cImportMissingLinkReadiness = await execFileAsync(zero, ["check", "--json", "conformance/native/pass/c-import-alias-later-local.0"]);
+const cImportMissingLinkReadinessBody = JSON.parse(cImportMissingLinkReadiness.stdout);
+assert.equal(cImportMissingLinkReadinessBody.ok, true);
+assert.equal(cImportMissingLinkReadinessBody.targetReadiness.ok, false);
+assert.equal(cImportMissingLinkReadinessBody.targetReadiness.buildable, false);
+assert.equal(cImportMissingLinkReadinessBody.targetReadiness.diagnostics[0].code, "CIMP005");
+const cImportMissingLinkBuild = await execFileAsync(zero, ["build", "--json", "conformance/native/pass/c-import-alias-later-local.0", "--out", `.zero/out/c-import-missing-link-${process.pid}`]).catch((error) => error);
+assert.notEqual(cImportMissingLinkBuild.code, 0);
+assert.equal(JSON.parse(cImportMissingLinkBuild.stdout).diagnostics[0].code, "CIMP005");
+
+const cImportPartialLinkRoot = `/tmp/zero-c-import-partial-link-${process.pid}`;
+await rm(cImportPartialLinkRoot, { recursive: true, force: true });
+await mkdir(`${cImportPartialLinkRoot}/src`, { recursive: true });
+await mkdir(`${cImportPartialLinkRoot}/vendor/include`, { recursive: true });
+await writeFile(`${cImportPartialLinkRoot}/vendor/include/a.h`, "int zero_a_add(int left, int right);\n");
+await writeFile(`${cImportPartialLinkRoot}/vendor/include/b.h`, "int zero_b_add(int left, int right);\n");
+await writeFile(`${cImportPartialLinkRoot}/zero.json`, JSON.stringify({
+  package: { name: "c-import-partial-link", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  c: { libs: {
+    a: { headers: ["vendor/include/a.h"], include: ["vendor/include"], lib: ["vendor/lib/a.o"], link: [], mode: "static" },
+    b: { headers: ["vendor/include/b.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" }
+  } }
+}, null, 2));
+await writeFile(`${cImportPartialLinkRoot}/src/main.0`, `extern c "vendor/include/a.h" as a
+extern c "vendor/include/b.h" as b
+
+export c fn main() -> i32 {
+    return a.zero_a_add(1, 2) + b.zero_b_add(3, 4)
+}
+`);
+const cImportPartialLinkReadiness = await execFileAsync(zero, ["check", "--json", cImportPartialLinkRoot]);
+const cImportPartialLinkReadinessBody = JSON.parse(cImportPartialLinkReadiness.stdout);
+assert.equal(cImportPartialLinkReadinessBody.ok, true);
+assert.equal(cImportPartialLinkReadinessBody.targetReadiness.ok, false);
+assert.equal(cImportPartialLinkReadinessBody.targetReadiness.buildable, false);
+assert.equal(cImportPartialLinkReadinessBody.targetReadiness.diagnostics[0].code, "CIMP005");
+assert.match(cImportPartialLinkReadinessBody.targetReadiness.diagnostics[0].actual, /b\.h/);
+const cImportPartialLinkBuild = await execFileAsync(zero, ["build", "--json", cImportPartialLinkRoot, "--out", `${cImportPartialLinkRoot}/partial-link`]).catch((error) => error);
+assert.notEqual(cImportPartialLinkBuild.code, 0);
+const cImportPartialLinkBuildBody = JSON.parse(cImportPartialLinkBuild.stdout);
+assert.equal(cImportPartialLinkBuildBody.diagnostics[0].code, "CIMP005");
+assert.match(cImportPartialLinkBuildBody.diagnostics[0].actual, /b\.h/);
+await rm(cImportPartialLinkRoot, { recursive: true, force: true });
+
+const externCallRoot = `/tmp/zero-extern-c-call-${process.pid}`;
+const externCallShadowRoot = `/tmp/zero-extern-c-shadow-${process.pid}`;
+const externCallScalarRoot = `/tmp/zero-extern-c-scalar-${process.pid}`;
+await rm(externCallRoot, { recursive: true, force: true });
+await rm(externCallShadowRoot, { recursive: true, force: true });
+await rm(externCallScalarRoot, { recursive: true, force: true });
+await mkdir(`${externCallRoot}/src`, { recursive: true });
+await mkdir(`${externCallRoot}/vendor/include`, { recursive: true });
+await mkdir(`${externCallRoot}/vendor/lib`, { recursive: true });
+await mkdir(`${externCallShadowRoot}/vendor/include`, { recursive: true });
+await mkdir(`${externCallScalarRoot}/src`, { recursive: true });
+const externCallObjectRel = "vendor/lib/zero ext's.o";
+const externCallDirtyObjectRel = "vendor/lib/zero_ext_dirty.o";
+const externCallSymbolPrefix = process.platform === "darwin" ? "_" : "";
+let externCallDirtyAsm = "";
+if (process.arch === "x64") {
+  externCallDirtyAsm = `.text
+.globl ${externCallSymbolPrefix}zero_ext_dirty_u8
+${externCallSymbolPrefix}zero_ext_dirty_u8:
+    movq $257, %rax
+    ret
+`;
+} else if (process.arch === "arm64") {
+  externCallDirtyAsm = `.text
+.globl ${externCallSymbolPrefix}zero_ext_dirty_u8
+${externCallSymbolPrefix}zero_ext_dirty_u8:
+    movz x0, #257
+    ret
+`;
+}
+await writeFile(`${externCallRoot}/vendor/include/zero_ext.h`, `#ifdef __cplusplus
+extern "C" {
+#endif
+
+int
+zero_ext_add(
+    int left,
+    int right
+);
+// int zero_ext_commented(int value);
+/*
+int zero_ext_block_commented(int value);
+*/
+#if 0
+int zero_ext_disabled(int value);
+#endif
+int zero_ext_inline_left(int value); int zero_ext_inline_right(int value);
+unsigned char zero_ext_dirty_u8(void);
+
+#ifdef __cplusplus
+}
+#endif
+`);
+await writeFile(`${externCallShadowRoot}/vendor/include/zero_ext.h`, "int zero_ext_wrong(int, int);\n");
+await writeFile(`${externCallRoot}/vendor/lib/zero_ext.c`, '#include "zero_ext.h"\nint zero_ext_add(int a, int b) { return a + b; }\nint zero_ext_inline_left(int value) { return value + 1; }\nint zero_ext_inline_right(int value) { return value + 2; }\n');
+await execFileAsync("cc", ["-I", `${externCallRoot}/vendor/include`, "-c", `${externCallRoot}/vendor/lib/zero_ext.c`, "-o", `${externCallRoot}/${externCallObjectRel}`]);
+if (externCallDirtyAsm) {
+  await writeFile(`${externCallRoot}/vendor/lib/zero_ext_dirty.S`, externCallDirtyAsm);
+  await execFileAsync("cc", ["-c", `${externCallRoot}/vendor/lib/zero_ext_dirty.S`, "-o", `${externCallRoot}/${externCallDirtyObjectRel}`]);
+}
+await writeFile(`${externCallRoot}/zero.json`, JSON.stringify({
+  package: { name: "extern-c-call", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  c: { libs: {
+    ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [externCallObjectRel, ...(externCallDirtyAsm ? [externCallDirtyObjectRel] : [])], link: [], mode: "static" },
+    unused: { headers: ["vendor/include/unused.h"], include: ["vendor/include"], lib: ["vendor/lib/missing-unused.o"], link: [], mode: "static" }
+  } }
+}, null, 2));
+await writeFile(`${externCallScalarRoot}/zero.json`, JSON.stringify({
+  package: { name: "extern-c-scalar", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  c: { libs: { ext: { headers: [`${externCallRoot}/vendor/include/zero_ext.h`], include: [`${externCallRoot}/vendor/include`], lib: [`${externCallRoot}/${externCallObjectRel}`], link: [], mode: "static" } } }
+}, null, 2));
+await writeFile(`${externCallRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main(world: World) -> Void raises {
+    let total: i32 = c.zero_ext_add(20, 20) + c.zero_ext_inline_right(0)
+    if total == 42${externCallDirtyAsm ? " && c.zero_ext_dirty_u8() == 1_u8" : ""} {
+        check world.out.write("extern c call ok\\n")
+    } else {
+        check world.out.write("extern c call failed\\n")
+    }
+}
+`);
+await writeFile(`${externCallRoot}/src/disabled.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main() -> i32 {
+    return c.zero_ext_disabled(1)
+}
+`);
+await writeFile(`${externCallRoot}/src/commented.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main() -> i32 {
+    return c.zero_ext_commented(1)
+}
+`);
+await writeFile(`${externCallScalarRoot}/src/main.0`, `extern c "${externCallRoot}/vendor/include/zero_ext.h" as c
+
+export c fn main() -> i32 {
+    return c.zero_ext_add(20, 22)
+}
+`);
+const externCallShadowCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
+const externCallShadowCheckBody = JSON.parse(externCallShadowCheck.stdout);
+assert.equal(externCallShadowCheckBody.ok, true);
+const externCallDisabledCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
+assert.notEqual(externCallDisabledCheck.code, 0);
+const externCallDisabledCheckBody = JSON.parse(externCallDisabledCheck.stdout);
+assert.equal(externCallDisabledCheckBody.diagnostics[0].code, "CIMP004");
+const externCallCommentedCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", "src/commented.0"], { cwd: externCallRoot }).catch((error) => error);
+assert.notEqual(externCallCommentedCheck.code, 0);
+const externCallCommentedCheckBody = JSON.parse(externCallCommentedCheck.stdout);
+assert.equal(externCallCommentedCheckBody.diagnostics[0].code, "CIMP004");
+assert.match(externCallCommentedCheckBody.diagnostics[0].message, /not declared/);
+const externCallScalarCrossReadiness = await execFileAsync(zero, ["check", "--json", "--target", "linux-musl-arm64", externCallScalarRoot]);
+const externCallScalarCrossReadinessBody = JSON.parse(externCallScalarCrossReadiness.stdout);
+assert.equal(externCallScalarCrossReadinessBody.ok, true);
+assert.equal(externCallScalarCrossReadinessBody.targetReadiness.ok, true);
+assert.equal(externCallScalarCrossReadinessBody.targetReadiness.buildable, true);
+assert.equal(externCallScalarCrossReadinessBody.targetReadiness.diagnostics.length, 0);
+const externCallGraph = await execFileAsync(zero, ["graph", "--json", externCallRoot]);
+const externCallGraphBody = JSON.parse(externCallGraph.stdout);
+const externCallImport = externCallGraphBody.cImports.find((item) => item.header === "vendor/include/zero_ext.h");
+assert(externCallImport);
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_add" && item.returnType === "int" && item.params.length === 2));
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_inline_right" && item.returnType === "int" && item.params.length === 1));
+assert(externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_dirty_u8" && item.returnType === "unsigned char" && item.params.length === 0));
+assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_commented"));
+assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_block_commented"));
+assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_disabled"));
+const externCallGraphArtifact = `${externCallRoot}/extern-call.program-graph`;
+await execFileAsync(zero, ["graph", "dump", "--out", externCallGraphArtifact, externCallRoot]);
+const externCallGraphCheck = await execFileAsync(zero, ["graph", "check", "--json", externCallGraphArtifact]);
+assert.equal(JSON.parse(externCallGraphCheck.stdout).ok, true);
+const externCallGraphSizeArtifact = `${externCallRoot}/extern-call-size-metadata.json`;
+const externCallGraphSize = await execFileAsync(zero, ["graph", "size", "--json", "--out", externCallGraphSizeArtifact, externCallGraphArtifact]);
+assert.equal(JSON.parse(externCallGraphSize.stdout).graph.moduleIdentity, "package:extern-c-call@0.1.0");
+const externCallBuildOut = `${externCallRoot}/extern-call`;
+const externCallBuild = await execFileAsync(zero, ["build", "--json", externCallRoot, "--out", externCallBuildOut]);
+const externCallBuildBody = JSON.parse(externCallBuild.stdout);
+assert.equal(externCallBuildBody.emit, "exe");
+assert.notEqual(externCallBuildBody.objectBackend.objectEmission.path, "none");
+assert.notEqual(externCallBuildBody.objectBackend.linking.externalToolchain, "none");
+assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /zero-runtime/);
+assert.match(externCallBuildBody.objectBackend.linking.targetLibraries, /c-imports/);
+assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
+if (externCallDirtyAsm) assert(externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallDirtyObjectRel)));
+assert(!externCallBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/missing-unused.o")));
+const externCallObjectOverhead = externCallBuildBody.objectBackend.linking.objectFormat === "coff"
+  ? (externCallBuildBody.objectBackend.objectEmission.dataSections ? 2 : 1)
+  : (externCallBuildBody.objectBackend.objectEmission.dataSections ? 1 : 0);
+const externCallExpectedExternalSymbols = externCallDirtyAsm ? 3 : 2;
+assert.equal(
+  externCallBuildBody.objectBackend.objectEmission.symbolCount,
+  externCallBuildBody.objectBackend.directFacts.functionCount +
+    externCallBuildBody.objectBackend.directFacts.runtimeHelperCount +
+    externCallExpectedExternalSymbols +
+    externCallObjectOverhead
+);
+assert.equal(externCallBuildBody.releaseTargetContract.selectedEmitter, externCallBuildBody.releaseTargetContract.directObjectEmitter);
+assert.equal(externCallBuildBody.releaseTargetContract.libc.artifactMode, externCallBuildBody.releaseTargetContract.libc.targetMode);
+const externCallGraphBuildOut = `${externCallRoot}/extern-call-graph`;
+const externCallGraphBuild = await execFileAsync(zero, ["graph", "build", "--json", externCallGraphArtifact, "--out", externCallGraphBuildOut]);
+const externCallGraphBuildBody = JSON.parse(externCallGraphBuild.stdout);
+assert.equal(externCallGraphBuildBody.emit, "exe");
+assert(externCallGraphBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
+const externCallRun = await execFileAsync(zero, ["run", externCallRoot]);
+assert.equal(externCallRun.stdout, "extern c call ok\n");
+const externCallScalarBuildOut = `${externCallScalarRoot}/extern-scalar`;
+const externCallScalarBuild = await execFileAsync(zero, ["build", "--json", externCallScalarRoot, "--out", externCallScalarBuildOut]);
+const externCallScalarBuildBody = JSON.parse(externCallScalarBuild.stdout);
+assert.equal(externCallScalarBuildBody.emit, "exe");
+assert.match(externCallScalarBuildBody.objectBackend.linking.targetLibraries, /c-imports/);
+assert.doesNotMatch(externCallScalarBuildBody.objectBackend.linking.targetLibraries, /zero-runtime/);
+assert.notEqual(externCallScalarBuildBody.objectBackend.linking.externalToolchain, "none");
+assert(!externCallScalarBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item === "zero_runtime.o"));
+assert(externCallScalarBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
+assert.equal(externCallScalarBuildBody.releaseTargetContract.selectedEmitter, externCallScalarBuildBody.releaseTargetContract.directObjectEmitter);
+assert.equal(externCallScalarBuildBody.releaseTargetContract.libc.artifactMode, externCallScalarBuildBody.releaseTargetContract.libc.targetMode);
+await rm(externCallRoot, { recursive: true, force: true });
+await rm(externCallShadowRoot, { recursive: true, force: true });
+await rm(externCallScalarRoot, { recursive: true, force: true });
+
+const unsafeExternLinkRoot = `/tmp/zero-extern-c-unsafe-link-${process.pid}`;
+await rm(unsafeExternLinkRoot, { recursive: true, force: true });
+await mkdir(`${unsafeExternLinkRoot}/src`, { recursive: true });
+await mkdir(`${unsafeExternLinkRoot}/vendor/include`, { recursive: true });
+await writeFile(`${unsafeExternLinkRoot}/vendor/include/zero_ext.h`, "int zero_ext_add(int left, int right);\n");
+await writeFile(`${unsafeExternLinkRoot}/zero.json`, JSON.stringify({
+  package: { name: "extern-c-unsafe-link", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  c: { libs: { ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: ["zero_ext;touch"], mode: "static" } } }
+}, null, 2));
+await writeFile(`${unsafeExternLinkRoot}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main() -> i32 {
+    return c.zero_ext_add(20, 22)
+}
+`);
+const unsafeExternLinkReadiness = await execFileAsync(zero, ["check", "--json", unsafeExternLinkRoot]);
+const unsafeExternLinkReadinessBody = JSON.parse(unsafeExternLinkReadiness.stdout);
+assert.equal(unsafeExternLinkReadinessBody.ok, true);
+assert.equal(unsafeExternLinkReadinessBody.targetReadiness.buildable, false);
+assert.equal(unsafeExternLinkReadinessBody.targetReadiness.diagnostics[0].code, "CIMP005");
+assert.match(unsafeExternLinkReadinessBody.targetReadiness.diagnostics[0].actual, /unsafe library name/);
+const unsafeExternLinkBuild = await execFileAsync(zero, ["build", "--json", unsafeExternLinkRoot, "--out", `${unsafeExternLinkRoot}/extern-link`]).catch((error) => error);
+assert.notEqual(unsafeExternLinkBuild.code, 0);
+assert.equal(JSON.parse(unsafeExternLinkBuild.stdout).diagnostics[0].code, "CIMP005");
+await rm(unsafeExternLinkRoot, { recursive: true, force: true });
+
+const runtimeManifestRoot = `/tmp/zero-runtime-manifest-link-${process.pid}`;
+await rm(runtimeManifestRoot, { recursive: true, force: true });
+await mkdir(`${runtimeManifestRoot}/src`, { recursive: true });
+await writeFile(`${runtimeManifestRoot}/zero.json`, JSON.stringify({
+  package: { name: "runtime-manifest-link", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  c: { libs: { unused: { headers: ["vendor/include/unused.h"], include: ["vendor/include"], lib: ["vendor/lib/missing.o"], link: ["zero_missing_system"], mode: "static" } } }
+}, null, 2));
+await writeFile(`${runtimeManifestRoot}/src/main.0`, `pub fn main(world: World) -> Void raises {
+    check world.out.write("runtime manifest ignored\\n")
+}
+`);
+const runtimeManifestBuildOut = `${runtimeManifestRoot}/runtime-manifest`;
+const runtimeManifestBuild = await execFileAsync(zero, ["build", "--json", runtimeManifestRoot, "--out", runtimeManifestBuildOut]);
+const runtimeManifestBuildBody = JSON.parse(runtimeManifestBuild.stdout);
+assert(!runtimeManifestBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith("vendor/lib/missing.o")));
+assert(!runtimeManifestBuildBody.objectBackend.linkerPlan.systemLibraries.includes("zero_missing_system"));
+const runtimeManifestRun = await execFileAsync(zero, ["run", runtimeManifestRoot]);
+assert.equal(runtimeManifestRun.stdout, "runtime manifest ignored\n");
+await rm(runtimeManifestRoot, { recursive: true, force: true });
+
 const cInteropGraph = await execFileAsync(zero, ["graph", "--json", "examples/c-interop"]);
 const cInteropGraphBody = JSON.parse(cInteropGraph.stdout);
 const mathLib = cInteropGraphBody.cLibraries.find((item) => item.name === "math");
@@ -3563,6 +3874,16 @@ assert.notEqual(cHeaderUnsupportedJson.code, 0);
 const cHeaderUnsupportedBody = JSON.parse(cHeaderUnsupportedJson.stdout);
 assert.equal(cHeaderUnsupportedBody.diagnostics[0].code, "CIMP002");
 assert.match(cHeaderUnsupportedBody.diagnostics[0].actual, /variadic/);
+const cHeaderOldStyleJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/c-import-old-style.0"]).catch((error) => error);
+assert.notEqual(cHeaderOldStyleJson.code, 0);
+const cHeaderOldStyleBody = JSON.parse(cHeaderOldStyleJson.stdout);
+assert.equal(cHeaderOldStyleBody.diagnostics[0].code, "CIMP002");
+assert.match(cHeaderOldStyleBody.diagnostics[0].actual, /old-style/);
+const cImportMissingSymbolJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/c-import-missing-symbol.0"]).catch((error) => error);
+assert.notEqual(cImportMissingSymbolJson.code, 0);
+const cImportMissingSymbolBody = JSON.parse(cImportMissingSymbolJson.stdout);
+assert.equal(cImportMissingSymbolBody.diagnostics[0].code, "CIMP004");
+assert.match(cImportMissingSymbolBody.diagnostics[0].message, /not declared/);
 
 const errorSetFixPlan = await execFileAsync(zero, ["fix", "--plan", "--json", "conformance/native/fail/std-fs-error-set-mismatch.0"]);
 const errorSetFixPlanBody = JSON.parse(errorSetFixPlan.stdout);

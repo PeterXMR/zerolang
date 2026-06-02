@@ -242,21 +242,21 @@ static const char *direct_artifact_kind_for_emit_kind(const char *emit_kind) {
   return "artifact";
 }
 
-ZDirectReleaseTargetFacts z_direct_release_target_facts(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, const ZToolchainPlan *fallback_plan) {
+ZDirectReleaseTargetFacts z_direct_release_target_facts(const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, const ZToolchainPlan *fallback_plan, bool linked_executable) {
   bool selected_executable = emit_kind && strcmp(emit_kind, "exe") == 0;
-  ZDirectBackend selected_backend = z_direct_backend_for_emit_kind(target, emit_kind, requested_backend);
-  if (selected_backend == Z_DIRECT_BACKEND_NONE && selected_executable) selected_backend = z_direct_exe_backend(target);
+  ZDirectBackend selected_backend = linked_executable ? z_direct_object_backend(target) : z_direct_backend_for_emit_kind(target, emit_kind, requested_backend);
+  if (selected_backend == Z_DIRECT_BACKEND_NONE && selected_executable && !linked_executable) selected_backend = z_direct_exe_backend(target);
   bool direct_selected = selected_backend != Z_DIRECT_BACKEND_NONE;
   bool target_requires_sysroot = z_target_requires_sysroot(target);
-  bool artifact_requires_sysroot = !direct_selected && fallback_plan && fallback_plan->requires_sysroot;
+  bool artifact_requires_sysroot = linked_executable ? (fallback_plan && fallback_plan->requires_sysroot) : (!direct_selected && fallback_plan && fallback_plan->requires_sysroot);
   const char *fallback_linker = fallback_plan ? fallback_plan->linker_flavor : "none";
   const char *fallback_libc = fallback_plan ? fallback_plan->libc_mode : "";
   const char *fallback_sysroot_status = fallback_plan ? fallback_plan->sysroot_status : "not-required";
   ZDirectReleaseTargetFacts facts = {
-    .selected_emitter = selected_backend == Z_DIRECT_BACKEND_NONE ? "none" : (selected_executable ? z_direct_backend_exe_emitter(selected_backend) : z_direct_backend_object_emitter(selected_backend)),
+    .selected_emitter = selected_backend == Z_DIRECT_BACKEND_NONE ? "none" : (selected_executable && !linked_executable ? z_direct_backend_exe_emitter(selected_backend) : z_direct_backend_object_emitter(selected_backend)),
     .artifact_kind = direct_artifact_kind_for_emit_kind(emit_kind),
-    .linker_flavor = direct_selected ? z_direct_backend_linker_flavor(selected_backend) : fallback_linker,
-    .artifact_libc_mode = direct_selected ? "none" : fallback_libc,
+    .linker_flavor = linked_executable || !direct_selected ? fallback_linker : z_direct_backend_linker_flavor(selected_backend),
+    .artifact_libc_mode = linked_executable || !direct_selected ? fallback_libc : "none",
     .sysroot_status = artifact_requires_sysroot ? fallback_sysroot_status : (target_requires_sysroot ? "not-used-by-direct-artifact" : "not-required"),
     .direct_selected = direct_selected,
     .target_requires_sysroot = target_requires_sysroot,
