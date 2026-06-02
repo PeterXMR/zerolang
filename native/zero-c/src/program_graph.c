@@ -24,6 +24,7 @@ void z_program_graph_free(ZProgramGraph *graph) {
     free(graph->nodes[i].type_id);
     free(graph->nodes[i].effect_id);
     free(graph->nodes[i].node_hash);
+    free(graph->nodes[i].path_id);
   }
   for (size_t i = 0; i < graph->edge_len; i++) {
     free(graph->edges[i].from);

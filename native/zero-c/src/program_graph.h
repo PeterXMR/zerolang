@@ -81,6 +81,7 @@ typedef struct {
   char *type_id;
   char *effect_id;
   char *node_hash;
+  char *path_id;
   int line;
   int column;
   bool is_public;
@@ -127,6 +128,10 @@ const char *z_program_graph_validation_state_name(ZProgramGraphValidationState s
 void z_program_graph_assign_source_node_ids(ZProgramGraph *graph);
 void z_program_graph_finalize_identities(ZProgramGraph *graph);
 bool z_program_graph_node_id_valid(const char *id);
+/* Content-independent structural identity for a node: the path from the module
+ * root through its owning edges (edge kind + sibling order). Stable across
+ * content edits (unlike the content-addressed `id`/`node_hash`). Caller frees. */
+char *z_program_graph_node_path_id(const ZProgramGraph *graph, size_t node_index);
 void z_program_graph_init(ZProgramGraph *graph);
 void z_program_graph_free(ZProgramGraph *graph);
 bool z_program_graph_validate(const ZProgramGraph *graph, ZProgramGraphValidation *validation);
