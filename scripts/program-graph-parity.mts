@@ -71,6 +71,12 @@ function assertSourceGraphRoute(result, fixture, lowering = "typed-program-graph
   assert.equal(result.graph.lowering, lowering, `${fixture}: source graph lowering`);
 }
 
+function compilerCacheKey(result, name) {
+  const cache = result.compilerCaches?.find((item) => item.name === name);
+  assert(cache, `missing compiler cache ${name}`);
+  return cache.key;
+}
+
 function testSummary(result) {
   return {
     ok: result.ok,
@@ -705,6 +711,16 @@ async function assertSourceCommandGraphCompilerPath() {
   assert.equal(helloSize.generatedCBytes, 0, "source size should stay on direct backend");
   assert.equal(helloSize.cBridgeFallback, false, "source size should not use C bridge fallback");
   assert.equal(helloSize.compilerCaches[0].sourceKind, "program-graph", "source size should use graph cache identity");
+
+  const helloArtifact = await dumpGraphArtifact("examples/hello.0", "source-command-cache-key");
+  const helloGraphSize = await zeroJson(["graph", "size", "--json", "--target", "linux-musl-x64", helloArtifact]);
+  assert.equal(compilerCacheKey(helloSize, "parseTree"), compilerCacheKey(helloGraphSize, "parseTree"), "source size and graph artifact size should share graph parse cache key");
+  assert.equal(compilerCacheKey(helloSize, "checkedBody"), compilerCacheKey(helloGraphSize, "checkedBody"), "source size and graph artifact size should share graph check cache key");
+
+  const helloMem = await zeroJson(["mem", "--json", "examples/hello.0"]);
+  assertSourceGraphRoute(helloMem, "examples/hello.0");
+  assert.equal(helloMem.compilerCaches[0].sourceKind, "program-graph", "source mem should use graph cache identity");
+  assert.equal(helloMem.incrementalInvalidation.sourceKind, "program-graph", "source mem invalidation source kind");
 
   const packageCheck = await zeroJson(["check", "--json", "conformance/packages/test-app"]);
   assertSourceGraphRoute(packageCheck, "conformance/packages/test-app/src/main.0");

@@ -1211,6 +1211,10 @@ const directGraphManifestSizeJson = json(["size", "--json", "--target", "linux-m
 assertSourceGraph(directGraphManifestSizeJson, graphManifestSourcePath, "package:graph-manifest-package@0.1.0");
 assertProgramGraphCompilerInput(directGraphManifestSizeJson, graphManifestSourcePath);
 assert.equal(directGraphManifestSizeJson.sourceFile, graphManifestSourcePath);
+const directGraphManifestMemJson = json(["mem", "--json", graphManifestPackageDir]).body;
+assertSourceGraph(directGraphManifestMemJson, graphManifestSourcePath, "package:graph-manifest-package@0.1.0");
+assertProgramGraphCompilerInput(directGraphManifestMemJson, graphManifestSourcePath);
+assert.equal(directGraphManifestMemJson.sourceFile, graphManifestSourcePath);
 const directGraphManifestBuildJson = json(["build", "--json", "--target", "linux-musl-x64", "--out", directGraphManifestBuildPath, graphManifestPackageDir]).body;
 assertSourceGraph(directGraphManifestBuildJson, graphManifestSourcePath, "package:graph-manifest-package@0.1.0");
 assertProgramGraphCompilerInput(directGraphManifestBuildJson, graphManifestSourcePath);

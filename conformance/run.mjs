@@ -2123,6 +2123,12 @@ assert.match(collectionsOverlapBody.diagnostics[0].message, /append source must 
 
 const collectionsUsizeMemory = await execFileAsync(zero, ["mem", "--json", "conformance/native/pass/std-collections-usize-memory.0"]);
 const collectionsUsizeMemoryBody = JSON.parse(collectionsUsizeMemory.stdout);
+assert.equal(collectionsUsizeMemoryBody.graph.artifact, "conformance/native/pass/std-collections-usize-memory.0");
+assert.equal(collectionsUsizeMemoryBody.graph.canonicalSource, true);
+assert.match(collectionsUsizeMemoryBody.graph.graphHash, /^graph:[0-9a-f]{16}$/);
+assert.equal(collectionsUsizeMemoryBody.compilerCaches.every((item) => item.sourceKind === "program-graph" && item.graphHash === collectionsUsizeMemoryBody.graph.graphHash), true);
+assert.equal(collectionsUsizeMemoryBody.incrementalInvalidation.sourceKind, "program-graph");
+assert.equal(collectionsUsizeMemoryBody.incrementalInvalidation.changedInputs.graphArtifact, "conformance/native/pass/std-collections-usize-memory.0");
 assert.equal(collectionsUsizeMemoryBody.memoryBudgets.collectionCapacityBytes, 32);
 assert.equal(collectionsUsizeMemoryBody.collectionFacts.FixedStorage.capacityBytes, 32);
 

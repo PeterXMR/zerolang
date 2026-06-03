@@ -364,6 +364,9 @@ grep -q '"name":"std.io.bufferedWriter"' .zero/native-test/std-io-direct-size.js
 grep -q '"name":"std.io.copy"' .zero/native-test/std-io-direct-size.json
 grep -q '"name":"stdio-world"' .zero/native-test/std-io-direct-size.json
 bin/zero mem --json conformance/native/pass/std-io-direct.0 > .zero/native-test/std-io-direct-mem.json
+grep -q '"artifact":"conformance/native/pass/std-io-direct.0"' .zero/native-test/std-io-direct-mem.json
+grep -q '"sourceKind":"program-graph"' .zero/native-test/std-io-direct-mem.json
+grep -q '"graphArtifact":"conformance/native/pass/std-io-direct.0"' .zero/native-test/std-io-direct-mem.json
 grep -q '"generatedCBytes": 0' .zero/native-test/std-io-direct-mem.json
 grep -q '"cBridgeFallback": false' .zero/native-test/std-io-direct-mem.json
 grep -q '"stackBytes":' .zero/native-test/std-io-direct-mem.json
