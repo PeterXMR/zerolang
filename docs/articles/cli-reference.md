@@ -93,7 +93,7 @@ another tool needs stable fields.
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
 | `zero build --json` | Artifact path, size, selected `toolchain`, target triple, linker flavor, sysroot status, `safetyFacts`, and runtime provider facts when a helper such as hosted HTTP is linked. |
-| `zero size --json` | `profileSemantics`, `profileCatalog`, `profileBudget`, `safetyFacts`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
+| `zero size --json` | `profileSemantics`, `profileCatalog`, `profileBudget`, `safetyFacts`, `backendProfile`, `backendComparison`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
 | `zero ship --json` | A release preview with artifact names, hashes, safety facts, a checksum file, debug-symbol metadata, size report, and SBOM placeholder. |
 | `zero doctor --json` | Host checks plus `targetToolchains`, the per-target readiness matrix. |
 
@@ -189,6 +189,9 @@ external LLVM toolchain plan. Native LLVM object output and unsupported targets
 report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall back to
 direct emitters. If the LLVM artifact references Zero runtime helpers, the JSON
 build report lists the required runtime object in `objectBackend`.
+`zero size --json --backend llvm` reports LLVM size/profile metadata, including
+target triple, optimization level, retained runtime/helper facts, toolchain
+readiness, and direct-vs-LLVM comparison rows without writing a native artifact.
 
 ## Tests
 
@@ -252,7 +255,7 @@ zero graph build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direc
 zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]
 zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>
 zero doc [--json] [--target <target>] <input>
-zero size [--json] [--target <target>] [--out <artifact>] <input>
+zero size [--json] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--out <artifact>] <input>
 zero explain [--json] <diagnostic-code>
 zero fix --plan --json [--target <target>] <input>
 zero targets

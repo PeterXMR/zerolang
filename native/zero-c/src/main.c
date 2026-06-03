@@ -5063,6 +5063,12 @@ static void init_llvm_ir_build_only_diag(ZDiag *diag, const Command *command, co
   z_diag_set_backend_blocker(diag, &blocker);
 }
 
+static bool command_is_size_metadata_report(const Command *command) {
+  if (!command || !command->command) return false;
+  if (strcmp(command->command, "size") == 0) return true;
+  return strcmp(command->command, "graph") == 0 && command->kind && strcmp(command->kind, "size") == 0;
+}
+
 static bool metadata_backend_request_buildable(const Command *command, const SourceInput *input, const ZTargetInfo *target, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
@@ -5073,6 +5079,7 @@ static bool metadata_backend_request_buildable(const Command *command, const Sou
     return false;
   }
   if (z_backend_request_is_llvm(command ? command->backend : NULL, emit_kind)) {
+    if (emit == EMIT_EXE && command_is_size_metadata_report(command)) return true;
     if (emit == EMIT_EXE) {
       z_backend_init_llvm_unavailable_diag(diag, target, emit_kind, path);
       snprintf(diag->message, sizeof(diag->message), "LLVM native executable metadata is not available for this command yet");
@@ -8257,6 +8264,120 @@ static size_t helper_count_used(const HelperUseSummary *helpers) {
   return count;
 }
 
+static bool size_report_uses_llvm_backend(const Command *command) {
+  return command && command->emit == EMIT_EXE && z_backend_request_is_llvm(command->backend, "exe");
+}
+
+static long long input_compile_time_ms(const SourceInput *input) {
+  if (!input) return 0;
+  return input->resolve_ms + input->parse_ms + input->interface_ms + input->check_ms + input->lower_ms + input->codegen_ms + input->object_ms + input->link_ms;
+}
+
+static const char *direct_size_selected_emitter(const ZTargetInfo *target, const Command *command) {
+  const char *name = z_direct_backend_emitter_for_emit_kind(target, "exe", z_backend_direct_request_name(command ? command->backend : NULL));
+  return name && name[0] ? name : z_direct_backend_status(target);
+}
+
+static void append_backend_retention_json(ZBuf *buf, const SourceInput *input, const HelperUseSummary *helpers, const CapabilitySummary *caps) {
+  zbuf_appendf(buf, "{\"functionCount\":%zu,\"usedStdlibHelperCount\":%zu,\"runtimeHelperCount\":%zu,\"readonlyDataBytes\":%zu,\"stackBytes\":%zu,\"worldRuntimeShim\":%s,\"hostFsRuntimeShim\":%s}",
+               input ? input->direct_function_count : 0,
+               helper_count_used(helpers),
+               input ? input->direct_runtime_helper_count : 0,
+               input ? input->direct_readonly_data_bytes : 0,
+               input ? input->direct_stack_bytes : 0,
+               caps && caps->world ? "true" : "false",
+               caps && caps->fs ? "true" : "false");
+}
+
+static void append_llvm_lowering_status_json(ZBuf *buf, const IrProgram *ir, long long *llvm_ir_bytes_out) {
+  if (llvm_ir_bytes_out) *llvm_ir_bytes_out = -1;
+  ZBuf llvm_ir;
+  ZDiag diag = {0};
+  bool ok = ir && ir->mir_valid && z_emit_llvm_ir_from_ir(ir, &llvm_ir, &diag);
+  zbuf_appendf(buf, "{\"ok\":%s", ok ? "true" : "false");
+  if (ok) {
+    if (llvm_ir_bytes_out) *llvm_ir_bytes_out = (long long)llvm_ir.len;
+    zbuf_appendf(buf, ",\"llvmIrBytes\":%zu,\"stage\":\"ready\",\"unsupportedFeature\":\"\"", llvm_ir.len);
+    zbuf_free(&llvm_ir);
+  } else {
+    zbuf_append(buf, ",\"llvmIrBytes\":null,\"stage\":\"lower\",\"unsupportedFeature\":");
+    append_json_string(buf, ir && ir->backend_blocker.unsupported_feature[0] ? ir->backend_blocker.unsupported_feature : (diag.backend_blocker.unsupported_feature[0] ? diag.backend_blocker.unsupported_feature : "unsupported MIR"));
+  }
+  zbuf_append(buf, "}");
+}
+
+static void append_backend_profile_json(ZBuf *buf, const Command *command, const SourceInput *input, const ZTargetInfo *target, const IrProgram *ir, const HelperUseSummary *helpers, const CapabilitySummary *caps) {
+  const char *profile = command && command->profile ? command->profile : "release";
+  bool llvm = size_report_uses_llvm_backend(command);
+  zbuf_append(buf, "{\"schemaVersion\":1,\"backendFamily\":");
+  append_json_string(buf, llvm ? "llvm" : "direct");
+  zbuf_append(buf, ",\"emit\":\"exe\",\"profile\":");
+  append_json_string(buf, profile);
+  zbuf_append(buf, ",\"profileKey\":");
+  append_json_string(buf, profile_key_name(profile));
+  zbuf_append(buf, ",\"selectedEmitter\":");
+  append_json_string(buf, llvm ? "llvm-clang-exe" : direct_size_selected_emitter(target, command));
+  zbuf_append(buf, ",\"targetTriple\":");
+  append_json_string(buf, llvm ? z_llvm_target_triple(target) : (target && target->zig_target ? target->zig_target : ""));
+  zbuf_append(buf, ",\"optimizationLevel\":");
+  append_json_string(buf, llvm ? z_llvm_optimization_level(profile) : profile_codegen_optimization(profile));
+  zbuf_append(buf, ",\"fallbackPolicy\":");
+  append_json_string(buf, llvm ? "none" : "explicit-direct-never-c-bridge");
+  zbuf_append(buf, ",\"retained\":");
+  append_backend_retention_json(buf, input, helpers, caps);
+  zbuf_append(buf, ",\"compileTimeMs\":");
+  zbuf_appendf(buf, "%lld", input_compile_time_ms(input));
+  if (llvm) {
+    ZLlvmToolchainPlan plan = z_llvm_toolchain_plan(target);
+    long long llvm_ir_bytes = -1;
+    zbuf_append(buf, ",\"toolchain\":");
+    z_append_llvm_toolchain_plan_json(buf, target);
+    zbuf_appendf(buf, ",\"readiness\":{\"nativeExecutable\":%s,\"toolchainStatus\":", plan.native_executable ? "true" : "false");
+    append_json_string(buf, plan.status);
+    zbuf_append(buf, ",\"mir\":");
+    append_llvm_lowering_status_json(buf, ir, &llvm_ir_bytes);
+    zbuf_append(buf, "}");
+    zbuf_append(buf, ",\"llvmIrBytes\":");
+    if (llvm_ir_bytes >= 0) zbuf_appendf(buf, "%lld", llvm_ir_bytes);
+    else zbuf_append(buf, "null");
+  } else {
+    zbuf_append(buf, ",\"toolchain\":{\"driverKind\":\"none\",\"status\":\"direct-emitter\"},\"readiness\":{\"nativeExecutable\":true,\"toolchainStatus\":\"not-required\",\"mir\":{\"ok\":");
+    zbuf_append(buf, ir && ir->mir_valid ? "true" : "false");
+    zbuf_append(buf, ",\"stage\":\"ready\",\"unsupportedFeature\":\"\"}},\"llvmIrBytes\":null");
+  }
+  zbuf_append(buf, "}");
+}
+
+static void append_backend_comparison_row_json(ZBuf *buf, const char *id, const char *backend, const char *profile, const char *optimization, bool available, const char *status, const ZTargetInfo *target) {
+  zbuf_append(buf, "{\"id\":");
+  append_json_string(buf, id);
+  zbuf_append(buf, ",\"backendFamily\":");
+  append_json_string(buf, backend);
+  zbuf_append(buf, ",\"profile\":");
+  append_json_string(buf, profile);
+  zbuf_append(buf, ",\"optimizationLevel\":");
+  append_json_string(buf, optimization);
+  zbuf_append(buf, ",\"target\":");
+  append_json_string(buf, target && target->name ? target->name : z_host_target());
+  zbuf_appendf(buf, ",\"available\":%s,\"status\":", available ? "true" : "false");
+  append_json_string(buf, status);
+  zbuf_append(buf, ",\"compileTimeMs\":null,\"artifactBytes\":null}");
+}
+
+static void append_backend_comparison_json(ZBuf *buf, const Command *command, const ZTargetInfo *target) {
+  (void)command;
+  ZLlvmToolchainPlan llvm = z_llvm_toolchain_plan(target);
+  zbuf_append(buf, "{\"schemaVersion\":1,\"source\":\"size-profile-metadata\",\"note\":\"run pnpm run llvm:profile for measured direct and LLVM build rows\",\"rows\":[");
+  append_backend_comparison_row_json(buf, "direct-debug", "direct", "debug", "none", true, "available", target);
+  zbuf_append(buf, ", ");
+  append_backend_comparison_row_json(buf, "direct-small", "direct", "small", "size", true, "available", target);
+  zbuf_append(buf, ", ");
+  append_backend_comparison_row_json(buf, "llvm-no-opt", "llvm", "debug", z_llvm_optimization_level("debug"), llvm.native_executable, llvm.status, target);
+  zbuf_append(buf, ", ");
+  append_backend_comparison_row_json(buf, "llvm-optimized", "llvm", "small", z_llvm_optimization_level("small"), llvm.native_executable, llvm.status, target);
+  zbuf_append(buf, "]}");
+}
+
 static void append_size_breakdown_json(ZBuf *buf, const SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command, const HelperUseSummary *helpers, const CapabilitySummary *caps, long long artifact_bytes) {
   const char *profile = command && command->profile ? command->profile : "release";
   zbuf_append(buf, "{\"schemaVersion\":1,\"profile\":");
@@ -9007,6 +9128,7 @@ static bool write_size_metadata_artifact(const Command *command, SourceInput *in
   if (artifact_path) *artifact_path = NULL;
   if (artifact_bytes) *artifact_bytes = -1;
   if (!command || !command->out) return true;
+  bool llvm_report = size_report_uses_llvm_backend(command);
 
   char *base_artifact_path = z_strdup(command->out); char *path = apply_target_suffix(base_artifact_path, target);
   free(base_artifact_path);
@@ -9014,10 +9136,15 @@ static bool write_size_metadata_artifact(const Command *command, SourceInput *in
   ZBuf artifact; zbuf_init(&artifact);
   zbuf_append(&artifact, "{\n  \"schemaVersion\": 1,\n  \"kind\": \"zero-size-metadata\",\n  \"sourceFile\": "); append_json_string(&artifact, input && input->source_file ? input->source_file : "");
   zbuf_append(&artifact, ",\n  \"target\": "); append_json_string(&artifact, target ? target->name : z_host_target());
+  zbuf_append(&artifact, ",\n  \"backendFamily\": "); append_json_string(&artifact, llvm_report ? "llvm" : "direct");
+  if (llvm_report) {
+    zbuf_append(&artifact, ",\n  \"llvmTargetTriple\": "); append_json_string(&artifact, z_llvm_target_triple(target));
+    zbuf_append(&artifact, ",\n  \"llvmOptimizationLevel\": "); append_json_string(&artifact, z_llvm_optimization_level(command && command->profile ? command->profile : "release"));
+  }
   zbuf_appendf(&artifact, ",\n  \"generatedCBytes\": 0,\n  \"loweredIrBytes\": %zu\n}\n", input ? input->lowered_ir_bytes : 0);
 
   long long phase_started = now_ms();
-  if (input) input->emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(input, target, command->profile, "direct-size-metadata"));
+  if (input) input->emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(input, target, command->profile, llvm_report ? "llvm-size-metadata" : "direct-size-metadata"));
   bool wrote = z_write_file(path, artifact.data, diag);
   if (input) { input->object_ms = now_ms() - phase_started; input->link_ms = 0; }
   if (wrote && artifact_bytes) *artifact_bytes = file_size_or_negative(path);
@@ -9056,7 +9183,19 @@ static void append_size_report_front_json(ZBuf *buf, const Command *command, Sou
   zbuf_append(buf, ",\n  \"target\": "); append_json_string(buf, target ? target->name : z_host_target());
   zbuf_append(buf, ",\n  \"hostTarget\": "); append_json_string(buf, z_host_target());
   zbuf_append(buf, ",\n  \"profile\": "); append_json_string(buf, profile);
-  zbuf_appendf(buf, ",\n  \"targetSupport\": {\"fsAvailable\": %s},\n  \"requiresCapabilities\": ", z_target_has_capability(target, "fs") ? "true" : "false");
+  bool llvm_report = size_report_uses_llvm_backend(command);
+  ZLlvmToolchainPlan llvm_plan = z_llvm_toolchain_plan(target);
+  zbuf_appendf(buf, ",\n  \"targetSupport\": {\"fsAvailable\": %s, \"backendFamily\": ", z_target_has_capability(target, "fs") ? "true" : "false");
+  append_json_string(buf, llvm_report ? "llvm" : "direct");
+  zbuf_append(buf, ", \"fallbackPolicy\": ");
+  append_json_string(buf, llvm_report ? "none" : "explicit-direct-never-c-bridge");
+  if (llvm_report) {
+    zbuf_append(buf, ", \"llvmStatus\": ");
+    append_json_string(buf, llvm_plan.status);
+    zbuf_append(buf, ", \"llvmTargetTriple\": ");
+    append_json_string(buf, llvm_plan.target_triple);
+  }
+  zbuf_append(buf, "},\n  \"requiresCapabilities\": ");
   append_capability_json_array(buf, caps);
   zbuf_append(buf, ",\n  \"runtimeImportAudit\": "); append_runtime_import_audit_json(buf, ir, input, target);
   zbuf_append(buf, ",\n  \"portableRuntime\": "); append_portable_runtime_json(buf, ir, input, target, caps);
@@ -9069,14 +9208,16 @@ static void append_size_report_front_json(ZBuf *buf, const Command *command, Sou
   zbuf_append(buf, ",\n  \"runtimeShims\": "); append_runtime_shims_json_ex(buf, NULL, caps, program_uses_bounds_checked_access(program));
 }
 
-static void append_size_report_back_json(ZBuf *buf, const Command *command, SourceInput *input, const Program *program, const ZTargetInfo *target, const HelperUseSummary *used_helpers, const CapabilitySummary *caps, const GraphSizeSource *graph_source, const char *artifact_path, long long artifact_bytes) {
+static void append_size_report_back_json(ZBuf *buf, const Command *command, SourceInput *input, const Program *program, const ZTargetInfo *target, const IrProgram *ir, const HelperUseSummary *used_helpers, const CapabilitySummary *caps, const GraphSizeSource *graph_source, const char *artifact_path, long long artifact_bytes) {
   const char *profile = command && command->profile ? command->profile : "release";
   const char *graph_hash = graph_source && graph_source->graph ? graph_source->graph->graph_hash : (graph_source && graph_source->artifact_source ? graph_source->artifact_source->graph_hash : NULL);
   const char *graph_artifact = graph_source && graph_source->artifact ? graph_source->artifact : (graph_source && graph_source->artifact_source ? graph_source->artifact_source->artifact : NULL);
   const char *graph_lowering = graph_source && graph_source->lowering ? graph_source->lowering : (graph_source && graph_source->artifact_source ? graph_source->artifact_source->lowering : NULL);
-  zbuf_appendf(buf, ",\n  \"sections\": [{\"name\":\"lowered-ir\",\"kind\":\"ir\",\"bytes\":%zu}, {\"name\":\"direct-size-metadata\",\"kind\":\"metadata\",\"bytes\":0}", input ? input->lowered_ir_bytes : 0);
+  zbuf_appendf(buf, ",\n  \"sections\": [{\"name\":\"lowered-ir\",\"kind\":\"ir\",\"bytes\":%zu}, {\"name\":\"%s-size-metadata\",\"kind\":\"metadata\",\"bytes\":0}", input ? input->lowered_ir_bytes : 0, size_report_uses_llvm_backend(command) ? "llvm" : "direct");
   if (artifact_bytes >= 0) zbuf_appendf(buf, ", {\"name\":\"artifact\",\"kind\":\"metadata\",\"bytes\":%lld}", artifact_bytes);
   zbuf_append(buf, "],\n  \"topLargestEmittedHelpers\": "); append_top_emitted_helpers_json(buf, used_helpers);
+  zbuf_append(buf, ",\n  \"backendProfile\": "); append_backend_profile_json(buf, command, input, target, ir, used_helpers, caps);
+  zbuf_append(buf, ",\n  \"backendComparison\": "); append_backend_comparison_json(buf, command, target);
   zbuf_append(buf, ",\n  \"sizeBreakdown\": "); append_size_breakdown_json(buf, input, program, target, command, used_helpers, caps, artifact_bytes);
   zbuf_append(buf, ",\n  \"retentionReasons\": "); append_retention_reasons_json(buf, input, program, used_helpers, profile);
   zbuf_append(buf, ",\n  \"optimizationHints\": "); append_optimization_hints_json(buf, input, used_helpers, caps, profile);
@@ -9092,7 +9233,9 @@ static void append_size_report_back_json(ZBuf *buf, const Command *command, Sour
   zbuf_append(buf, ",\n  \"profileSemantics\": "); append_profile_semantics_json(buf, profile);
   zbuf_append(buf, ",\n  \"safetyFacts\": "); append_safety_facts_json(buf, profile);
   zbuf_append(buf, ",\n  \"profileCatalog\": "); append_profile_catalog_json(buf);
-  zbuf_append(buf, ",\n  \"objectBackend\": "); append_object_backend_json(buf, input, target, command, "size");
+  zbuf_append(buf, ",\n  \"objectBackend\": ");
+  if (size_report_uses_llvm_backend(command)) z_append_llvm_native_backend_json(buf, input, target, "exe");
+  else append_object_backend_json(buf, input, target, command, "size");
   zbuf_append(buf, "\n}\n");
 }
 
@@ -9113,7 +9256,7 @@ static int run_size_report_command(const Command *command, SourceInput *input, P
   ZBuf json;
   zbuf_init(&json);
   append_size_report_front_json(&json, command, input, program, target, ir, &caps, &used_helpers, graph_source);
-  append_size_report_back_json(&json, command, input, program, target, &used_helpers, &caps, graph_source, artifact_path, artifact_bytes);
+  append_size_report_back_json(&json, command, input, program, target, ir, &used_helpers, &caps, graph_source, artifact_path, artifact_bytes);
   fputs(json.data, stdout);
   zbuf_free(&json);
   free(artifact_path);
@@ -11854,7 +11997,7 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
   }
 
   phase_started = now_ms();
-  bool linked = z_llvm_link_executable(llvm_file, runtime_object_file, exe_file, &llvm_toolchain, target, links_zero_runtime, &diag);
+  bool linked = z_llvm_link_executable(llvm_file, runtime_object_file, exe_file, &llvm_toolchain, target, command->profile, links_zero_runtime, &diag);
   if (linked) chmod(exe_file, 0755);
   input->link_ms = now_ms() - phase_started;
   remove(llvm_file);

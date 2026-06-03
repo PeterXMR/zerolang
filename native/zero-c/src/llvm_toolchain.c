@@ -96,6 +96,15 @@ static bool llvm_native_target_supported(const ZTargetInfo *target) {
   return target->os && (strcmp(target->os, "macos") == 0 || strcmp(target->os, "linux") == 0);
 }
 
+const char *z_llvm_optimization_level(const char *profile) {
+  const char *value = profile && profile[0] ? profile : "release";
+  if (strcmp(value, "debug") == 0 || strcmp(value, "dev") == 0) return "-O0";
+  if (strcmp(value, "fast") == 0 || strcmp(value, "release-fast") == 0) return "-O2";
+  if (strcmp(value, "audit") == 0) return "-O1";
+  if (strcmp(value, "tiny") == 0 || strcmp(value, "small") == 0 || strcmp(value, "release-small") == 0 || strcmp(value, "release") == 0) return "-Oz";
+  return "-Oz";
+}
+
 ZLlvmToolchainPlan z_llvm_toolchain_plan(const ZTargetInfo *target) {
   const char *env = getenv("ZERO_LLVM_CLANG");
   bool env_selected = env && env[0];
@@ -182,17 +191,20 @@ bool z_llvm_native_executable_ready(const ZTargetInfo *target, const char *path,
   return false;
 }
 
-bool z_llvm_link_executable(const char *llvm_file, const char *runtime_object_file, const char *exe_file, const ZToolchainPlan *plan, const ZTargetInfo *target, bool links_zero_runtime, ZDiag *diag) {
+bool z_llvm_link_executable(const char *llvm_file, const char *runtime_object_file, const char *exe_file, const ZToolchainPlan *plan, const ZTargetInfo *target, const char *profile, bool links_zero_runtime, ZDiag *diag) {
+  ZBuf pre_flags;
+  zbuf_init(&pre_flags);
+  zbuf_append(&pre_flags, "-Wno-override-module ");
+  zbuf_append(&pre_flags, z_llvm_optimization_level(profile));
 #if defined(__linux__)
-  const char *pre_flags = "-Wno-override-module -no-pie";
-#else
-  const char *pre_flags = "-Wno-override-module";
+  zbuf_append(&pre_flags, " -no-pie");
 #endif
   const char *object_files[2] = {0};
   size_t object_count = 0;
   if (llvm_file && llvm_file[0]) object_files[object_count++] = llvm_file;
   if (runtime_object_file && runtime_object_file[0]) object_files[object_count++] = runtime_object_file;
-  bool ok = z_toolchain_link_objects(plan, target, object_files, object_count, exe_file, pre_flags, "2>/dev/null");
+  bool ok = z_toolchain_link_objects(plan, target, object_files, object_count, exe_file, pre_flags.data ? pre_flags.data : "-Wno-override-module", "2>/dev/null");
+  zbuf_free(&pre_flags);
   if (!ok && diag) {
     diag->code = 2004;
     diag->line = 1;

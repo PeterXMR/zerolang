@@ -19,15 +19,19 @@ direct emitter. Direct emitter names such as `zero-elf64` remain exact direct
 backend requests.
 
 `llvm` is a known backend family. It can emit deterministic textual LLVM IR
-when selected with `--backend llvm --emit llvm-ir`. Native LLVM object and
-executable artifacts are not buildable until an LLVM toolchain path is wired.
-Unsupported LLVM artifact requests must report a structured backend blocker;
-they must not fall back to direct emitters.
+when selected with `--backend llvm --emit llvm-ir`. Native LLVM executable
+artifacts are buildable only for supported host targets with a ready clang
+toolchain. Native LLVM object output and unsupported targets must report a
+structured backend blocker; they must not fall back to direct emitters.
 
 Textual LLVM IR artifacts that reference Zero runtime helpers must report that
 dependency in `objectBackend.linking.targetLibraries` and
 `objectBackend.linkerPlan.staticLibraries`. Emitting the `.ll` file still does
 not compile or link the runtime object.
+
+`zero size --backend llvm` is a metadata report, not a build fallback. It may
+report LLVM target triple, optimization level, retained runtime/helper facts,
+and direct-vs-LLVM comparison rows without writing a native artifact.
 
 Unknown backend names are command errors. Known-but-unavailable backend names
 are buildability errors.
@@ -89,9 +93,8 @@ backend blockers. Code generation invariant failures remain `CGEN004`.
 reports the default family, known families, currently available families, and
 the no-fallback policy.
 
-LLVM facts may claim textual IR emission. They must not claim native target
-support until Zero can build the selected object or executable artifact through
-the LLVM path for that target.
+LLVM facts may claim textual IR emission and host executable output only when
+Zero can build the selected artifact through the LLVM path for that target.
 
 ## Fallback Policy
 
