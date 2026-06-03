@@ -1,5 +1,7 @@
 #include "program_graph_reconcile.h"
 
+#include "program_graph_source_map.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,20 +199,6 @@ void z_program_graph_reconcile_summary(const ZProgramGraph *base, const ZProgram
   }
 }
 
-static void reconcile_append_source_range_json(ZBuf *buf, const ZProgramGraphNode *node, const char *fallback_path) {
-  const char *path = node && node->path && node->path[0] ? node->path : (fallback_path ? fallback_path : "");
-  int line = node && node->line > 0 ? node->line : 1;
-  int column = node && node->column > 0 ? node->column : 1;
-  zbuf_append(buf, "{\"path\":");
-  reconcile_json_string(buf, path);
-  zbuf_appendf(buf,
-               ",\"start\":{\"line\":%d,\"column\":%d},\"end\":{\"line\":%d,\"column\":%d},\"columnUnit\":\"utf8-byte\"}",
-               line,
-               column,
-               line,
-               column + 1);
-}
-
 static void reconcile_append_decision_json(ZBuf *buf,
                                            const char *status,
                                            const ZProgramGraphNode *before,
@@ -232,7 +220,7 @@ static void reconcile_append_decision_json(ZBuf *buf,
   zbuf_append(buf, ",\"afterHash\":");
   reconcile_json_string(buf, after ? after->node_hash : "");
   zbuf_append(buf, ",\"sourceRange\":");
-  reconcile_append_source_range_json(buf, after ? after : before, path);
+  z_program_graph_append_source_range_json(buf, after ? after : before, path);
   zbuf_append(buf, "}");
 }
 

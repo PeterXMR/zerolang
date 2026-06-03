@@ -146,7 +146,10 @@ async function assertCommandStateContracts() {
   const sourceMap = await zeroJson(["graph", "source-map", "--json", "examples/hello.0"]);
   assert.equal(sourceMap.ok, true, "graph source-map should succeed");
   assert.equal(sourceMap.canonicalSource, true, "graph source-map should report canonical source input");
-  assert(sourceMap.mappings.some((mapping) => mapping.kind === "Function" && mapping.name === "main" && mapping.sourceRange.path === "examples/hello.0"), "graph source-map should map function nodes to source ranges");
+  const mainMapping = sourceMap.mappings.find((mapping) => mapping.kind === "Function" && mapping.name === "main");
+  assert(mainMapping && mainMapping.sourceRange.path === "examples/hello.0", "graph source-map should map function nodes to source ranges");
+  assert.deepEqual(mainMapping.sourceRange.start, { line: 1, column: 8 }, "graph source-map should start function ranges at the name token");
+  assert.deepEqual(mainMapping.sourceRange.end, { line: 1, column: 12 }, "graph source-map should end function ranges at the name token");
   assert.equal(await zeroText(["graph", "source-map", "examples/hello.0"]), `program graph source map ok: ${sourceMap.counts.mappings} mappings\n`, "graph source-map text output");
 }
 
@@ -499,6 +502,9 @@ async function assertSourceEditReconcile() {
   assert.equal(edited.identity.ambiguous, 0, "literal edit should not be ambiguous");
   assert.equal(edited.graphPatch.available, true, "literal edit should produce a graph patch");
   assert.match(edited.graphPatch.text, /set node="#expr_[^"]+" field="value"/, "literal edit patch should target a graph node");
+  const literalDecision = edited.decisions.find((decision) => decision.status === "edited" && decision.kind === "Literal");
+  assert.deepEqual(literalDecision?.sourceRange.start, { line: 6, column: 27 }, "reconcile should map edited literal decisions to the source token");
+  assert.deepEqual(literalDecision?.sourceRange.end, { line: 6, column: 47 }, "reconcile should include the full edited literal token");
   assert.equal(await zeroText(["graph", "reconcile", baseArtifact, "--source", fixture]), "program graph reconcile ok\n", "reconcile text output");
 
   await writeFile(fixture, original.replace("\npub fn main", "\nfn appendedHelper() -> i32 {\n    return 2\n}\n\npub fn main"));

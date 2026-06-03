@@ -885,7 +885,10 @@ assert.equal(zero(["graph", "validate", graphDumpPath]).stdout, "program graph o
 const graphSourceMapJson = json(["graph", "source-map", "--json", "examples/hello.0"]).body;
 assert.equal(graphSourceMapJson.ok, true);
 assert.equal(graphSourceMapJson.graphHash, graphDumpJson.graphHash);
-assert(graphSourceMapJson.mappings.some((mapping) => mapping.nodeId === graphMainFunctionNode.id && mapping.sourceRange.path === "examples/hello.0"));
+const graphMainSourceMapping = graphSourceMapJson.mappings.find((mapping) => mapping.nodeId === graphMainFunctionNode.id);
+assert(graphMainSourceMapping && graphMainSourceMapping.sourceRange.path === "examples/hello.0");
+assert.deepEqual(graphMainSourceMapping.sourceRange.start, { line: 1, column: 8 });
+assert.deepEqual(graphMainSourceMapping.sourceRange.end, { line: 1, column: 12 });
 assert.equal(zero(["graph", "source-map", "examples/hello.0"]).stdout, `program graph source map ok: ${graphSourceMapJson.counts.mappings} mappings\n`);
 const graphSourceMapOutJson = json(["graph", "source-map", "--json", "--out", graphSourceMapOutPath, "examples/hello.0"], { allowFailure: true });
 assert.notEqual(graphSourceMapOutJson.code, 0);
@@ -902,6 +905,9 @@ assert.equal(graphReconcileJson.base.graphHash, graphReconcileBaseJson.graphHash
 assert.equal(graphReconcileJson.identity.ambiguous, 0);
 assert.equal(graphReconcileJson.graphPatch.available, true);
 assert.match(graphReconcileJson.graphPatch.text, /set node="#expr_[^"]+" field="value"/);
+const graphReconcileLiteralDecision = graphReconcileJson.decisions.find((decision) => decision.status === "edited" && decision.kind === "Literal");
+assert.deepEqual(graphReconcileLiteralDecision?.sourceRange.start, { line: 2, column: 27 });
+assert.deepEqual(graphReconcileLiteralDecision?.sourceRange.end, { line: 2, column: 51 });
 assert.equal(zero(["graph", "reconcile", graphReconcileBasePath, "--source", graphReconcileSourcePath]).stdout, "program graph reconcile ok\n");
 const graphReconcileMissingSource = json(["graph", "reconcile", "--json", graphReconcileBasePath], { allowFailure: true });
 assert.notEqual(graphReconcileMissingSource.code, 0);
