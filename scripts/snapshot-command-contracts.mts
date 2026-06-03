@@ -11,11 +11,12 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 }
 
 const outDir = ".zero/command-contracts";
+const execMaxBuffer = 16 * 1024 * 1024;
 mkdirSync(outDir, { recursive: true });
 
 function zero(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
   try {
-    const stdout = execFileSync("bin/zero", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
+    const stdout = execFileSync("bin/zero", args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
     return { code: 0, stdout };
   } catch (error) {
     if (!options.allowFailure) throw error;

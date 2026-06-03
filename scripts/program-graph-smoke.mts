@@ -24,6 +24,7 @@ try {
     "native/zero-c/src/program_graph_node_id.c",
     "native/zero-c/src/program_graph_format.c",
     "native/zero-c/src/program_graph_resolve.c",
+    "native/zero-c/src/program_graph_semantics.c",
     "native/zero-c/src/program_graph_validate.c",
     "native/zero-c/src/std_sig.c",
     "native/zero-c/src/std_source.c",

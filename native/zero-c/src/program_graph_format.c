@@ -1,6 +1,7 @@
 #include "program_graph_format.h"
 #include "program_graph_import.h"
 #include "program_graph_resolve.h"
+#include "program_graph_semantics.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -724,6 +725,8 @@ void z_program_graph_append_json(ZBuf *buf, const ZProgramGraph *graph, const ZP
   }
   zbuf_append(buf, "],\"resolution\":");
   z_program_graph_append_resolution_json(buf, graph);
+  zbuf_append(buf, ",\"semantics\":");
+  z_program_graph_append_semantics_json(buf, graph);
   zbuf_append(buf, "}");
 }
 
