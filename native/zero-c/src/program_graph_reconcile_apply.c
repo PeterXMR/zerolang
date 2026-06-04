@@ -220,6 +220,7 @@ static size_t identity_count_edited_base_id_candidates(IdentityContext *context,
   if (!identity_id_base(base_id, base, sizeof(base))) return 0;
   size_t count = 0;
   for (size_t i = 0; context && i < context->edited->node_len; i++) {
+    if (context->edited_matched[i]) continue;
     char edited_base[80];
     if (!identity_id_base(context->edited->nodes[i].id, edited_base, sizeof(edited_base))) continue;
     if (!identity_text_eq(base, edited_base)) continue;

@@ -1153,6 +1153,80 @@ const identityRepoGraphSyncProjection = json(["graph", "sync", "--from-graph", "
 assert.equal(identityRepoGraphSyncProjection.code, 0);
 assert.deepEqual(identityRepoGraphSyncProjection.body.changedPaths, []);
 assert.equal(readFileSync(identityRepoGraphSource, "utf8"), identityRepoGraphSourceAfterSync);
+const deleteRepoGraphRoot = join("/tmp", `zero-repo-graph-delete-${process.pid}`);
+const deleteRepoGraphSource = join(deleteRepoGraphRoot, "main.0");
+const deleteRepoGraphStore = join(deleteRepoGraphRoot, "zero.graph");
+rmSync(deleteRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(deleteRepoGraphRoot, { recursive: true });
+const deleteRepoGraphOriginal = `fn alpha() -> i32 {
+    return 1
+}
+
+fn beta() -> i32 {
+    return 2
+}
+
+fn gamma() -> i32 {
+    return 3
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("delete ok\\n")
+}
+`;
+writeFileSync(deleteRepoGraphSource, deleteRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", deleteRepoGraphSource]);
+const deleteRepoGraphStoreBefore = readFileSync(deleteRepoGraphStore, "utf8");
+const deleteRepoGraphAlphaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"alpha"/m)?.[1];
+const deleteRepoGraphBetaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"beta"/m)?.[1];
+const deleteRepoGraphGammaId = deleteRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"gamma"/m)?.[1];
+assert(deleteRepoGraphAlphaId);
+assert(deleteRepoGraphBetaId);
+assert(deleteRepoGraphGammaId);
+writeFileSync(
+  deleteRepoGraphSource,
+  deleteRepoGraphOriginal.replace(
+    `\nfn beta() -> i32 {
+    return 2
+}
+`,
+    "",
+  ),
+);
+const deleteRepoGraphSync = json(["graph", "sync", "--from-source", "--json", deleteRepoGraphSource]);
+assert.equal(deleteRepoGraphSync.code, 0);
+assert.equal(deleteRepoGraphSync.body.repositoryGraph.syncState, "clean");
+const deleteRepoGraphStoreAfter = readFileSync(deleteRepoGraphStore, "utf8");
+assert(deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphAlphaId} Function name:"alpha"`));
+assert(deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphGammaId} Function name:"gamma"`));
+assert(!deleteRepoGraphStoreAfter.includes(`node ${deleteRepoGraphBetaId} Function name:"beta"`));
+const renameRepoGraphRoot = join("/tmp", `zero-repo-graph-rename-${process.pid}`);
+const renameRepoGraphSource = join(renameRepoGraphRoot, "main.0");
+const renameRepoGraphStore = join(renameRepoGraphRoot, "zero.graph");
+rmSync(renameRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(renameRepoGraphRoot, { recursive: true });
+const renameRepoGraphOriginal = `fn alpha() -> i32 {
+    return 1
+}
+
+fn beta() -> i32 {
+    return 2
+}
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("rename ok\\n")
+}
+`;
+writeFileSync(renameRepoGraphSource, renameRepoGraphOriginal);
+json(["graph", "sync", "--from-source", "--json", renameRepoGraphSource]);
+const renameRepoGraphStoreBefore = readFileSync(renameRepoGraphStore, "utf8");
+const renameRepoGraphBetaId = renameRepoGraphStoreBefore.match(/^node (#[^ ]+) Function name:"beta"/m)?.[1];
+assert(renameRepoGraphBetaId);
+writeFileSync(renameRepoGraphSource, renameRepoGraphOriginal.replace("fn beta()", "fn gamma()"));
+const renameRepoGraphSync = json(["graph", "sync", "--from-source", "--json", renameRepoGraphSource]);
+assert.equal(renameRepoGraphSync.code, 0);
+assert.equal(renameRepoGraphSync.body.repositoryGraph.syncState, "clean");
+assert(readFileSync(renameRepoGraphStore, "utf8").includes(`node ${renameRepoGraphBetaId} Function name:"gamma"`));
 const ambiguousRepoGraphRoot = join("/tmp", `zero-repo-graph-ambiguous-${process.pid}`);
 const ambiguousRepoGraphSource = join(ambiguousRepoGraphRoot, "main.0");
 const ambiguousRepoGraphStore = join(ambiguousRepoGraphRoot, "zero.graph");
