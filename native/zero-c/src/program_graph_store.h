@@ -11,6 +11,10 @@ typedef struct {
   char **source_paths;
   size_t source_path_len;
   size_t source_path_cap;
+  char **projection_paths;
+  char **projection_texts;
+  size_t projection_len;
+  size_t projection_cap;
   ZProgramGraph graph;
 } ZProgramGraphStore;
 
@@ -24,5 +28,7 @@ bool z_program_graph_store_load_for_input(const char *input, ZProgramGraphStore 
 bool z_program_graph_store_save_path(const char *path, const ZProgramGraph *graph, ZDiag *diag);
 bool z_program_graph_store_save_for_input(const char *input, const ZProgramGraph *graph, ZProgramGraphStore *out, ZDiag *diag);
 bool z_program_graph_store_graph_matches_source(const ZProgramGraphStore *store, const ZProgramGraph *source_graph);
+bool z_program_graph_store_source_path_is_local(const char *path);
+const char *z_program_graph_store_projection_text(const ZProgramGraphStore *store, const char *path);
 
 #endif
