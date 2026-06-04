@@ -44,7 +44,6 @@ zero graph view --out .zero/out/hello.view.0 .zero/out/hello.program-graph
 zero graph source-map --json examples/hello.0
 zero graph reconcile --json .zero/out/hello.program-graph --source examples/hello.0
 zero graph status --json .
-zero graph verify-sync --json .
 zero graph check --json .zero/out/hello.program-graph
 zero graph size --json .zero/out/hello.program-graph
 zero graph build --json --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph

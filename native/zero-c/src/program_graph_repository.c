@@ -62,18 +62,23 @@ static char *repo_find_root(const char *input) {
   if (repo_ends_with(input, "/zero.json") || strcmp(input, "zero.json") == 0) cursor = repo_dirname(input);
   else if (repo_path_is_dir(input)) cursor = z_strdup(input);
   else cursor = repo_dirname(input);
+  char *fallback = cursor && cursor[0] ? z_strdup(cursor) : z_strdup(".");
 
   while (cursor && cursor[0]) {
     char *manifest = repo_join_path(cursor, "zero.json");
     bool found = repo_path_is_file(manifest);
     free(manifest);
-    if (found) return cursor;
+    if (found) {
+      free(fallback);
+      return cursor;
+    }
     char *parent = repo_parent_dir(cursor);
     if (!parent) break;
     free(cursor);
     cursor = parent;
   }
-  return cursor && cursor[0] ? cursor : z_strdup(".");
+  free(cursor);
+  return fallback;
 }
 
 static RepositoryGraphState repo_graph_state(const char *input) {

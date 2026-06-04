@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
   console.error("command contract snapshots emit native test artifacts; run `pnpm run command-contracts` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
@@ -667,6 +668,14 @@ assert.equal(repoGraphStatus.contract.commands.verifySync.writes, false);
 assert.equal(repoGraphStatus.contract.commands.syncFromSource.writes, true);
 assert.equal(repoGraphStatus.contract.commands.syncFromGraph.writes, true);
 assert.deepEqual(repoGraphStatus.repairCommands, []);
+const standaloneRepoGraphRoot = join(tmpdir(), `zero-repo-graph-contract-${process.pid}`);
+const standaloneRepoGraphSource = join(standaloneRepoGraphRoot, "standalone.0");
+rmSync(standaloneRepoGraphRoot, { force: true, recursive: true });
+mkdirSync(standaloneRepoGraphRoot, { recursive: true });
+writeFileSync(standaloneRepoGraphSource, readFileSync("examples/hello.0", "utf8"));
+const standaloneRepoGraphStatus = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]).body;
+assert.equal(standaloneRepoGraphStatus.repositoryGraph.root, resolve(standaloneRepoGraphRoot));
+assert.equal(standaloneRepoGraphStatus.repositoryGraph.storePath, join(resolve(standaloneRepoGraphRoot), "zero.graph"));
 const repoGraphVerify = json(["graph", "verify-sync", "--json", "."], { allowFailure: true });
 assert.notEqual(repoGraphVerify.code, 0);
 assert.equal(repoGraphVerify.body.ok, false);
