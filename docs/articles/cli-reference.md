@@ -192,17 +192,19 @@ valid ProgramGraph patch text.
 Removed backend flags report `BLD003`. Use direct emitters; the removed C
 backend is not a compatibility path.
 
-`direct` is the default backend family. `llvm` is an explicit backend family.
-Use `--backend llvm --emit llvm-ir` to write a `.ll` artifact. On a supported
-host with `clang`, `zero build --backend llvm --emit exe` and
+`direct` is the default backend family. `llvm` is an explicit experimental
+backend family. It is not default eligible, release eligible, or accepted by
+`zero ship`; direct emitters remain the supported release path. Use
+`--backend llvm --emit llvm-ir` to write a `.ll` artifact. On a supported host
+with `clang`, `zero build --backend llvm --emit exe` and
 `zero run --backend llvm` compile that IR into a native executable through an
 external LLVM toolchain plan. LLVM lowering currently supports scalar code,
 direct calls, branches, loops, primitive fixed arrays, byte views, readonly
 strings, and primitive `std.mem` helpers. Native LLVM object output,
-unsupported targets, and unsupported MIR constructs report `BLD004` with
-`backendBlocker.backend: "llvm"` and do not fall back to direct emitters. If
-the LLVM artifact references Zero runtime helpers, the JSON build report lists
-the required runtime object in `objectBackend`.
+unsupported targets, unsupported MIR constructs, and `zero ship --backend llvm`
+report `BLD004` with `backendBlocker.backend: "llvm"` and do not fall back to
+direct emitters. If the LLVM artifact references Zero runtime helpers, the JSON
+build report lists the required runtime object in `objectBackend`.
 `zero size --json --backend llvm` reports LLVM size/profile metadata, including
 target triple, optimization level, retained runtime/helper facts, toolchain
 readiness, and direct-vs-LLVM comparison rows without writing a native artifact.
