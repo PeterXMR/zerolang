@@ -375,9 +375,9 @@ bool z_program_graph_projection_sources_match(const ZProgramGraphStore *store, b
 }
 
 bool z_program_graph_projection_write_sources(const ZProgramGraphStore *store, ZProgramGraphProjection *projection, ZDiag *diag) {
+  if (projection) z_program_graph_projection_init(projection);
   if (!store || store->projection_len == 0) return z_program_graph_projection_sources_match(store, NULL, diag);
   if (!z_program_graph_projection_store_matches_graph(store, diag)) return false;
-  if (projection) z_program_graph_projection_init(projection);
   ProjectionWritePlan plan = {0};
   for (size_t i = 0; i < store->projection_len; i++) {
     const char *source_path = store->projection_paths[i];
