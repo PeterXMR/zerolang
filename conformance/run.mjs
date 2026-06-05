@@ -39,6 +39,26 @@ function execFileAsync(file, args = [], options = {}) {
   });
 }
 
+function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "available") {
+  assert.equal(body.graphCompiler.input, "repository-graph-store");
+  assert.equal(body.graphCompiler.graphStoreLoaded, true);
+  assert.equal(body.graphCompiler.sourceProjectionRequiredForCompilerInput, false);
+  assert.equal(body.graphCompiler.sourceProjectionState, sourceProjectionState);
+  assert.equal(body.graphCompiler.legacyProgramAstReconstructed, false);
+  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, false);
+  assert.equal(body.graphCompiler.graphNativeCheckerUsed, true);
+  assert.equal(body.graphCompiler.graphHirToMirUsed, false);
+  assert.equal(body.graphCompiler.astToMirFallbackUsed, false);
+  assert.equal(body.graphCompiler.unsupportedGraphFacts.count, 0);
+  assert.equal(body.graphCompiler.resolution.ok, true);
+  assert.equal(body.graphCompiler.resolution.state, "resolved-graph-facts");
+  assert.equal(body.graphCompiler.checking.ok, true);
+  assert.equal(body.graphCompiler.checking.authority, "ProgramGraphStore");
+  assert.equal(body.graphCompiler.checking.sourceTextAuthority, false);
+  assert.equal(body.graphCompiler.semanticFacts.state, "typed-facts");
+  assert.equal(body.graphCompiler.semanticFacts.ok, true);
+}
+
 function assertLlvmPhiPredecessors(ir) {
   const predecessors = new Map();
   const phiEdges = [];
@@ -3506,7 +3526,8 @@ await mkdir(programGraphSourceFixtureDriftPackage, { recursive: true });
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.graph`, programGraphSourceFixtureStoreText);
 await writeFile(`${programGraphSourceFixtureDriftPackage}/hello.0`, programGraphSourceFixtureText.replace("hello from zero", "hello from drift"));
-const programGraphSourceFixtureDriftCheck = await execFileAsync(zero, ["check", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
+const programGraphSourceFixtureDriftCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixtureDriftPackage])).stdout);
+const programGraphSourceFixtureDriftVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
 await execFileAsync(zero, ["graph", "dump", "--out", programGraphRichPath, "conformance/native/pass/open-ended-slices.0"]);
 await execFileAsync(zero, ["graph", "view", "--out", programGraphRichViewPath, programGraphRichPath]);
 const programGraphRichView = await readFile(programGraphRichViewPath, "utf8");
@@ -3655,12 +3676,16 @@ assert.equal(programGraphSourceFixturePackageCheckJson.graph.artifact, programGr
 assert.equal(programGraphSourceFixturePackageCheckJson.graph.canonicalSource, false);
 assert.equal(programGraphSourceFixturePackageCheckJson.graph.moduleIdentity, "package:program-graph-fixture@0.1.0");
 assert.match(programGraphSourceFixturePackageCheckJson.graph.graphHash, /^graph:[0-9a-f]{16}$/);
-assert.equal(programGraphSourceFixturePackageCheckJson.graph.lowering, "typed-program-graph-mir");
+assert.equal(programGraphSourceFixturePackageCheckJson.graph.lowering, "graph-native-check");
+assertRepositoryGraphNativeCheck(programGraphSourceFixturePackageCheckJson);
 assert.equal(programGraphSourceFixturePackageRun.stdout, "hello from zero\n");
-assert.notEqual(programGraphSourceFixtureDriftCheck.code, 0);
-const programGraphSourceFixtureDriftBody = JSON.parse(programGraphSourceFixtureDriftCheck.stdout);
+assert.equal(programGraphSourceFixtureDriftCheck.ok, true);
+assert.equal(programGraphSourceFixtureDriftCheck.graph.lowering, "graph-native-check");
+assertRepositoryGraphNativeCheck(programGraphSourceFixtureDriftCheck);
+assert.notEqual(programGraphSourceFixtureDriftVerify.code, 0);
+const programGraphSourceFixtureDriftBody = JSON.parse(programGraphSourceFixtureDriftVerify.stdout);
 assert.equal(programGraphSourceFixtureDriftBody.ok, false);
-assert.equal(programGraphSourceFixtureDriftBody.mode, "compiler-input");
+assert.equal(programGraphSourceFixtureDriftBody.mode, "verify-sync");
 assert.equal(programGraphSourceFixtureDriftBody.repositoryGraph.compilerInput, "repository-graph");
 assert.equal(programGraphSourceFixtureDriftBody.diagnostics[0].code, "RGP005");
 assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero graph sync --from-source/);

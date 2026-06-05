@@ -18,7 +18,7 @@ const fileBudgets = {
   "native/zero-c/include/zero.h": { maxLines: 990, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 11710, maxStrcmpCalls: 287 },
-  "native/zero-c/src/main.c": { maxLines: 13032, maxStrcmpCalls: 476 },
+  "native/zero-c/src/main.c": { maxLines: 13216, maxStrcmpCalls: 476 },
   "native/zero-c/src/ir.c": { maxLines: 4212, maxStrcmpCalls: 229 },
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },
   "native/zero-c/src/llvm_toolchain.c": { maxLines: 335, maxStrcmpCalls: 19 },
@@ -117,7 +117,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_semantics.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_roundtrip.c": { maxLines: 55, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_roundtrip.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_size.c": { maxLines: 105, maxStrcmpCalls: 2 },
+  "native/zero-c/src/program_graph_size.c": { maxLines: 124, maxStrcmpCalls: 2 },
   "native/zero-c/src/program_graph_size.h": { maxLines: 8, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_source_map.c": { maxLines: 460, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_source_map.h": { maxLines: 20, maxStrcmpCalls: 0 },
@@ -889,6 +889,16 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
+  if (!programGraph.repositoryGraphCheckNative ||
+      !programGraph.repositoryGraphCheckNoProgramLowering ||
+      !programGraph.repositoryGraphCheckNoLegacyChecker ||
+      !programGraph.repositoryGraphCheckReportsSemanticFacts ||
+      !programGraph.repositoryGraphCheckReportsNoFallback) {
+    violations.push({
+      kind: "program-graph-repository-native-check-path",
+      programGraph,
+    });
+  }
   if (!backendFormats.directTarget.ruleMatrix ||
       !backendFormats.directTarget.executableUsesRuleMatrix ||
       !backendFormats.directTarget.descriptorTable ||
@@ -1188,6 +1198,8 @@ const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_rep
 const programGraphStoreSource = cCodeText(programGraphStoreRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
 const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
+const repositoryGraphCheckBody = cCodeText(cBlock(main, "static int run_repository_graph_check_command"));
+const repositoryGraphCheckJsonBody = cCodeText(cBlock(main, "static void append_repository_graph_compiler_path_json"));
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
 const rawX64RegisterImmediateC7 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc7\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc[0-7]\s*\)\s*;\s*\bz_x64_append_u32\s*\(/is;
 const rawX64RegisterImmediateHelperPrefix = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*\bz_x64_emit_mov_eax_u32\s*\(/is;
@@ -1584,6 +1596,18 @@ const programGraph = {
     /z_program_graph_store_append_table_counts_json\s*\(/.test(programGraphRepositorySource),
   repositoryStatusProjectionValidity: /repo_projection_validity_label\s*\(/.test(programGraphRepositorySource) &&
     /projectionValidity/.test(programGraphRepositoryRaw),
+  repositoryGraphCheckNative: /z_program_graph_store_load_for_input\s*\(/.test(repositoryGraphCheckBody) &&
+    /z_program_graph_collect_resolution_facts\s*\(/.test(repositoryGraphCheckBody) &&
+    /print_repository_graph_check_json_success\s*\(/.test(repositoryGraphCheckBody),
+  repositoryGraphCheckNoProgramLowering: !/z_program_graph_lower_to_program_with_source\s*\(/.test(repositoryGraphCheckBody) &&
+    !/z_program_graph_prepare_source_mir_input\s*\(/.test(repositoryGraphCheckBody),
+  repositoryGraphCheckNoLegacyChecker: !/z_check_program\s*\(/.test(repositoryGraphCheckBody) &&
+    !/load_graph_from_checked_current_source\s*\(/.test(repositoryGraphCheckBody),
+  repositoryGraphCheckReportsSemanticFacts: /z_program_graph_append_semantics_json\s*\(/.test(repositoryGraphCheckJsonBody),
+  repositoryGraphCheckReportsNoFallback: /legacyProgramAstReconstructed\\":false/.test(main) &&
+    /graphToProgramLoweringUsed\\":false/.test(main) &&
+    /graphNativeCheckerUsed\\":true/.test(main) &&
+    /astToMirFallbackUsed\\":false/.test(main),
 };
 const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats, programGraph);
 

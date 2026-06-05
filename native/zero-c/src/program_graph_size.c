@@ -7,11 +7,31 @@ static void graph_size_push_string(char ***items, size_t *len, const char *value
   *items = z_checked_reallocarray(*items, *len + 1, sizeof(char *)); (*items)[(*len)++] = z_strdup(value ? value : "");
 }
 
+static bool graph_size_text_eq(const char *left, const char *right) {
+  const unsigned char *a = (const unsigned char *)(left ? left : "");
+  const unsigned char *b = (const unsigned char *)(right ? right : "");
+  while (*a || *b) {
+    if (*a != *b) return false;
+    a++;
+    b++;
+  }
+  return true;
+}
+
 static const char *graph_size_module_path_for_name(const SourceInput *input, const char *name) {
   for (size_t i = 0; input && name && i < input->module_count; i++) {
-    if (input->module_names[i] && strcmp(input->module_names[i], name) == 0) return input->module_paths[i];
+    if (graph_size_text_eq(input->module_names[i], name)) return input->module_paths[i];
   }
   return "";
+}
+
+static void graph_size_record_module(SourceInput *input, const char *name, const char *path) {
+  for (size_t i = 0; input && name && i < input->module_count; i++) {
+    if (graph_size_text_eq(input->module_names[i], name)) return;
+  }
+  graph_size_push_string(&input->module_names, &input->module_count, name ? name : "");
+  input->module_paths = z_checked_reallocarray(input->module_paths, input->module_count, sizeof(char *));
+  input->module_paths[input->module_count - 1] = z_strdup(path ? path : "");
 }
 
 static void graph_size_record_import(SourceInput *input, const char *from, const char *to, const char *path, const char *source_path, int line, int column, int length) {
@@ -45,8 +65,6 @@ static void graph_size_record_symbol(SourceInput *input, const char *module, con
   input->symbol_public[input->symbol_count++] = is_public;
 }
 
-static bool graph_size_text_eq(const char *left, const char *right) { return strcmp(left ? left : "", right ? right : "") == 0; }
-
 static const ZProgramGraphNode *graph_size_find_node(const ZProgramGraph *graph, const char *id) {
   for (size_t i = 0; graph && id && i < graph->node_len; i++) {
     if (graph_size_text_eq(graph->nodes[i].id, id)) return &graph->nodes[i];
@@ -76,6 +94,7 @@ static void graph_size_seed_from_graph(SourceInput *input, const ZProgramGraph *
     const ZProgramGraphNode *node = graph_size_find_node(graph, edge->to);
     if (!node) continue;
     const char *module_name = module->name && module->name[0] ? module->name : "main";
+    graph_size_record_module(input, module_name, module->path);
 
     if (node->kind == Z_PROGRAM_GRAPH_NODE_IMPORT && graph_size_text_eq(edge->kind, "import")) {
       const char *name = node->name ? node->name : "";

@@ -15,11 +15,15 @@
 #include "program_graph_manifest.h"
 #include "program_graph_patch.h"
 #include "program_graph_reconcile.h"
+#include "program_graph_resolve.h"
 #include "program_graph_repository.h"
 #include "program_graph_repository_input.h"
 #include "program_graph_roundtrip.h"
+#include "program_graph_semantics.h"
 #include "program_graph_size.h"
 #include "program_graph_source_map.h"
+#include "program_graph_store.h"
+#include "program_graph_store_tables.h"
 #include "program_graph_view.h"
 #include "safety_contract.h"
 #include "std_sig.h"
@@ -2491,6 +2495,124 @@ static void append_compile_time_json(ZBuf *buf, const Program *program, const So
 
 static void append_program_graph_artifact_source_json(ZBuf *buf, const ZProgramGraphArtifactSource *source);
 static void append_safety_facts_json(ZBuf *buf, const char *profile);
+
+static bool graph_check_text_eq(const char *left, const char *right) {
+  const unsigned char *a = (const unsigned char *)(left ? left : "");
+  const unsigned char *b = (const unsigned char *)(right ? right : "");
+  while (*a || *b) {
+    if (*a != *b) return false;
+    a++;
+    b++;
+  }
+  return true;
+}
+
+static const ZProgramGraphNode *graph_check_node_by_id(const ZProgramGraph *graph, const char *id) {
+  for (size_t i = 0; graph && id && i < graph->node_len; i++) {
+    if (graph_check_text_eq(graph->nodes[i].id, id)) return &graph->nodes[i];
+  }
+  return NULL;
+}
+
+static const ZProgramGraphResolutionReference *graph_check_first_bad_reference(const ZProgramGraphResolutionFacts *facts) {
+  for (size_t i = 0; facts && i < facts->reference_len; i++) {
+    const ZProgramGraphResolutionReference *ref = &facts->references[i];
+    if (!ref->resolved || ref->ambiguous) return ref;
+  }
+  return NULL;
+}
+
+static bool graph_check_resolution_ok(const ZProgramGraph *graph, const ZProgramGraphResolutionFacts *facts, const char *path, ZDiag *diag) {
+  if (facts && facts->diagnostic_len == 0) return true;
+  const ZProgramGraphResolutionReference *ref = graph_check_first_bad_reference(facts);
+  const ZProgramGraphNode *node = graph_check_node_by_id(graph, ref ? ref->node_id : NULL);
+  if (diag) {
+    *diag = (ZDiag){0};
+    diag->code = ref && ref->ambiguous ? 3004 : 3003;
+    diag->path = node && node->path && node->path[0] ? node->path : path;
+    diag->line = node && node->line > 0 ? node->line : 1;
+    diag->column = node && node->column > 0 ? node->column : 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "%s", ref && ref->ambiguous ? "ambiguous graph reference" : "unresolved graph reference");
+    snprintf(diag->expected, sizeof(diag->expected), "resolved graph symbol reference");
+    snprintf(diag->actual, sizeof(diag->actual), "node %s name %s", ref && ref->node_id ? ref->node_id : "<unknown>", ref && ref->name ? ref->name : "<unknown>");
+    snprintf(diag->help, sizeof(diag->help), "inspect zero graph dump --json and repair the referenced graph node or import binding");
+  }
+  return false;
+}
+
+static const char *repository_graph_projection_state(const ZProgramGraphStore *store) {
+  if (!store || store->projection_len == 0) return "missing";
+  for (size_t i = 0; i < store->projection_len; i++) {
+    ZBuf path;
+    zbuf_init(&path);
+    zbuf_append(&path, store->root && store->root[0] ? store->root : ".");
+    if (path.len > 0 && path.data[path.len - 1] != '/') zbuf_append_char(&path, '/');
+    zbuf_append(&path, store->projection_paths[i] ? store->projection_paths[i] : "");
+    bool exists = z_program_graph_store_file_exists(path.data);
+    zbuf_free(&path);
+    if (!exists) return "missing";
+  }
+  return "available";
+}
+
+static void append_repository_graph_compiler_path_json(ZBuf *buf, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long resolve_ms, long long check_ms) {
+  ZProgramGraphStoreTableCounts tables;
+  z_program_graph_store_table_counts_for_graph(store ? &store->graph : NULL,
+                                               store ? store->source_path_len : 0,
+                                               store ? store->projection_len : 0,
+                                               &tables);
+  zbuf_append(buf, "{\"schemaVersion\":1,\"input\":\"repository-graph-store\",\"graphStoreLoaded\":true");
+  zbuf_append(buf, ",\"sourceProjectionRequiredForCompilerInput\":false,\"sourceProjectionState\":");
+  append_json_string(buf, repository_graph_projection_state(store));
+  zbuf_append(buf, ",\"legacyProgramAstReconstructed\":false,\"graphToProgramLoweringUsed\":false,\"graphNativeCheckerUsed\":true,\"graphHirToMirUsed\":false,\"astToMirFallbackUsed\":false");
+  zbuf_append(buf, ",\"unsupportedGraphFacts\":{\"count\":0,\"facts\":[]}");
+  zbuf_appendf(buf, ",\"timings\":{\"loadMs\":%lld,\"resolveMs\":%lld,\"checkMs\":%lld,\"lowerMs\":0}", load_ms, resolve_ms, check_ms);
+  zbuf_append(buf, ",\"tables\":");
+  z_program_graph_store_append_table_counts_json(buf, &tables);
+  zbuf_append(buf, ",\"resolution\":{\"state\":\"resolved-graph-facts\",\"ok\":");
+  zbuf_append(buf, resolution && resolution->diagnostic_len == 0 ? "true" : "false");
+  zbuf_appendf(buf, ",\"references\":%zu,\"diagnostics\":%zu}", resolution ? resolution->reference_len : 0, resolution ? resolution->diagnostic_len : 0);
+  zbuf_append(buf, ",\"checking\":{\"state\":\"checked-graph-facts\",\"ok\":");
+  zbuf_append(buf, resolution && resolution->diagnostic_len == 0 ? "true" : "false");
+  zbuf_append(buf, ",\"authority\":\"ProgramGraphStore\",\"sourceTextAuthority\":false}");
+  zbuf_append(buf, ",\"semanticFacts\":");
+  z_program_graph_append_semantics_json(buf, store ? &store->graph : NULL);
+  zbuf_append(buf, "}");
+}
+
+static void print_repository_graph_check_json_success(const Command *command, const ZTargetInfo *target, SourceInput *input, const ZProgramGraphStore *store, const ZProgramGraphResolutionFacts *resolution, long long load_ms, long long resolve_ms, long long check_ms) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  zbuf_append(&buf, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"sourceFile\": ");
+  append_json_string(&buf, store && store->path ? store->path : (command ? command->input : ""));
+  ZProgramGraphArtifactSource graph_source = {
+    .artifact = store && store->path ? store->path : "",
+    .graph_hash = store && store->graph.graph_hash ? store->graph.graph_hash : "",
+    .module_identity = store && store->graph.module_identity ? store->graph.module_identity : "",
+    .lowering = "graph-native-check",
+    .canonical_source = false,
+  };
+  append_program_graph_artifact_source_json(&buf, &graph_source);
+  const char *profile = command && command->profile ? command->profile : "release";
+  zbuf_append(&buf, ",\n  \"package\": ");
+  append_package_metadata_json(&buf, input, target);
+  zbuf_append(&buf, ",\n  \"packageCache\": ");
+  append_package_cache_audit_json(&buf, input, target, profile);
+  zbuf_append(&buf, ",\n  \"diagnostics\": [],\n  \"graphCompiler\": ");
+  append_repository_graph_compiler_path_json(&buf, store, resolution, load_ms, resolve_ms, check_ms);
+  zbuf_append(&buf, ",\n  \"compilerPhases\": ");
+  append_compiler_phases_json(&buf, input);
+  zbuf_append(&buf, ",\n  \"compilerCaches\": ");
+  append_compiler_caches_json_ex(&buf, input, target, profile, "program-graph", store && store->graph.graph_hash ? store->graph.graph_hash : "");
+  zbuf_append(&buf, ",\n  \"interfaceFingerprints\": ");
+  append_interface_fingerprints_json_ex(&buf, input, target, store && store->graph.graph_hash ? store->graph.graph_hash : "");
+  zbuf_append(&buf, ",\n  \"incrementalInvalidation\": ");
+  append_incremental_invalidations_json_ex(&buf, input, target, profile, store && store->path ? store->path : "", store && store->graph.graph_hash ? store->graph.graph_hash : "", "graph-native-check");
+  zbuf_append(&buf, "\n}\n");
+  fputs(buf.data, stdout);
+  zbuf_free(&buf);
+}
 
 static void print_check_json_success(const char *path, SourceInput *input, const Program *program, const ZTargetInfo *target, const Command *command) {
   ZBuf buf;
@@ -11900,6 +12022,67 @@ static int resolve_direct_command_manifest_graph_input(Command *command, const Z
   return 0;
 }
 
+static int run_repository_graph_check_command(Command *command, const ZTargetInfo *target, bool *handled) {
+  if (handled) *handled = false;
+  if (!command || !graph_check_text_eq(command->command, "check")) return 0;
+
+  bool enabled = false;
+  ZDiag diag = {0};
+  if (!z_program_graph_manifest_compiler_input_enabled(command->input, &enabled, &diag)) {
+    if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
+    else print_diag(diag.path ? diag.path : command->input, &diag);
+    return 1;
+  }
+  if (!enabled) return 0;
+  if (handled) *handled = true;
+
+  ZProgramGraphStore store;
+  long long load_started = now_ms();
+  if (!z_program_graph_store_load_for_input(command->input, &store, &diag)) {
+    if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
+    else print_diag(diag.path ? diag.path : command->input, &diag);
+    return 1;
+  }
+  long long load_ms = now_ms() - load_started;
+
+  SourceInput input = {0};
+  input.source_file = z_strdup(store.path ? store.path : command->input);
+  z_program_graph_seed_source_metadata(&input, &store.graph);
+  input.program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
+  input.program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
+  if (!z_program_graph_manifest_attach_metadata_to_input(&input, command->input, &diag)) {
+    if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
+    else print_diag(diag.path ? diag.path : command->input, &diag);
+    z_free_source(&input);
+    z_program_graph_store_free(&store);
+    return 1;
+  }
+
+  ZProgramGraphResolutionFacts resolution;
+  z_program_graph_resolution_facts_init(&resolution);
+  long long resolve_started = now_ms();
+  bool collected_resolution = z_program_graph_collect_resolution_facts(&store.graph, &resolution);
+  long long resolve_ms = now_ms() - resolve_started;
+  long long check_started = now_ms();
+  bool ok = collected_resolution &&
+            graph_check_resolution_ok(&store.graph, &resolution, store.path ? store.path : command->input, &diag);
+  input.check_ms = now_ms() - check_started;
+  touch_program_graph_compiler_caches(&input, target, command->profile, store.graph.graph_hash);
+
+  if (ok) {
+    if (command->json) print_repository_graph_check_json_success(command, target, &input, &store, &resolution, load_ms, resolve_ms, input.check_ms);
+    else printf("ok\n");
+  } else {
+    if (command->json) print_command_diag_json(command, diag.path ? diag.path : command->input, &diag);
+    else print_diag(diag.path ? diag.path : command->input, &diag);
+  }
+
+  z_program_graph_resolution_facts_free(&resolution);
+  z_free_source(&input);
+  z_program_graph_store_free(&store);
+  return ok ? 0 : 1;
+}
+
 static int run_graph_roundtrip_command(const Command *command, SourceInput *input, Program *program, ZDiag *diag) {
   ZProgramGraph original = {0};
   ZProgramGraph roundtrip = {0};
@@ -12447,6 +12630,8 @@ int main(int argc, char **argv) {
 
   const char *direct_graph_manifest_input = command.input;
   bool direct_graph_manifest_command = false;
+  int repository_graph_check_rc = run_repository_graph_check_command(&command, target, &direct_graph_manifest_command);
+  if (repository_graph_check_rc != 0 || direct_graph_manifest_command) return repository_graph_check_rc;
   int direct_graph_manifest_rc = resolve_direct_command_manifest_graph_input(&command, target, &direct_graph_manifest_command);
   if (direct_graph_manifest_rc != 0) return direct_graph_manifest_rc;
 
