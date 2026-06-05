@@ -364,6 +364,135 @@ function recomputeGraphHash(text) {
   return `graph:${hash.toString(16).padStart(16, "0")}`;
 }
 
+function repositoryGraphPayload(storeText) {
+  const marker = "\ngraph\n";
+  const start = storeText.indexOf(marker);
+  assert.notEqual(start, -1);
+  return storeText.slice(start + marker.length);
+}
+
+function repositoryGraphModuleIdentity(storeText, graphText) {
+  const stored = storeText.match(/^moduleIdentity "([^"]+)"$/m)?.[1];
+  if (stored) return stored;
+  const moduleLine = graphText.split("\n").find((line) => line.startsWith("module ")) ?? "";
+  return graphStoredModuleIdentity(graphTopLevelQuoted(moduleLine, "module"));
+}
+
+function graphNodeHasSourceMap(line) {
+  return graphQuotedField(line, "path") !== "" ||
+    Number.parseInt(graphBareField(line, "line", "0"), 10) > 0 ||
+    Number.parseInt(graphBareField(line, "column", "0"), 10) > 0;
+}
+
+function graphNodeIsDeclaration(kind) {
+  return [
+    "Import",
+    "CImport",
+    "Const",
+    "TypeAlias",
+    "Shape",
+    "Interface",
+    "Enum",
+    "Choice",
+    "Function",
+    "Param",
+    "Field",
+    "EnumCase",
+    "ChoiceCase",
+    "Let",
+    "ErrorVariant",
+  ].includes(kind);
+}
+
+function graphNodeIsScope(kind) {
+  return [
+    "Module",
+    "Function",
+    "Block",
+    "Shape",
+    "Interface",
+    "Enum",
+    "Choice",
+  ].includes(kind);
+}
+
+function graphTypeIsCapability(type) {
+  return ["World", "Fs", "File", "Net", "HttpClient"].includes(type);
+}
+
+function graphTypeIsOwnership(type) {
+  return type.includes("owned<") || type.includes("MutSpan<") || type.includes("mutref<");
+}
+
+function graphTypeIsResource(type) {
+  return ["World", "Fs", "File"].includes(type) || type.includes("owned<File>");
+}
+
+function repositoryGraphCompilerTableCounts(storeText) {
+  const graphText = repositoryGraphPayload(storeText);
+  const moduleIdentity = repositoryGraphModuleIdentity(storeText, graphText);
+  const nodeLines = graphText.split("\n").filter((line) => line.startsWith("node "));
+  const edgeLines = graphText.split("\n").filter((line) => line.startsWith("edge "));
+  const projection = storeText.match(/^projection path:/gm)?.length ?? 0;
+  const counts = {
+    schema: 1,
+    package: moduleIdentity.startsWith("package:") ? 1 : 0,
+    module: 0,
+    declaration: 0,
+    scope: 0,
+    import: 0,
+    symbol: 0,
+    type: 0,
+    effect: 0,
+    capability: 0,
+    ownership: 0,
+    resource: 0,
+    node: nodeLines.length,
+    edge: edgeLines.length,
+    projection,
+    sourceMap: 0,
+  };
+  for (const line of nodeLines) {
+    const kind = graphNodeKind(line);
+    const type = graphQuotedField(line, "type");
+    const fallible = graphBareField(line, "fallible", "false") === "true";
+    const mutable = graphBareField(line, "mutable", "false") === "true";
+    const node = {
+      id: graphNodeHandle(line),
+      kind,
+      name: graphQuotedField(line, "name"),
+      type,
+      value: graphQuotedField(line, "value"),
+    };
+    if (kind === "Module") counts.module++;
+    if (graphNodeIsDeclaration(kind)) counts.declaration++;
+    if (graphNodeIsScope(kind)) counts.scope++;
+    if (kind === "Import" || kind === "CImport") counts.import++;
+    if (graphQuotedField(line, "symbolId") || graphNodeDeclaresSymbol(node)) counts.symbol++;
+    if (graphQuotedField(line, "typeId") || type) counts.type++;
+    if (graphQuotedField(line, "effectId") || kind === "EffectRef" || fallible) counts.effect++;
+    if (fallible || graphTypeIsCapability(type)) counts.capability++;
+    if (mutable || graphTypeIsOwnership(type)) counts.ownership++;
+    if (graphTypeIsResource(type)) counts.resource++;
+    if (graphNodeHasSourceMap(line)) counts.sourceMap++;
+  }
+  return counts;
+}
+
+function repositoryGraphCompilerTablesLine(storeText) {
+  const counts = repositoryGraphCompilerTableCounts(storeText);
+  return `compilerTables schema:${counts.schema} package:${counts.package} module:${counts.module} declaration:${counts.declaration} scope:${counts.scope} import:${counts.import} symbol:${counts.symbol} type:${counts.type} effect:${counts.effect} capability:${counts.capability} ownership:${counts.ownership} resource:${counts.resource} node:${counts.node} edge:${counts.edge} projection:${counts.projection} sourceMap:${counts.sourceMap}`;
+}
+
+function refreshRepositoryGraphCompilerMetadata(storeText) {
+  const compilerStoreLine = 'compilerStore schemaVersion:1 shape:"compiler-oriented-tables" semanticOk:true semanticValidity:"shape-valid" sourceProjectionRequired:false sourceMapRequired:false storageInterface:"ProgramGraphStore"';
+  const compilerHashInputsLine = 'compilerHashInputs graphHashExcludes:"source-path,line,column,projection-text" nodeHashExcludes:"source-path,line,column,projection-text" idCollisionFallbackMayUse:"source-path,line,column"';
+  return storeText
+    .replace(/^compilerStore .*$/m, compilerStoreLine)
+    .replace(/^compilerTables .*$/m, repositoryGraphCompilerTablesLine(storeText))
+    .replace(/^compilerHashInputs .*$/m, compilerHashInputsLine);
+}
+
 function repeatBuildHash(args, firstPath, repeatOut, repeatPath = repeatOut) {
   const repeatArgs = [...args];
   const outIndex = repeatArgs.indexOf("--out");
@@ -691,6 +820,8 @@ assert.equal(repoGraphStatus.repositoryGraph.storePresent, false);
 assert.equal(repoGraphStatus.repositoryGraph.storeValid, false);
 assert.equal(repoGraphStatus.repositoryGraph.enabled, false);
 assert.equal(repoGraphStatus.repositoryGraph.syncState, "not-enabled");
+assert.equal(repoGraphStatus.repositoryGraph.semanticValidity, "unavailable");
+assert.equal(repoGraphStatus.repositoryGraph.projectionValidity, "unavailable");
 assert.equal(repoGraphStatus.contract.artifact, "zero.graph");
 assert.equal(repoGraphStatus.contract.optIn, "repository graph loader plus checked-in zero.graph at the package root");
 assert.equal(repoGraphStatus.contract.commands.status.writes, false);
@@ -754,6 +885,15 @@ assert.equal(repoGraphSyncFromSource.body.repositoryGraph.storePresent, true);
 assert.equal(repoGraphSyncFromSource.body.repositoryGraph.storeValid, true);
 assert.equal(repoGraphSyncFromSource.body.repositoryGraph.enabled, true);
 assert.equal(repoGraphSyncFromSource.body.repositoryGraph.syncState, "clean");
+assert.equal(repoGraphSyncFromSource.body.repositoryGraph.semanticValidity, "shape-valid");
+assert.equal(repoGraphSyncFromSource.body.repositoryGraph.projectionValidity, "clean");
+assert.equal(repoGraphSyncFromSource.body.compilerStore.shape, "compiler-oriented-tables");
+assert.equal(repoGraphSyncFromSource.body.compilerStore.sourceFreeInspection, true);
+assert.equal(repoGraphSyncFromSource.body.compilerStore.sourceProjectionRequiredForSemanticFacts, false);
+assert.equal(repoGraphSyncFromSource.body.compilerStore.semanticValidity.state, "shape-valid");
+assert.equal(repoGraphSyncFromSource.body.compilerStore.projectionValidity.state, "clean");
+assert.equal(repoGraphSyncFromSource.body.compilerStore.tables.node, repoGraphSyncFromSource.body.store.nodes);
+assert.deepEqual(repoGraphSyncFromSource.body.compilerStore.hashInputs.graphHashExcludes, ["sourcePath", "line", "column", "projectionText"]);
 assert(repoGraphSyncFromSource.body.repositoryGraph.possibleSyncStates.includes("source-stale"));
 assert(repoGraphSyncFromSource.body.repositoryGraph.possibleSyncStates.includes("graph-stale"));
 assert(repoGraphSyncFromSource.body.repositoryGraph.possibleSyncStates.includes("conflict"));
@@ -763,6 +903,9 @@ assert(existsSync(standaloneRepoGraphStore));
 const storeText = readFileSync(standaloneRepoGraphStore, "utf8");
 assert.match(storeText, /^zero-repository-graph v1\n/);
 assert.match(storeText, /^sourceProjection "\.0"$/m);
+assert.match(storeText, /^compilerStore schemaVersion:1 shape:"compiler-oriented-tables"/m);
+assert.match(storeText, /^compilerTables schema:1 package:/m);
+assert.match(storeText, /^compilerHashInputs graphHashExcludes:"source-path,line,column,projection-text"/m);
 assert.match(storeText, /^source path:"standalone\.0"$/m);
 assert.match(storeText, /^projection path:"standalone\.0" text:"\/\/ repository graph projection comment\\n/m);
 assert.match(storeText, /^nodeHash node:"#/m);
@@ -782,8 +925,11 @@ assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.storePresent, tr
 assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.storeValid, true);
 assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.enabled, true);
 assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.syncState, "clean");
+assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.semanticValidity, "shape-valid");
+assert.equal(standaloneRepoGraphStatusWithStore.repositoryGraph.projectionValidity, "clean");
 assert.equal(standaloneRepoGraphStatusWithStore.store.format, "zero-repository-graph");
 assert.equal(standaloneRepoGraphStatusWithStore.store.graphHash, repoGraphSyncFromSource.body.store.graphHash);
+assert.equal(standaloneRepoGraphStatusWithStore.compilerStore.tables.sourceMap, standaloneRepoGraphStatusWithStore.store.nodes);
 const standaloneRepoGraphVerifyWithStore = json(["graph", "verify-sync", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(standaloneRepoGraphVerifyWithStore.code, 0);
 assert.equal(standaloneRepoGraphVerifyWithStore.body.ok, true);
@@ -818,6 +964,7 @@ assert.equal(sha256File(standaloneRepoGraphStore), firstStoreHash);
 writeFileSync(standaloneRepoGraphSource, readFileSync(standaloneRepoGraphSource, "utf8").replace("hello from zero", "hello from graph projection"));
 const standaloneRepoGraphProjectionStale = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(standaloneRepoGraphProjectionStale.body.repositoryGraph.syncState, "source-stale");
+assert.equal(standaloneRepoGraphProjectionStale.body.repositoryGraph.projectionValidity, "stale");
 const standaloneRepoGraphSyncFromGraph = json(["graph", "sync", "--from-graph", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(standaloneRepoGraphSyncFromGraph.code, 0);
 assert.equal(standaloneRepoGraphSyncFromGraph.body.mode, "sync-from-graph");
@@ -867,11 +1014,11 @@ assert.equal(graphOnlyDriftPatchResult.body.ok, true);
 const standaloneRepoGraphPatchedGraphText = readFileSync(standaloneRepoGraphPatchedArtifact, "utf8");
 const standaloneRepoGraphPatchedHash = standaloneRepoGraphPatchedGraphText.match(/^hash "([^"]+)"$/m)?.[1];
 assert(standaloneRepoGraphPatchedHash);
-const graphOnlyDriftStoreText = storeText
+const graphOnlyDriftStoreText = refreshRepositoryGraphCompilerMetadata(storeText
   .slice(0, standaloneRepoGraphGraphStart + graphMarker.length)
   .replace(/^graphHash "[^"]+"$/m, `graphHash "${standaloneRepoGraphPatchedHash}"`)
   .replace(/^moduleHash "[^"]+"$/m, `moduleHash "${standaloneRepoGraphPatchedHash}"`) +
-  standaloneRepoGraphPatchedGraphText;
+  standaloneRepoGraphPatchedGraphText);
 writeFileSync(standaloneRepoGraphStore, graphOnlyDriftStoreText);
 const graphOnlyDriftStatus = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(graphOnlyDriftStatus.body.repositoryGraph.syncState, "conflict");
@@ -889,7 +1036,7 @@ const typeErasedLiteralLine = typeErasedGraphText.match(/^node (#[^ ]+) Literal 
 assert(typeErasedLiteralLine);
 const typeErasedGraphHash = recomputeGraphHash(typeErasedGraphText);
 const typeErasedStoredGraphText = typeErasedGraphText.replace(/^hash "graph:[0-9a-f]{16}"$/m, `hash "${typeErasedGraphHash}"`);
-const typeErasedStoreText = storeText
+const typeErasedStoreText = refreshRepositoryGraphCompilerMetadata(storeText
   .slice(0, standaloneRepoGraphGraphStart + graphMarker.length)
   .replace(/^graphHash "[^"]+"$/m, `graphHash "${typeErasedGraphHash}"`)
   .replace(/^moduleHash "[^"]+"$/m, `moduleHash "${typeErasedGraphHash}"`)
@@ -897,7 +1044,7 @@ const typeErasedStoreText = storeText
     new RegExp(`^nodeHash node:${JSON.stringify(typeErasedLiteralLine[1])} hash:"[^"]+"$`, "m"),
     `nodeHash node:${JSON.stringify(typeErasedLiteralLine[1])} hash:${JSON.stringify(graphNodeHash(typeErasedLiteralLine[0]))}`,
   ) +
-  typeErasedStoredGraphText;
+  typeErasedStoredGraphText);
 writeFileSync(standaloneRepoGraphStore, typeErasedStoreText);
 const typeErasedProjectionStatus = json(["graph", "status", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(typeErasedProjectionStatus.body.repositoryGraph.syncState, "conflict");
@@ -1033,7 +1180,7 @@ assert.equal(embeddedStdRelativeSync.code, 0);
 assert.equal(embeddedStdRelativeSync.body.repositoryGraph.syncState, "clean");
 const embeddedStdRelativeVerify = json(["graph", "verify-sync", "--json", embeddedStdRelativeSource]);
 assert.equal(embeddedStdRelativeVerify.body.ok, true);
-writeFileSync(stdProjectionStore, stdProjectionStoreText.replace(/^nodeHash /m, `projection path:"std/path.0" text:${JSON.stringify("// embedded std projection should be rejected\\n")}\nnodeHash `));
+writeFileSync(stdProjectionStore, refreshRepositoryGraphCompilerMetadata(stdProjectionStoreText.replace(/^nodeHash /m, `projection path:"std/path.0" text:${JSON.stringify("// embedded std projection should be rejected\\n")}\nnodeHash `)));
 const embeddedStdProjectionStatus = json(["graph", "status", "--json", stdProjectionSource], { allowFailure: true });
 assert.notEqual(embeddedStdProjectionStatus.code, 0);
 assert.equal(embeddedStdProjectionStatus.body.diagnostics[0].code, "RGP003");
@@ -1059,7 +1206,7 @@ assert.notEqual(swappedProjectionStatus.code, 0);
 assert.equal(swappedProjectionStatus.body.diagnostics[0].code, "RGP003");
 assert.match(swappedProjectionStatus.body.diagnostics[0].actual, /byte-stable/);
 writeFileSync(partialProjectionStore, partialProjectionStoreText);
-writeFileSync(partialProjectionStore, partialProjectionStoreText.replace(/^projection path:"src\/helper\.0" text:[^\n]*\n/m, ""));
+writeFileSync(partialProjectionStore, refreshRepositoryGraphCompilerMetadata(partialProjectionStoreText.replace(/^projection path:"src\/helper\.0" text:[^\n]*\n/m, "")));
 const partialProjectionStatus = json(["graph", "status", "--json", partialProjectionRoot], { allowFailure: true });
 assert.notEqual(partialProjectionStatus.code, 0);
 assert.equal(partialProjectionStatus.body.diagnostics[0].code, "RGP003");
