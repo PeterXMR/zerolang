@@ -1653,9 +1653,9 @@ const programGraph = {
     /nodeHashes/.test(main) &&
     /typeFacts/.test(main) &&
     /symbolFacts/.test(main) &&
-    /sourceFiles/.test(main) &&
     /modulePaths/.test(main) &&
-    /importPaths/.test(main),
+    /importPaths/.test(main) &&
+    !/GRAPH_CACHE_INPUTS_(?:PARSE|CHECK|SPECIALIZATION|OBJECT|AGGREGATE)\s*=\s*"\[[^"]*sourceFiles/.test(main),
   repositoryGraphMirPrepTypedLowering: /z_lower_program_graph_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
     /source\s*->\s*lowering\s*=\s*"typed-program-graph-mir"/.test(repositoryGraphMirPrepRawBody),
   repositoryGraphMirPrepNoAstFallback: !/z_lower_program_with_source\s*\(/.test(repositoryGraphMirPrepBody) &&
