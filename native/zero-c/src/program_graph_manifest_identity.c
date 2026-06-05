@@ -1,5 +1,6 @@
 #include "program_graph_manifest.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 bool z_program_graph_manifest_module_identity(const char *input_path, char **out, ZDiag *diag) {
@@ -17,6 +18,24 @@ bool z_program_graph_manifest_module_identity(const char *input_path, char **out
   ZManifest parsed = {0};
   if (!z_parse_manifest_json(manifest, &parsed, diag)) {
     if (diag) diag->path = z_strdup(manifest_path);
+    z_free_manifest(&parsed);
+    free(manifest);
+    free(manifest_path);
+    return false;
+  }
+
+  if (!parsed.package_name || !parsed.package_name[0]) {
+    if (diag) {
+      diag->code = 1007;
+      diag->path = z_strdup(manifest_path);
+      diag->line = 1;
+      diag->column = 1;
+      diag->length = 1;
+      snprintf(diag->message, sizeof(diag->message), "repository graph compiler input requires package.name");
+      snprintf(diag->expected, sizeof(diag->expected), "zero.json package.name matching zero.graph module identity");
+      snprintf(diag->actual, sizeof(diag->actual), "missing package.name");
+      snprintf(diag->help, sizeof(diag->help), "add package.name before using repository graph compiler input");
+    }
     z_free_manifest(&parsed);
     free(manifest);
     free(manifest_path);

@@ -172,7 +172,19 @@ static int input_manifest_identity_error(const RepositoryGraphInputState *state,
   char *expected = NULL;
   ZDiag diag = {0};
   if (!z_program_graph_manifest_module_identity(state ? state->input : NULL, &expected, &diag)) {
-    int rc = input_error(state, json, "RGP003", "package manifest could not be read", "valid zero.json package manifest", diag.message[0] ? diag.message : "manifest unavailable", "fix zero.json before using repository graph compiler input", REPO_GRAPH_REPAIR_NONE);
+    char actual[512];
+    const bool identity_error = diag.code == 1007;
+    if (identity_error) {
+      snprintf(actual, sizeof(actual), "missing package.name; zero.graph module identity is %s", state && state->module_identity ? state->module_identity : "missing module identity");
+    }
+    int rc = input_error(state,
+                         json,
+                         identity_error ? "RGP007" : "RGP003",
+                         diag.message[0] ? diag.message : (identity_error ? "repository graph compiler input requires package.name" : "package manifest could not be read"),
+                         diag.expected[0] ? diag.expected : (identity_error ? "zero.json package.name matching zero.graph module identity" : "valid zero.json package manifest"),
+                         identity_error ? actual : (diag.message[0] ? diag.message : "manifest unavailable"),
+                         diag.help[0] ? diag.help : (identity_error ? "add package.name before using repository graph compiler input" : "fix zero.json before using repository graph compiler input"),
+                         identity_error ? REPO_GRAPH_REPAIR_STATUS : REPO_GRAPH_REPAIR_NONE);
     free((char *)diag.path);
     return rc;
   }

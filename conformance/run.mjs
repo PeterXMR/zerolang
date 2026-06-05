@@ -3490,7 +3490,10 @@ const programGraphSourceFixtureStorePath = "conformance/program-graph/zero.graph
 const programGraphSourceFixtureRunPath = `${outDir}/program-graph-fixture-run`;
 const programGraphSourceFreePackage = `${outDir}/program-graph-source-free`;
 const programGraphSourceFreeRunPath = `${outDir}/program-graph-source-free-run`;
+const programGraphSourceFreeCImportPackage = `${outDir}/program-graph-source-free-c-import`;
+const programGraphSourceFreeCImportRunPath = `${outDir}/program-graph-source-free-c-import-run`;
 const programGraphIdentityMismatchPackage = `${outDir}/program-graph-identity-mismatch`;
+const programGraphMissingPackageNamePackage = `${outDir}/program-graph-missing-package-name`;
 const programGraphBadProjectionPackage = `${outDir}/program-graph-bad-projection`;
 const programGraphSourceFixtureDriftPackage = `${outDir}/program-graph-fixture-drift`;
 const programGraphMissingStorePackage = `${outDir}/program-graph-missing-store`;
@@ -3510,7 +3513,10 @@ await rm(programGraphArtifactRoundtripPath, { force: true });
 await rm(programGraphSourceFixtureRunPath, { force: true });
 await rm(programGraphSourceFreePackage, { recursive: true, force: true });
 await rm(programGraphSourceFreeRunPath, { force: true });
+await rm(programGraphSourceFreeCImportPackage, { recursive: true, force: true });
+await rm(programGraphSourceFreeCImportRunPath, { force: true });
 await rm(programGraphIdentityMismatchPackage, { recursive: true, force: true });
+await rm(programGraphMissingPackageNamePackage, { recursive: true, force: true });
 await rm(programGraphBadProjectionPackage, { recursive: true, force: true });
 await rm(programGraphSourceFixtureDriftPackage, { recursive: true, force: true });
 await rm(programGraphMissingStorePackage, { recursive: true, force: true });
@@ -3554,6 +3560,29 @@ const programGraphSourceFreeRun = await execFileAsync(zero, ["run", "--out", pro
 const programGraphSourceFreeVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
 const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage])).stdout);
+await mkdir(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true });
+await mkdir(`${programGraphSourceFreeCImportPackage}/vendor/include`, { recursive: true });
+await writeFile(`${programGraphSourceFreeCImportPackage}/zero.json`, JSON.stringify({
+  package: { name: "program-graph-source-free-c-import", version: "0.1.0" },
+  targets: { cli: { kind: "exe", main: "src/main.0" } },
+  repositoryGraph: { compilerInput: true },
+  c: {
+    libs: {
+      ext: { headers: ["vendor/include/zero_ext.h"], include: ["vendor/include"], lib: [], link: [], mode: "static" },
+    },
+  },
+}, null, 2));
+await writeFile(`${programGraphSourceFreeCImportPackage}/vendor/include/zero_ext.h`, "int zero_ext_add(int a, int b);\n");
+await writeFile(`${programGraphSourceFreeCImportPackage}/src/main.0`, `extern c "vendor/include/zero_ext.h" as c
+
+pub fn main(world: World) -> Void raises {
+    check world.out.write("source-free c import ok\\n")
+}
+`);
+const programGraphSourceFreeCImportSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphSourceFreeCImportPackage])).stdout);
+await rm(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true, force: true });
+const programGraphSourceFreeCImportCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeCImportPackage])).stdout);
+const programGraphSourceFreeCImportRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeCImportRunPath, programGraphSourceFreeCImportPackage]);
 await mkdir(programGraphIdentityMismatchPackage, { recursive: true });
 await writeFile(`${programGraphIdentityMismatchPackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-wrong-package", version: "9.9.9" },
@@ -3563,6 +3592,13 @@ await writeFile(`${programGraphIdentityMismatchPackage}/zero.json`, JSON.stringi
 await writeFile(`${programGraphIdentityMismatchPackage}/zero.graph`, programGraphSourceFixtureStoreText);
 const programGraphIdentityMismatchCheck = await execFileAsync(zero, ["check", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
 const programGraphIdentityMismatchSize = await execFileAsync(zero, ["size", "--json", programGraphIdentityMismatchPackage]).catch((error) => error);
+await mkdir(programGraphMissingPackageNamePackage, { recursive: true });
+await writeFile(`${programGraphMissingPackageNamePackage}/zero.json`, JSON.stringify({
+  targets: { cli: { kind: "exe", main: "hello.0" } },
+  repositoryGraph: { compilerInput: true },
+}, null, 2));
+await writeFile(`${programGraphMissingPackageNamePackage}/zero.graph`, programGraphSourceFixtureStoreText);
+const programGraphMissingPackageNameCheck = await execFileAsync(zero, ["check", "--json", programGraphMissingPackageNamePackage]).catch((error) => error);
 await mkdir(programGraphBadProjectionPackage, { recursive: true });
 await writeFile(`${programGraphBadProjectionPackage}/zero.json`, await readFile(`${programGraphSourceFixturePackage}/zero.json`, "utf8"));
 await writeFile(`${programGraphBadProjectionPackage}/zero.graph`, programGraphSourceFixtureStoreText.replace(
@@ -3787,6 +3823,12 @@ assert.deepEqual(programGraphSourceFreeSyncFromGraph.changedPaths, [`${programGr
 assert.equal(await readFile(`${programGraphSourceFreePackage}/hello.0`, "utf8"), programGraphSourceFixtureText);
 assert.equal(programGraphSourceFreeVerifyAfter.ok, true);
 assert.equal(programGraphSourceFreeVerifyAfter.repositoryGraph.projectionValidity, "clean");
+assert.equal(programGraphSourceFreeCImportSync.ok, true);
+assert.equal(programGraphSourceFreeCImportSync.repositoryGraph.projectionValidity, "clean");
+assert.equal(programGraphSourceFreeCImportCheck.ok, true);
+assert.equal(programGraphSourceFreeCImportCheck.graph.sourceProjectionState, "missing");
+assertRepositoryGraphNativeCheck(programGraphSourceFreeCImportCheck, "missing");
+assert.equal(programGraphSourceFreeCImportRun.stdout, "source-free c import ok\n");
 assert.notEqual(programGraphIdentityMismatchCheck.code, 0);
 const programGraphIdentityMismatchCheckBody = JSON.parse(programGraphIdentityMismatchCheck.stdout);
 assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].code, "RGP007");
@@ -3794,6 +3836,11 @@ assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].expected, "pac
 assert.equal(programGraphIdentityMismatchCheckBody.diagnostics[0].actual, "package:program-graph-fixture@0.1.0");
 assert.notEqual(programGraphIdentityMismatchSize.code, 0);
 assert.equal(JSON.parse(programGraphIdentityMismatchSize.stdout).diagnostics[0].code, "RGP007");
+assert.notEqual(programGraphMissingPackageNameCheck.code, 0);
+const programGraphMissingPackageNameBody = JSON.parse(programGraphMissingPackageNameCheck.stdout);
+assert.equal(programGraphMissingPackageNameBody.diagnostics[0].code, "RGP007");
+assert.equal(programGraphMissingPackageNameBody.diagnostics[0].message, "repository graph compiler input requires package.name");
+assert.match(programGraphMissingPackageNameBody.diagnostics[0].actual, /package:program-graph-fixture@0\.1\.0/);
 assert.equal(programGraphBadProjectionStatus.repositoryGraph.syncState, "conflict");
 assert.equal(programGraphBadProjectionStatus.repositoryGraph.projectionValidity, "conflict");
 assert.equal(programGraphBadProjectionCheck.ok, true);
