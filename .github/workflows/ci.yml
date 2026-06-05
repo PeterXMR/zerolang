@@ -42,6 +42,9 @@ jobs:
       - name: Smoke test
         run: pnpm run check
 
+      - name: Repository graph sync
+        run: pnpm run repository-graph:verify-sync
+
       - name: Conformance suite
         run: pnpm run conformance:local
 
