@@ -34,6 +34,32 @@ function json(args, options = {}) {
   return { ...result, body: JSON.parse(result.stdout) };
 }
 
+function repositoryGraphVerifyScript(root, options: { allowFailure?: boolean; target?: string } = {}) {
+  const args = [
+    "--experimental-strip-types",
+    "--disable-warning=ExperimentalWarning",
+    "scripts/repository-graph-verify-sync.mts",
+    "--root",
+    root,
+  ];
+  if (options.target) args.push("--target", options.target);
+  try {
+    const stdout = execFileSync(
+      process.execPath,
+      args,
+      { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return { code: 0, stdout, stderr: "" };
+  } catch (error) {
+    if (!options.allowFailure) throw error;
+    return {
+      code: error.status ?? 1,
+      stdout: error.stdout?.toString() ?? "",
+      stderr: error.stderr?.toString() ?? "",
+    };
+  }
+}
+
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -737,6 +763,28 @@ const standaloneRepoGraphVerifyWithStore = json(["graph", "verify-sync", "--json
 assert.equal(standaloneRepoGraphVerifyWithStore.code, 0);
 assert.equal(standaloneRepoGraphVerifyWithStore.body.ok, true);
 assert.equal(standaloneRepoGraphVerifyWithStore.body.writes, false);
+const repositoryGraphVerifyCleanScript = repositoryGraphVerifyScript(standaloneRepoGraphRoot);
+assert.equal(repositoryGraphVerifyCleanScript.code, 0);
+assert.match(repositoryGraphVerifyCleanScript.stdout, /repository graph verify-sync ok \(1 store\)/);
+const repositoryGraphVerifyNoStoresRoot = join("/tmp", `zero-repo-graph-no-stores-${process.pid}`);
+rmSync(repositoryGraphVerifyNoStoresRoot, { force: true, recursive: true });
+mkdirSync(repositoryGraphVerifyNoStoresRoot, { recursive: true });
+const repositoryGraphVerifyNoStoresScript = repositoryGraphVerifyScript(repositoryGraphVerifyNoStoresRoot);
+assert.equal(repositoryGraphVerifyNoStoresScript.code, 0);
+assert.match(repositoryGraphVerifyNoStoresScript.stdout, /repository graph verify-sync ok \(0 stores\)/);
+const repositoryGraphVerifyRedirectRoot = join("/tmp", `zero-repo-graph-redirect-${process.pid}`);
+const repositoryGraphVerifyRedirectGood = join(repositoryGraphVerifyRedirectRoot, "good");
+const repositoryGraphVerifyRedirectBad = join(repositoryGraphVerifyRedirectRoot, "bad");
+rmSync(repositoryGraphVerifyRedirectRoot, { force: true, recursive: true });
+mkdirSync(repositoryGraphVerifyRedirectGood, { recursive: true });
+mkdirSync(repositoryGraphVerifyRedirectBad, { recursive: true });
+writeFileSync(join(repositoryGraphVerifyRedirectGood, "main.0"), readFileSync("examples/hello.0", "utf8"));
+json(["graph", "sync", "--from-source", "--json", join(repositoryGraphVerifyRedirectGood, "main.0")]);
+writeFileSync(join(repositoryGraphVerifyRedirectBad, "zero.graph"), 'invalid repository graph store\nprojection path:"../good/main.0" text:""\n');
+const repositoryGraphVerifyRedirectScript = repositoryGraphVerifyScript(repositoryGraphVerifyRedirectRoot, { allowFailure: true });
+assert.notEqual(repositoryGraphVerifyRedirectScript.code, 0);
+assert.match(repositoryGraphVerifyRedirectScript.stderr, /repository graph verify-sync failed/);
+assert.match(repositoryGraphVerifyRedirectScript.stderr, /zero-repo-graph-redirect-[0-9]+\/bad/);
 const standaloneRepoGraphVerifyRelative = JSON.parse(execFileSync(resolve("bin/zero"), ["graph", "verify-sync", "--json", "standalone.0"], { cwd: standaloneRepoGraphRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
 assert.equal(standaloneRepoGraphVerifyRelative.ok, true);
 const repoGraphSyncFromSourceAgain = json(["graph", "sync", "--from-source", "--json", resolve(standaloneRepoGraphSource)]);
@@ -769,6 +817,10 @@ assert.equal(invalidProjectionStatus.body.repositoryGraph.syncState, "conflict")
 const invalidProjectionVerify = json(["graph", "verify-sync", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
 assert.notEqual(invalidProjectionVerify.code, 0);
 assert.equal(invalidProjectionVerify.body.diagnostics[0].code, "RGP006");
+assert.deepEqual(invalidProjectionVerify.body.repairCommands, [`zero graph sync --from-graph ${resolve(standaloneRepoGraphSource)}`]);
+const invalidProjectionVerifyText = zero(["graph", "verify-sync", resolve(standaloneRepoGraphSource)], { allowFailure: true });
+assert.notEqual(invalidProjectionVerifyText.code, 0);
+assert.match(invalidProjectionVerifyText.stderr, new RegExp(`repair: zero graph sync --from-graph ${resolve(standaloneRepoGraphSource).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 const invalidProjectionSync = json(["graph", "sync", "--from-graph", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
 assert.notEqual(invalidProjectionSync.code, 0);
 assert.equal(invalidProjectionSync.body.diagnostics[0].code, "RGP004");
@@ -899,6 +951,9 @@ assert.equal(targetProjectionStatus.body.repositoryGraph.syncState, "clean");
 const targetProjectionVerify = json(["graph", "verify-sync", "--json", "--target", "linux-musl-x64", targetProjectionSource]);
 assert.equal(targetProjectionVerify.code, 0);
 assert.equal(targetProjectionVerify.body.ok, true);
+const targetProjectionVerifyScript = repositoryGraphVerifyScript(targetProjectionRoot, { target: "linux-musl-x64" });
+assert.equal(targetProjectionVerifyScript.code, 0);
+assert.match(targetProjectionVerifyScript.stdout, /repository graph verify-sync ok \(1 store\)/);
 const targetProjectionSyncFromGraph = json(["graph", "sync", "--from-graph", "--json", "--target", "linux-musl-x64", targetProjectionSource]);
 assert.equal(targetProjectionSyncFromGraph.code, 0);
 assert.equal(targetProjectionSyncFromGraph.body.repositoryGraph.syncState, "clean");
@@ -1340,6 +1395,14 @@ writeFileSync(standaloneRepoGraphSource, readFileSync(standaloneRepoGraphSource,
 const standaloneRepoGraphVerifyDrift = json(["graph", "verify-sync", "--json", resolve(standaloneRepoGraphSource)], { allowFailure: true });
 assert.notEqual(standaloneRepoGraphVerifyDrift.code, 0);
 assert.equal(standaloneRepoGraphVerifyDrift.body.diagnostics[0].code, "RGP005");
+assert.deepEqual(standaloneRepoGraphVerifyDrift.body.repairCommands, [`zero graph sync --from-source ${resolve(standaloneRepoGraphSource)}`]);
+const standaloneRepoGraphVerifyDriftText = zero(["graph", "verify-sync", resolve(standaloneRepoGraphSource)], { allowFailure: true });
+assert.notEqual(standaloneRepoGraphVerifyDriftText.code, 0);
+assert.match(standaloneRepoGraphVerifyDriftText.stderr, new RegExp(`repair: zero graph sync --from-source ${resolve(standaloneRepoGraphSource).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+const repositoryGraphVerifyDriftScript = repositoryGraphVerifyScript(standaloneRepoGraphRoot, { allowFailure: true });
+assert.notEqual(repositoryGraphVerifyDriftScript.code, 0);
+assert.match(repositoryGraphVerifyDriftScript.stderr, /repository graph verify-sync failed/);
+assert.match(repositoryGraphVerifyDriftScript.stderr, /repair: zero graph sync --from-source/);
 const repoGraphVerify = json(["graph", "verify-sync", "--json", "."], { allowFailure: true });
 assert.notEqual(repoGraphVerify.code, 0);
 assert.equal(repoGraphVerify.body.ok, false);
@@ -1348,7 +1411,7 @@ assert.equal(repoGraphVerify.body.writes, false);
 assert.equal(repoGraphVerify.body.diagnostics[0].code, "RGP001");
 assert.equal(repoGraphVerify.body.diagnostics[0].actual, "missing zero.graph");
 assert(repoGraphVerify.body.repairCommands.includes("zero graph sync --from-source ."));
-assert(repoGraphVerify.body.repairCommands.includes("zero graph sync --from-graph ."));
+assert(!repoGraphVerify.body.repairCommands.includes("zero graph sync --from-graph ."));
 const repoGraphSyncNoDirection = json(["graph", "sync", "--json", "."], { allowFailure: true });
 assert.notEqual(repoGraphSyncNoDirection.code, 0);
 assert.equal(repoGraphSyncNoDirection.body.diagnostics[0].code, "RGP002");
