@@ -99,7 +99,7 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_reconcile.h": { maxLines: 30, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_reconcile_apply.c": { maxLines: 478, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_reconcile_apply.h": { maxLines: 25, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_repository.c": { maxLines: 692, maxStrcmpCalls: 9 },
+  "native/zero-c/src/program_graph_repository.c": { maxLines: 760, maxStrcmpCalls: 9 },
   "native/zero-c/src/program_graph_repository.h": { maxLines: 18, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_input.c": { maxLines: 205, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_input.h": { maxLines: 10, maxStrcmpCalls: 0 },
@@ -107,7 +107,9 @@ const fileBudgets = {
   "native/zero-c/src/program_graph_repository_merge.h": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_repair.c": { maxLines: 75, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_repository_repair.h": { maxLines: 20, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_store.c": { maxLines: 1069, maxStrcmpCalls: 6 },
+  "native/zero-c/src/program_graph_store.c": { maxLines: 1100, maxStrcmpCalls: 6 },
+  "native/zero-c/src/program_graph_store_tables.c": { maxLines: 220, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_store_tables.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store.h": { maxLines: 35, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_resolve.c": { maxLines: 1395, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_resolve.h": { maxLines: 35, maxStrcmpCalls: 0 },
@@ -877,6 +879,16 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
+  if (!programGraph.repositoryStoreCompilerTables ||
+      !programGraph.repositoryStoreMetadataSerialized ||
+      !programGraph.repositoryStoreMetadataValidated ||
+      !programGraph.repositoryStatusCompilerStoreFacts ||
+      !programGraph.repositoryStatusProjectionValidity) {
+    violations.push({
+      kind: "program-graph-repository-store-compiler-tables",
+      programGraph,
+    });
+  }
   if (!backendFormats.directTarget.ruleMatrix ||
       !backendFormats.directTarget.executableUsesRuleMatrix ||
       !backendFormats.directTarget.descriptorTable ||
@@ -1170,6 +1182,12 @@ const coffAarch64Source = cCodeText(texts.get("native/zero-c/src/emit_coff_aarch
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
+const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
+const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
+const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
+const programGraphStoreSource = cCodeText(programGraphStoreRaw);
+const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
+const programGraphRepositorySource = cCodeText(programGraphRepositoryRaw);
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
 const rawX64RegisterImmediateC7 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc7\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc[0-7]\s*\)\s*;\s*\bz_x64_append_u32\s*\(/is;
 const rawX64RegisterImmediateHelperPrefix = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*\bz_x64_emit_mov_eax_u32\s*\(/is;
@@ -1555,6 +1573,17 @@ const programGraph = {
     !/\*\s*program\s*=\s*graph_program\s*;/.test(programGraphCompileSource),
   sourceCommandGraphBoundedMirProbe: /graph_compile_should_try_typed_mir\s*\(/.test(programGraphCompileSource),
   sourceCommandGraphMirPredicate: /z_program_graph_source_command_uses_graph_mir\s*\(/.test(programGraphCompileSource),
+  repositoryStoreCompilerTables: /z_program_graph_store_table_counts_for_graph\s*\(/.test(programGraphStoreTablesSource) &&
+    /ZProgramGraphStoreTableCounts/.test(programGraphStoreTablesSource),
+  repositoryStoreMetadataSerialized: /compilerStore schemaVersion:1/.test(programGraphStoreTablesRaw) &&
+    /compilerTables schema:/.test(programGraphStoreTablesRaw) &&
+    /compilerHashInputs graphHashExcludes:/.test(programGraphStoreTablesRaw),
+  repositoryStoreMetadataValidated: /z_program_graph_store_compiler_metadata_matches\s*\(/.test(programGraphStoreSource),
+  repositoryStatusCompilerStoreFacts: /compilerStore/.test(programGraphRepositoryRaw) &&
+    /sourceFreeInspection/.test(programGraphRepositoryRaw) &&
+    /z_program_graph_store_append_table_counts_json\s*\(/.test(programGraphRepositorySource),
+  repositoryStatusProjectionValidity: /repo_projection_validity_label\s*\(/.test(programGraphRepositorySource) &&
+    /projectionValidity/.test(programGraphRepositoryRaw),
 };
 const violations = budgetViolations(files, allLargeFunctions, stdlib, backendFormats, programGraph);
 

@@ -5,6 +5,7 @@
 #include "program_graph_repository_repair.h"
 #include "program_graph_repository_merge.h"
 #include "program_graph_store.h"
+#include "program_graph_store_tables.h"
 #include "zero.h"
 
 #include <stdio.h>
@@ -28,10 +29,32 @@ typedef struct {
   bool graph_current;
   bool projection_checked;
   bool projection_current;
+  bool projection_missing;
   bool compiler_input_valid;
   bool compiler_input_enabled;
+  bool compiler_store_available;
+  ZProgramGraphStoreTableCounts compiler_tables;
   ZDiag compiler_input_diag;
 } RepositoryGraphState;
+
+static char *repo_join_path(const char *left, const char *right) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  zbuf_append(&buf, left && left[0] ? left : ".");
+  if (buf.len > 0 && buf.data[buf.len - 1] != '/') zbuf_append_char(&buf, '/');
+  zbuf_append(&buf, right && right[0] ? right : "");
+  return buf.data;
+}
+
+static bool repo_store_projection_missing(const ZProgramGraphStore *store) {
+  for (size_t i = 0; store && i < store->projection_len; i++) {
+    char *path = repo_join_path(store->root, store->projection_paths[i]);
+    bool missing = !z_program_graph_store_file_exists(path);
+    free(path);
+    if (missing) return true;
+  }
+  return false;
+}
 
 static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInfo *target, const ZProgramGraph *source_graph, const ZDiag *source_graph_diag) {
   RepositoryGraphState state = {.input = input && input[0] ? input : ".", .compiler_input_valid = true};
@@ -50,6 +73,9 @@ static RepositoryGraphState repo_graph_state(const char *input, const ZTargetInf
       state.node_count = store.graph.node_len;
       state.edge_count = store.graph.edge_len;
       state.source_count = store.source_path_len;
+      state.compiler_store_available = true;
+      z_program_graph_store_table_counts_for_graph(&store.graph, store.source_path_len, store.projection_len, &state.compiler_tables);
+      state.projection_missing = repo_store_projection_missing(&store);
       if (source_graph) {
         state.graph_checked = true;
         state.graph_current = z_program_graph_store_graph_matches_source(&store, source_graph);
@@ -123,6 +149,18 @@ static const char *repo_compiler_input_label(const RepositoryGraphState *state) 
   return state->compiler_input_enabled ? "repository-graph" : "source-text";
 }
 
+static const char *repo_semantic_validity_label(const RepositoryGraphState *state) {
+  return state && state->store_valid ? "shape-valid" : "unavailable";
+}
+
+static const char *repo_projection_validity_label(const RepositoryGraphState *state) {
+  if (!state || !state->store_valid) return "unavailable";
+  if (state->projection_error) return "unavailable";
+  if (!state->projection_checked) return "unchecked";
+  if (state->projection_missing) return "missing";
+  return state->projection_current ? "clean" : "stale";
+}
+
 static const char *repo_diag_code(const ZDiag *diag) {
   if (diag && diag->code == 2002) return "BLD002";
   return "RGP008";
@@ -179,11 +217,28 @@ static void repo_append_state_json(ZBuf *buf, const RepositoryGraphState *state,
   repo_append_json_string(buf, repo_sync_state(state));
   zbuf_append(buf, ", \"possibleSyncStates\": [\"not-enabled\", \"store-invalid\", \"clean\", \"source-stale\", \"graph-stale\", \"conflict\"], \"canonicalSourceExtension\": \".0\", \"compilerInput\": ");
   repo_append_json_string(buf, repo_compiler_input_label(state));
+  zbuf_append(buf, ", \"semanticValidity\": ");
+  repo_append_json_string(buf, repo_semantic_validity_label(state));
+  zbuf_append(buf, ", \"projectionValidity\": ");
+  repo_append_json_string(buf, repo_projection_validity_label(state));
   zbuf_append(buf, "}");
   if (state->store_valid) {
     zbuf_append(buf, ",\n  \"store\": {\"format\":\"zero-repository-graph\",\"schemaVersion\":1,\"graphHash\":");
     repo_append_json_string(buf, state->graph_hash);
     zbuf_appendf(buf, ",\"nodes\":%zu,\"edges\":%zu,\"sources\":%zu}", state->node_count, state->edge_count, state->source_count);
+    zbuf_append(buf, ",\n  \"compilerStore\": {\"schemaVersion\":1,\"shape\":\"compiler-oriented-tables\",\"sourceFreeInspection\":true,\"sourceProjectionRequiredForSemanticFacts\":false,\"sourceMapRequiredForSemanticFacts\":false,\"semanticValidity\":{\"state\":");
+    repo_append_json_string(buf, repo_semantic_validity_label(state));
+    zbuf_append(buf, ",\"ok\":true},\"projectionValidity\":{\"state\":");
+    repo_append_json_string(buf, repo_projection_validity_label(state));
+    zbuf_append(buf, ",\"checked\":");
+    zbuf_append(buf, state->projection_checked ? "true" : "false");
+    zbuf_append(buf, ",\"current\":");
+    zbuf_append(buf, state->projection_current ? "true" : "false");
+    zbuf_append(buf, "},\"tables\":");
+    z_program_graph_store_append_table_counts_json(buf, state->compiler_store_available ? &state->compiler_tables : NULL);
+    zbuf_append(buf, ",\"hashInputs\":");
+    z_program_graph_store_append_compiler_hash_inputs_json(buf);
+    zbuf_append(buf, "}");
   }
   zbuf_append(buf, ",\n  \"storage\": {\"encoding\":\"single-file-text\",\"artifact\":\"zero.graph\",\"interface\":\"ProgramGraphStore\",\"schemaVersion\":1,\"evolvable\":true}");
   zbuf_appendf(buf, ",\n  \"scale\": {\"nodes\":%zu,\"edges\":%zu,\"sources\":%zu}", state->node_count, state->edge_count, state->source_count);
@@ -349,6 +404,9 @@ int z_repository_graph_status_command(const char *input, const ZTargetInfo *targ
     printf("store: %s\n", state.store_path);
     printf("store valid: %s\n", state.store_valid ? "true" : "false");
     printf("source projection: checked-in .0 source text\n");
+    printf("semantic validity: %s\n", repo_semantic_validity_label(&state));
+    printf("projection validity: %s\n", repo_projection_validity_label(&state));
+    if (state.store_valid) printf("compiler store: compiler-oriented-tables\n");
     printf("compiler input: %s\n", repo_compiler_input_label(&state));
     printf("writes: false\n");
   }
