@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createAggregateAssert, describeFailure, finishAggregateAssert } from "../scripts/aggregate-assert.mjs";
+
+const assert = createAggregateAssert();
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
   console.error("conformance emits native test artifacts; run `pnpm run conformance` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
@@ -10,8 +13,8 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 }
 
 const execMaxBuffer = 16 * 1024 * 1024;
-const zero = resolve("bin/zero");
-const outDir = ".zero/conformance";
+const zero = resolve(process.env.ZERO_BIN || (existsSync(".zero/bin/zero") ? ".zero/bin/zero" : "bin/zero"));
+const outDir = process.env.ZERO_CONFORMANCE_OUT_DIR || ".zero/conformance";
 const canRunLinuxMuslX64 = process.platform === "linux" && process.arch === "x64";
 const runnableDirectTarget =
   process.platform === "darwin" && process.arch === "arm64" ? "darwin-arm64" :
@@ -19,12 +22,21 @@ const runnableDirectTarget =
   null;
 const checkTimeoutMs = Number(process.env.ZERO_CHECK_TIMEOUT_MS ?? 2000);
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const defaultCheckJobs = 1;
+const checkJobs = parsePositiveInt(process.env.ZERO_CONFORMANCE_CHECK_JOBS, defaultCheckJobs);
+
 function runnableExeArgs(input, out) {
   if (!runnableDirectTarget) return null;
   return ["build", "--emit", "exe", "--target", runnableDirectTarget, input, "--out", out];
 }
 
 await mkdir(outDir, { recursive: true });
+await mkdir(`${outDir}/check-cache`, { recursive: true });
 
 function execFileAsync(file, args = [], options = {}) {
   return new Promise((resolve, reject) => {
@@ -38,6 +50,48 @@ function execFileAsync(file, args = [], options = {}) {
       resolve({ stdout, stderr });
     });
   });
+}
+
+function isolatedCacheEnv(workerIndex) {
+  return {
+    ...process.env,
+    ZERO_CACHE_DIR: `${outDir}/check-cache/worker-${workerIndex}`,
+  };
+}
+
+async function mapLimit(items, limit, callback) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workerCount = Math.min(Math.max(1, limit), Math.max(1, items.length));
+  async function worker(workerIndex) {
+    await mkdir(`${outDir}/check-cache/worker-${workerIndex}`, { recursive: true });
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      try {
+        results[index] = await callback(items[index], index, workerIndex);
+      } catch (error) {
+        const item = Array.isArray(items[index]) ? items[index][0] : items[index];
+        results[index] = { error };
+        assert.fail(`parallel conformance item failed: ${item}\n${describeFailure(error)}`);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, (_, index) => worker(index)));
+  return results;
+}
+
+async function checkFixtureParallel(fixture, workerIndex) {
+  const options = checkJobs > 1 ? { env: isolatedCacheEnv(workerIndex) } : {};
+  const result = await execFileAsync(zero, ["check", fixture], options).catch((error) => error);
+  assert.equal(result.code ?? 0, 0, `${fixture} should check cleanly\n${result.stderr ?? ""}`);
+}
+
+async function checkFailureFixtureParallel(fixture, code, workerIndex) {
+  const options = checkJobs > 1 ? { env: isolatedCacheEnv(workerIndex) } : {};
+  const result = await execFileAsync(zero, ["check", fixture], options).catch((error) => error);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, code);
 }
 
 async function fileExists(path) {
@@ -531,7 +585,7 @@ async function assertPeCoffX64Executable(path) {
   return bytes;
 }
 
-for (const fixture of [
+const passCheckFixtures = [
   "conformance/run/pass/hello.0",
   "conformance/native/pass/params.0",
   "conformance/native/pass/shape.0",
@@ -775,9 +829,8 @@ for (const fixture of [
   "examples/static-method.0",
   "examples/static-interface.0",
   "examples/ownership-cleanup.0",
-]) {
-  await execFileAsync(zero, ["check", fixture]);
-}
+];
+await mapLimit(passCheckFixtures, checkJobs, (fixture, _index, workerIndex) => checkFixtureParallel(fixture, workerIndex));
 
 const checkJsonSuccess = await execFileAsync(zero, ["check", "--json", "conformance/native/pass/explicit-casts.0"]);
 const checkJsonSuccessBody = JSON.parse(checkJsonSuccess.stdout);
@@ -4866,14 +4919,14 @@ export c fn main() -> i32 {
     return c.zero_ext_add(20, 22)
 }
 `);
-const externCallShadowCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
+const externCallShadowCheck = await execFileAsync(zero, ["check", "--json", externCallRoot], { cwd: externCallShadowRoot });
 const externCallShadowCheckBody = JSON.parse(externCallShadowCheck.stdout);
 assert.equal(externCallShadowCheckBody.ok, true);
-const externCallDisabledCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
+const externCallDisabledCheck = await execFileAsync(zero, ["check", "--json", "src/disabled.0"], { cwd: externCallRoot }).catch((error) => error);
 assert.notEqual(externCallDisabledCheck.code, 0);
 const externCallDisabledCheckBody = JSON.parse(externCallDisabledCheck.stdout);
 assert.equal(externCallDisabledCheckBody.diagnostics[0].code, "CIMP004");
-const externCallCommentedCheck = await execFileAsync(`${process.cwd()}/bin/zero`, ["check", "--json", "src/commented.0"], { cwd: externCallRoot }).catch((error) => error);
+const externCallCommentedCheck = await execFileAsync(zero, ["check", "--json", "src/commented.0"], { cwd: externCallRoot }).catch((error) => error);
 assert.notEqual(externCallCommentedCheck.code, 0);
 const externCallCommentedCheckBody = JSON.parse(externCallCommentedCheck.stdout);
 assert.equal(externCallCommentedCheckBody.diagnostics[0].code, "CIMP004");
@@ -5547,7 +5600,7 @@ const memDropPrefixCountI32 = await execFileAsync(zero, ["check", "conformance/n
 assert.notEqual(memDropPrefixCountI32.code, 0);
 assert.match(memDropPrefixCountI32.stderr, /TYP022/);
 
-for (const [fixture, code] of [
+const collectionFailureFixtures = [
   ["std-collections-append-mismatch.0", /STD003/],
   ["std-collections-append-overlap.0", /BOR001/],
   ["std-collections-append-mutspan-overlap.0", /BOR001/],
@@ -5561,11 +5614,9 @@ for (const [fixture, code] of [
   ["std-sort-immutable.0", /TYP009/],
   ["std-sort-mutates-borrowed.0", /BOR001/],
   ["std-sort-mutspan-mutates-borrowed.0", /BOR001/],
-]) {
-  const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
-  assert.notEqual(result.code, 0);
-  assert.match(result.stderr, code);
-}
+];
+await mapLimit(collectionFailureFixtures, checkJobs, ([fixture, code], _index, workerIndex) =>
+  checkFailureFixtureParallel(`conformance/native/fail/${fixture}`, code, workerIndex));
 
 const mutspanFromSpan = await execFileAsync(zero, ["check", "conformance/native/fail/mutspan-from-span.0"]).catch((error) => error);
 assert.notEqual(mutspanFromSpan.code, 0);
@@ -5676,7 +5727,7 @@ const ownedUseAfterMove = await execFileAsync(zero, ["check", "conformance/nativ
 assert.notEqual(ownedUseAfterMove.code, 0);
 assert.match(ownedUseAfterMove.stderr, /OWN001/);
 
-for (const fixture of [
+const ownedFailureFixtures = [
   "owned-array-repeat.0",
   "owned-array-dynamic-index-reassign-use-after-move.0",
   "owned-array-element-use-after-move.0",
@@ -5692,11 +5743,9 @@ for (const fixture of [
   "maybe-owned-check-use-after-move.0",
   "maybe-owned-stmt-check-use-after-move.0",
   "maybe-owned-rescue-fallback-use-after-move.0",
-]) {
-  const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
-  assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /OWN001/);
-}
+];
+await mapLimit(ownedFailureFixtures, checkJobs, (fixture, _index, workerIndex) =>
+  checkFailureFixtureParallel(`conformance/native/fail/${fixture}`, /OWN001/, workerIndex));
 
 const unsupportedDrop = await execFileAsync(zero, ["check", "conformance/native/fail/unsupported-drop.0"]).catch((error) => error);
 assert.notEqual(unsupportedDrop.code, 0);
@@ -5974,7 +6023,7 @@ const sliceNonSliceable = await execFileAsync(zero, ["check", "conformance/nativ
 assert.notEqual(sliceNonSliceable.code, 0);
 assert.match(sliceNonSliceable.stderr, /TYP021/);
 
-for (const [fixture, code] of [
+const typeFailureFixtures = [
   ["missing-return-path.0", /TYP003/],
   ["check-non-fallible-value.0", /ERR001/],
   ["unchecked-fallible-wrapper.0", /ERR003/],
@@ -6101,10 +6150,9 @@ for (const [fixture, code] of [
   ["receiver-return-partial-index-origin.0", /BOR001/],
   ["receiver-method-side-effect-reference-origin.0", /BOR001/],
   ["world-stream-used-as-value.0", /TYP001/],
-]) {
-  const result = await execFileAsync(zero, ["check", `conformance/native/fail/${fixture}`]).catch((error) => error);
-  assert.notEqual(result.code, 0);
-  assert.match(result.stderr, code);
-}
+];
+await mapLimit(typeFailureFixtures, checkJobs, ([fixture, code], _index, workerIndex) =>
+  checkFailureFixtureParallel(`conformance/native/fail/${fixture}`, code, workerIndex));
 
+finishAggregateAssert(assert, { suite: "conformance", reportPath: `${outDir}/failures.json` });
 console.log("conformance ok");

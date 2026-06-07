@@ -1,12 +1,13 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const execMaxBuffer = 16 * 1024 * 1024;
-const zero = "bin/zero";
+const zero = process.env.ZERO_BIN || (existsSync(".zero/bin/zero") ? ".zero/bin/zero" : "bin/zero");
 const outDir = `/tmp/zero-program-graph-parity-${process.pid}`;
 const requireStableNodeIds = process.argv.includes("--require-stable-node-ids");
 const graphHashPrime = 1099511628211n;

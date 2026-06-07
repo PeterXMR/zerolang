@@ -1,10 +1,12 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
-import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createAggregateAssert, finishAggregateAssert } from "./aggregate-assert.mjs";
+
+const assert = createAggregateAssert();
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
   console.error("command contract snapshots emit native test artifacts; run `pnpm run command-contracts` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
@@ -13,11 +15,12 @@ if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST
 
 const outDir = ".zero/command-contracts";
 const execMaxBuffer = 16 * 1024 * 1024;
+const zeroBin = process.env.ZERO_BIN || (existsSync(".zero/bin/zero") ? resolve(".zero/bin/zero") : resolve("bin/zero"));
 mkdirSync(outDir, { recursive: true });
 
 function zero(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
   try {
-    const stdout = execFileSync("bin/zero", args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
+    const stdout = execFileSync(zeroBin, args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
     return { code: 0, stdout };
   } catch (error) {
     if (!options.allowFailure) throw error;
@@ -1009,7 +1012,7 @@ writeFileSync(standaloneRepoGraphSource, standaloneRepoGraphComment + readFileSy
 const standaloneRepoGraphStatus = json(["status", "--json", resolve(standaloneRepoGraphSource)]).body;
 assert.equal(standaloneRepoGraphStatus.repositoryGraph.root, resolve(standaloneRepoGraphRoot));
 assert.equal(standaloneRepoGraphStatus.repositoryGraph.storePath, standaloneRepoGraphStore);
-const nestedRelativeRepoGraphStatus = JSON.parse(execFileSync(resolve("bin/zero"), ["status", "--json", "main.0"], { cwd: "examples/systems-package/src", encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
+const nestedRelativeRepoGraphStatus = JSON.parse(execFileSync(zeroBin, ["status", "--json", "main.0"], { cwd: "examples/systems-package/src", encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
 assert.equal(nestedRelativeRepoGraphStatus.repositoryGraph.root, "..");
 assert.equal(nestedRelativeRepoGraphStatus.repositoryGraph.storePath, "../zero.graph");
 writeFileSync(standaloneRepoGraphStore, "");
@@ -1123,7 +1126,7 @@ const repositoryGraphVerifyRedirectScript = repositoryGraphVerifyScript(reposito
 assert.notEqual(repositoryGraphVerifyRedirectScript.code, 0);
 assert.match(repositoryGraphVerifyRedirectScript.stderr, /repository graph verify-sync failed/);
 assert.match(repositoryGraphVerifyRedirectScript.stderr, /zero-repo-graph-redirect-[0-9]+\/bad/);
-const standaloneRepoGraphVerifyRelative = JSON.parse(execFileSync(resolve("bin/zero"), ["verify-sync", "--json", "standalone.0"], { cwd: standaloneRepoGraphRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
+const standaloneRepoGraphVerifyRelative = JSON.parse(execFileSync(zeroBin, ["verify-sync", "--json", "standalone.0"], { cwd: standaloneRepoGraphRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
 assert.equal(standaloneRepoGraphVerifyRelative.ok, true);
 const repoGraphSyncFromSourceAgain = json(["sync", "--from-source", "--json", resolve(standaloneRepoGraphSource)]);
 assert.equal(repoGraphSyncFromSourceAgain.code, 0);
@@ -1231,9 +1234,9 @@ const relativePackageStoreText = readFileSync(relativePackageStore, "utf8");
 assert.match(relativePackageStoreText, /^source path:"src\/main\.0"$/m);
 assert(!relativePackageStoreText.includes(relativePackageRoot));
 const relativePackageStoreHash = sha256File(relativePackageStore);
-const relativePackageVerifyDot = JSON.parse(execFileSync(resolve("bin/zero"), ["verify-sync", "--json", "."], { cwd: relativePackageRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
+const relativePackageVerifyDot = JSON.parse(execFileSync(zeroBin, ["verify-sync", "--json", "."], { cwd: relativePackageRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
 assert.equal(relativePackageVerifyDot.ok, true);
-const relativePackageSyncDot = JSON.parse(execFileSync(resolve("bin/zero"), ["sync", "--from-source", "--json", "."], { cwd: relativePackageRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
+const relativePackageSyncDot = JSON.parse(execFileSync(zeroBin, ["sync", "--from-source", "--json", "."], { cwd: relativePackageRoot, encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"] }));
 assert.equal(relativePackageSyncDot.ok, true);
 assert.equal(sha256File(relativePackageStore), relativePackageStoreHash);
 const relativePackageVerifyAbsolute = json(["verify-sync", "--json", relativePackageRoot]);
@@ -2663,7 +2666,7 @@ writeFileSync(join(sourceFreeCImportCwdRoot, "zero.json"), JSON.stringify({
   package: { name: "unrelated-cwd-package", version: "0.1.0" },
   targets: { cli: { kind: "exe", main: "src/main.0" } },
 }, null, 2));
-const sourceFreeCImportCwdBuild = JSON.parse(execFileSync(resolve("bin/zero"), [
+const sourceFreeCImportCwdBuild = JSON.parse(execFileSync(zeroBin, [
   "build",
   "--json",
   "--out",
@@ -3883,7 +3886,7 @@ writeFileSync(graphPatchHighBytePath, [
   `set node="${graphHelloLiteralNode.id}" field="value" expect="hello from zero\\n" value="\\u0080"`,
   "",
 ].join("\n"));
-const graphPatchHighByteStdout = execFileSync("bin/zero", ["patch", "--json", graphDumpPath, graphPatchHighBytePath], { stdio: ["ignore", "pipe", "pipe"] });
+const graphPatchHighByteStdout = execFileSync(zeroBin, ["patch", "--json", graphDumpPath, graphPatchHighBytePath], { stdio: ["ignore", "pipe", "pipe"] });
 assert.equal(graphPatchHighByteStdout.includes(Buffer.from([0x80])), false);
 const graphPatchHighByteText = graphPatchHighByteStdout.toString("utf8");
 assert.match(graphPatchHighByteText, /"value": "\\u0080"/);
@@ -6716,4 +6719,5 @@ const report = {
 };
 
 writeFileSync(join(outDir, "summary.json"), `${JSON.stringify(report, null, 2)}\n`);
+finishAggregateAssert(assert, { suite: "command contract snapshots", reportPath: join(outDir, "failures.json") });
 console.log("command contract snapshots ok");

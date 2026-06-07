@@ -2183,11 +2183,11 @@ static bool json_array_nonempty_literal(const char *json) {
 }
 
 static bool compiler_cache_touch(const char *kind, uint64_t key) {
-  zero_mkdir(".zero");
-  zero_mkdir(".zero/cache");
-  zero_mkdir(".zero/cache/native");
-  char path[256];
-  snprintf(path, sizeof(path), ".zero/cache/native/%s-%016llx.cache", kind, (unsigned long long)key);
+  const char *cache_dir = getenv("ZERO_CACHE_DIR");
+  if (cache_dir && cache_dir[0]) zero_mkdir(cache_dir);
+  else { cache_dir = ".zero/cache/native"; zero_mkdir(".zero"); zero_mkdir(".zero/cache"); zero_mkdir(cache_dir); }
+  char path[1024];
+  snprintf(path, sizeof(path), "%s/%s-%016llx.cache", cache_dir, kind, (unsigned long long)key);
   bool hit = path_exists(path);
   FILE *file = fopen(path, "wb");
   if (file) {

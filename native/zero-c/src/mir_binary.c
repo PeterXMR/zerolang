@@ -1265,18 +1265,17 @@ static uint64_t mir_hash_text(uint64_t hash, const char *text) {
 }
 
 char *z_mir_binary_cache_path_for_graph_store(const char *store_path, const char *graph_hash, const ZTargetInfo *target, const char *emit_kind, const char *backend) {
-  char *root = mir_dirname(store_path ? store_path : "zero.graph");
+  const char *cache_override = getenv("ZERO_CACHE_DIR");
+  bool override = cache_override && cache_override[0]; char *root = override ? NULL : mir_dirname(store_path ? store_path : "zero.graph");
   uint64_t hash = 1469598103934665603ull;
   hash = mir_hash_text(hash, ZERO_VERSION);
   hash = mir_hash_text(hash, graph_hash ? graph_hash : "");
   hash = mir_hash_text(hash, target && target->name ? target->name : "");
   hash = mir_hash_text(hash, emit_kind ? emit_kind : "");
   hash = mir_hash_text(hash, backend ? backend : "");
-  ZBuf path;
-  zbuf_init(&path);
-  zbuf_append(&path, root);
-  if (root[0] && root[strlen(root) - 1] != '/') zbuf_append_char(&path, '/');
-  zbuf_appendf(&path, ".zero/cache/native/mir-%016llx.zmir", (unsigned long long)hash);
+  ZBuf path; zbuf_init(&path); zbuf_append(&path, override ? cache_override : root);
+  if (path.len > 0 && path.data[path.len - 1] != '/') zbuf_append_char(&path, '/');
+  zbuf_appendf(&path, "%smir-%016llx.zmir", override ? "" : ".zero/cache/native/", (unsigned long long)hash);
   free(root);
   return path.data;
 }

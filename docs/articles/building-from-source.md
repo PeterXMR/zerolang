@@ -108,6 +108,17 @@ pnpm run native:test
 pnpm run command-contracts
 ```
 
+For local iteration, `conformance:local` and `command-contracts:local` report
+aggregate phase failures. Use `-- --list` to see phases and `-- --shard 1/4`
+to run one conformance phase shard.
+`pnpm run conformance` uses four isolated conformance check workers in the
+sandbox. Local conformance remains serial by default; set
+`ZERO_CONFORMANCE_CHECK_JOBS=<n>` only when measuring that path locally because
+shared CPU and filesystem contention can be slower on small machines.
+Validation scripts prefer `.zero/bin/zero` after `native-build` so repeated
+compiler checks do not pay the shell-wrapper cost. Use `ZERO_BIN=<path>` only
+for deliberate compiler comparisons.
+
 Run local benchmark smoke coverage:
 
 ```sh

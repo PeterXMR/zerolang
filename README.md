@@ -241,6 +241,23 @@ pnpm run native:test
 pnpm run command-contracts
 ```
 
+For local iteration, append runner options to the local commands:
+
+```bash
+pnpm run conformance:local -- --list
+pnpm run conformance:local -- --shard 1/4
+pnpm run command-contracts:local
+```
+
+`pnpm run conformance` runs in the sandbox with four isolated conformance check
+workers. `conformance:local` stays serial by default; set
+`ZERO_CONFORMANCE_CHECK_JOBS=<n>` only when measuring that path locally, because
+compiler child-process contention can be slower than the serial default on some
+machines.
+The validation scripts prefer `.zero/bin/zero` after the native build phase to
+avoid paying the `bin/zero` wrapper cost on every compiler invocation. Set
+`ZERO_BIN=<path>` only when you intentionally want to compare another binary.
+
 Benchmarks run locally by default:
 
 ```bash

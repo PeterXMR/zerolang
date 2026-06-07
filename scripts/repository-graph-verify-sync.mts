@@ -47,11 +47,14 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 
 const repoRoot = process.cwd();
-const zeroBin = resolve(repoRoot, "bin/zero");
+const nativeZeroBin = resolve(repoRoot, ".zero/bin/zero");
+const zeroBin = process.env.ZERO_BIN
+  ? resolve(repoRoot, process.env.ZERO_BIN)
+  : existsSync(nativeZeroBin) ? nativeZeroBin : resolve(repoRoot, "bin/zero");
 const absoluteRoot = resolve(root);
 
 if (!existsSync(zeroBin)) {
-  console.error("repository graph verify-sync requires bin/zero from the repository root");
+  console.error("repository graph verify-sync requires a built Zero compiler from the repository root");
   process.exit(1);
 }
 

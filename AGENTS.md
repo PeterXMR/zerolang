@@ -52,6 +52,18 @@ pnpm run native:test
 pnpm run command-contracts
 ```
 
+`pnpm run conformance:local` and `pnpm run command-contracts:local` use the
+aggregate validation runner. Add `-- --shard 1/4` to run one conformance phase
+shard, `-- --list` to see phases, and `-- --fail-fast` only when a narrow loop
+should stop at the first failing phase.
+`pnpm run conformance` runs the sandbox suite with four isolated conformance
+check workers. Local validation stays serial by default; set
+`ZERO_CONFORMANCE_CHECK_JOBS=<n>` only when measuring that path on the current
+machine.
+Validation scripts prefer the built native compiler at `.zero/bin/zero` after
+`native-build`; set `ZERO_BIN=<path>` only when comparing another compiler
+binary deliberately.
+
 For focused compiler work:
 
 ```sh

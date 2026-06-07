@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { promisify } from "node:util";
 
@@ -46,7 +47,7 @@ try {
   await rm(out, { force: true });
 }
 
-const zero = "bin/zero";
+const zero = process.env.ZERO_BIN || (existsSync(".zero/bin/zero") ? ".zero/bin/zero" : "bin/zero");
 const checkedInBinaryRoot = "examples/binary-graph-store";
 const binaryRoot = `/tmp/zero-program-graph-binary-store-${process.pid}`;
 
