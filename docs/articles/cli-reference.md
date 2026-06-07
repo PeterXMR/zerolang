@@ -127,15 +127,22 @@ compile. Planning and introspection commands such as `zero dev`, `zero time`,
 Derived ProgramGraph artifact commands report the same identity fields for the
 artifact being inspected or built.
 
-Repository graph build/run/test/size/ship/mem commands can also report
-`lowering: "mapped-final-mir"`. That means the graph-backed package was lowered
-to compact final MIR, written under `.zero/cache/native/mir-*.zmir`,
-memory-mapped, verified against the compiler version, graph hash, target, emit
-kind, and backend request, then passed to codegen. The `compilerCaches` array
-includes a `mappedFinalMir` row with the cache path, byte length, whether the
-cache was reused or written by this command, and whether codegen borrowed stable
-storage from the mapped file. `zero.graph` remains the authoring store; `.zmir`
-files are derived compiler caches.
+Repository graph build/run/test/size/ship/mem commands and standalone
+`.program-graph` build/run/size commands can also report
+`lowering: "mapped-final-mir"`. That means the graph input was lowered to
+compact final MIR, written under
+`.zero/cache/native/mir-*.zmir`, memory-mapped, verified against the compiler
+version, graph hash, target, emit kind, and backend request, then passed to
+codegen. For warm standalone `.program-graph` build/run commands, a mapped MIR
+hit is the immediate codegen input: the compiler skips graph-to-MIR lowering
+and checked Program reconstruction. Reporting commands such as `zero size`
+still reconstruct checked Program facts for their summaries. The
+`compilerCaches` array includes a `mappedFinalMir` row with the cache path,
+byte length, whether the cache was reused or written by this command, whether
+codegen borrowed stable storage from the mapped file, and the
+`codegenImmediate`/`programReconstructed` facts for the command.
+`zero.graph` remains the authoring store; `.program-graph` and `.zmir` files
+are derived compiler artifacts.
 
 `zero check --json` and `zero inspect --json` also include `compileTime`.
 That object records bounded `meta` evaluation, sandbox denials, cache key

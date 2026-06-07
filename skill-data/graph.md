@@ -43,16 +43,22 @@ existing binary store, and `zero status <package>` reports `store format:
 text|binary`. Do not make binary the default in prompts; use it when the task is
 to test or opt into binary graph storage.
 
-`zero.graph` remains the authoring and repository compiler-input store. Build,
-run, test, size, ship, and mem commands may additionally write
+`zero.graph` remains the authoring and repository compiler-input store.
+Repository graph build, run, test, size, ship, and mem commands, plus
+standalone `.program-graph` build, run, and size commands, may additionally write
 `.zero/cache/native/mir-*.zmir`, a derived final-MIR cache. The compiler
-memory-maps and verifies that cache before codegen; stale caches are rejected by
-compiler version, graph hash, target, emit kind, and backend request. Agents
-should not patch `.zmir` files. JSON outputs expose this path as a
+memory-maps and verifies that cache before codegen; stale caches are rejected
+by compiler version, graph hash, target, emit kind, and backend request.
+Agents should not patch `.zmir` files. JSON outputs expose this path as a
 `mappedFinalMir` compiler cache entry; `hit: true` means the cache was reused,
 `written: true` means the current command generated it before mapping it, and
 `borrowedStorage: true` means codegen is reading stable strings/readonly data
-from the mapped cache instead of copied source text.
+from the mapped cache instead of copied source text. For warm standalone
+`.program-graph` build/run hits, `codegenImmediate: true` and
+`programReconstructed: false` mean codegen started from mapped final MIR without
+reconstructing checked Program state. Reporting commands such as `zero size`
+may still report `programReconstructed: true` because their summaries need
+checked Program facts.
 
 ## Graph-First Loop
 

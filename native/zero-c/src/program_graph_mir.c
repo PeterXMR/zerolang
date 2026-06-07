@@ -28,24 +28,20 @@ static void *ir_grow_tracked_items(IrProgram *ir, void *items, size_t len, size_
   }
   return items;
 }
-
 static IrTypeKind ir_type_kind(const char *type);
-
 static bool ir_text_eq(const char *left, const char *right) {
   return strcmp(left ? left : "", right ? right : "") == 0;
 }
 
-static void ir_graph_set_mapped_mir_cache_facts(SourceInput *input, const ZMirBinaryCacheFacts *facts, bool reused, bool written) {
+static void ir_graph_set_mapped_mir_cache_facts(SourceInput *input, const ZMirBinaryCacheFacts *facts, bool reused, bool written, bool codegen_immediate, bool program_reconstructed) {
   if (!input || !facts || !facts->hit) return;
   free(input->mapped_mir_cache_path);
   input->mapped_mir_cache_path = z_strdup(facts->path);
   input->mapped_mir_cache_bytes = facts->byte_len;
-  input->mapped_mir_cache_hit = reused;
-  input->mapped_mir_cache_written = written;
-  input->mapped_mir_memory_mapped = facts->mapped;
-  input->mapped_mir_borrowed_storage = facts->borrowed_storage;
+  input->mapped_mir_cache_hit = reused; input->mapped_mir_cache_written = written;
+  input->mapped_mir_memory_mapped = facts->mapped; input->mapped_mir_borrowed_storage = facts->borrowed_storage;
+  input->mapped_mir_codegen_immediate = codegen_immediate; input->mapped_mir_program_reconstructed = program_reconstructed;
 }
-
 static IrTypeKind ir_span_element_kind(const char *type) {
   if (!type) return IR_TYPE_UNSUPPORTED;
   if (ir_text_eq(type, "Bool") || ir_text_eq(type, "bool")) return IR_TYPE_BOOL;
@@ -4234,24 +4230,67 @@ static bool ir_graph_lower_checked_program(const ZProgramGraph *graph, const cha
   return ok;
 }
 
-bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
+bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const ZTargetInfo *target, const char *emit_kind, const char *requested_backend, bool require_checked_program, Program *program, SourceInput *input, IrProgram *ir, ZProgramGraphArtifactSource *source, ZDiag *diag) {
   if (!ir) return false;
   ZProgramGraph graph = {0};
   if (!z_program_graph_load(artifact_path, &graph, diag)) return false;
 
   z_program_graph_seed_source_metadata(input, &graph);
+  char *mir_cache_path = z_mir_binary_cache_path_for_graph_store(artifact_path, graph.graph_hash, target, emit_kind, requested_backend);
+  ZMirBinaryCacheFacts mir_cache = {0};
+  if (mir_cache_path && z_mir_binary_load_path(mir_cache_path, graph.graph_hash, target, emit_kind, requested_backend, ir, &mir_cache, NULL)) {
+    if (require_checked_program) {
+      if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
+        z_free_ir_program(ir);
+        free(mir_cache_path);
+        z_program_graph_free(&graph);
+        return false;
+      }
+    }
+    if (input) {
+      if (!require_checked_program) z_program_graph_seed_artifact_source_paths(input, &graph, artifact_path);
+      z_program_graph_seed_source_metadata_facts(input, &graph);
+      input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
+      input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
+      ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, true, false, !require_checked_program, require_checked_program);
+    }
+    if (source) {
+      source->artifact = artifact_path;
+      source->graph_hash = input ? input->program_graph_hash : "";
+      source->module_identity = input ? input->program_graph_module_identity : "";
+      source->lowering = "mapped-final-mir";
+      source->canonical_source = graph.canonical_source;
+    }
+    free(mir_cache_path);
+    z_program_graph_free(&graph);
+    return true;
+  }
+
   IrProgram graph_ir = z_lower_program_graph_with_source(&graph, input, target);
   bool graph_mir_valid = graph_ir.mir_valid;
   if (graph_mir_valid) {
-    *ir = graph_ir;
     if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
-      z_free_ir_program(ir);
+      z_free_ir_program(&graph_ir);
+      free(mir_cache_path);
       z_program_graph_free(&graph);
       return false;
     }
+    if (mir_cache_path) {
+      ZDiag cache_diag = {0};
+      if (z_mir_binary_write_path(mir_cache_path, &graph_ir, graph.graph_hash, target, emit_kind, requested_backend, &cache_diag)) {
+        IrProgram mapped_ir = {0};
+        if (z_mir_binary_load_path(mir_cache_path, graph.graph_hash, target, emit_kind, requested_backend, &mapped_ir, &mir_cache, NULL)) {
+          z_free_ir_program(&graph_ir);
+          graph_ir = mapped_ir;
+          ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, true, false, true);
+        }
+      }
+    }
+    *ir = graph_ir;
   } else {
     if (!ir_graph_lower_checked_program(&graph, artifact_path, target, program, input, diag)) {
       z_free_ir_program(&graph_ir);
+      free(mir_cache_path);
       z_program_graph_free(&graph);
       return false;
     }
@@ -4259,6 +4298,7 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     z_free_ir_program(&graph_ir);
     if (input && input->source_file) z_map_source_diag(input, diag);
     if (diag && !diag->path) diag->path = input && input->source_file ? input->source_file : artifact_path;
+    free(mir_cache_path);
     z_program_graph_free(&graph);
     return false;
   }
@@ -4266,14 +4306,16 @@ bool z_program_graph_prepare_artifact_mir_input(const char *artifact_path, const
     z_program_graph_seed_source_metadata_facts(input, &graph);
     input->program_graph_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(graph.module_identity ? graph.module_identity : "");
+    ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, mir_cache.hit, false, true);
   }
   if (source) {
     source->artifact = artifact_path;
     source->graph_hash = input ? input->program_graph_hash : "";
     source->module_identity = input ? input->program_graph_module_identity : "";
-    source->lowering = "typed-program-graph-mir";
+    source->lowering = mir_cache.hit ? "mapped-final-mir" : "typed-program-graph-mir";
     source->canonical_source = graph.canonical_source;
   }
+  free(mir_cache_path);
   z_program_graph_free(&graph);
   return true;
 }
@@ -4297,7 +4339,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
       z_program_graph_seed_source_metadata_facts(input, &store.graph);
       input->program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
       input->program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
-      ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, true, false);
+      ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, true, false, false, true);
     }
     if (source) {
       source->artifact = store_path;
@@ -4322,7 +4364,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
         if (z_mir_binary_load_path(mir_cache_path, store.graph.graph_hash, target, emit_kind, requested_backend, &mapped_ir, &mir_cache, NULL)) {
           z_free_ir_program(&graph_ir);
           graph_ir = mapped_ir;
-          ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, true);
+          ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, true, false, true);
         }
       }
     }
@@ -4352,7 +4394,7 @@ bool z_program_graph_prepare_repository_store_mir_input(const char *store_path, 
     z_program_graph_seed_source_metadata_facts(input, &store.graph);
     input->program_graph_hash = z_strdup(store.graph.graph_hash ? store.graph.graph_hash : "");
     input->program_graph_module_identity = z_strdup(store.graph.module_identity ? store.graph.module_identity : "");
-    ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, mir_cache.hit);
+    ir_graph_set_mapped_mir_cache_facts(input, &mir_cache, false, mir_cache.hit, false, true);
   }
   if (source) {
     source->artifact = store_path;

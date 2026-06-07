@@ -18,6 +18,55 @@ static bool graph_size_text_eq(const char *left, const char *right) {
   return true;
 }
 
+static char *graph_size_dirname_of(const char *path) {
+  if (!path || !path[0]) return z_strdup(".");
+  const char *slash = strrchr(path, '/');
+  if (!slash) return z_strdup(".");
+  if (slash == path) return z_strdup("/");
+  return z_strndup(path, (size_t)(slash - path));
+}
+
+static char *graph_size_manifest_for_source_path(const char *path) {
+  char *dir = graph_size_dirname_of(path);
+  while (dir && dir[0]) {
+    char *manifest = z_manifest_path_for_root(dir);
+    if (manifest) {
+      free(dir);
+      return manifest;
+    }
+    if (graph_size_text_eq(dir, ".") || graph_size_text_eq(dir, "/")) break;
+    char *parent = graph_size_dirname_of(dir);
+    if (graph_size_text_eq(parent, dir)) {
+      free(parent);
+      break;
+    }
+    free(dir);
+    dir = parent;
+  }
+  free(dir);
+  return NULL;
+}
+
+static bool graph_size_source_file_seen(const SourceInput *input, const char *path) {
+  for (size_t i = 0; input && path && i < input->source_file_count; i++) {
+    if (graph_size_text_eq(input->source_files[i], path)) return true;
+  }
+  return false;
+}
+
+static void graph_size_record_source_file(SourceInput *input, const char *path) {
+  if (!input || !path || !path[0] || graph_size_source_file_seen(input, path)) return;
+  graph_size_push_string(&input->source_files, &input->source_file_count, path);
+}
+
+static void graph_size_seed_manifest_from_path(SourceInput *input, const char *path) {
+  if (!input || input->manifest_path || !path || !path[0]) return;
+  char *manifest = graph_size_manifest_for_source_path(path);
+  if (!manifest) return;
+  input->manifest_path = manifest;
+  input->package_root = graph_size_dirname_of(manifest);
+}
+
 static const char *graph_size_module_path_for_name(const SourceInput *input, const char *name) {
   for (size_t i = 0; input && name && i < input->module_count; i++) {
     if (graph_size_text_eq(input->module_names[i], name)) return input->module_paths[i];
@@ -186,4 +235,17 @@ void z_program_graph_seed_source_metadata_facts(SourceInput *input, const ZProgr
   graph_size_clear_import_metadata(input);
   graph_size_clear_symbol_metadata(input);
   graph_size_seed_from_graph(input, graph);
+}
+
+void z_program_graph_seed_artifact_source_paths(SourceInput *input, const ZProgramGraph *graph, const char *artifact_path) {
+  if (!input || !graph) return;
+  if (!input->source_file) input->source_file = z_strdup(artifact_path && artifact_path[0] ? artifact_path : "<program-graph>");
+  graph_size_seed_manifest_from_path(input, artifact_path);
+  for (size_t i = 0; i < graph->node_len; i++) {
+    const char *path = graph->nodes[i].path;
+    if (!path || !path[0]) continue;
+    graph_size_record_source_file(input, path);
+    graph_size_seed_manifest_from_path(input, path);
+  }
+  if (input->source_file_count == 0) graph_size_record_source_file(input, input->source_file);
 }

@@ -87,16 +87,23 @@ If the package has opted into binary graph storage, normal build and run
 commands still read `zero.graph` directly; `zero status <package>` reports the
 store format.
 
-Repository graph artifact commands also maintain a final MIR cache under
+Repository graph build/run/test/size/ship/mem commands and standalone
+`.program-graph` build, run, and size artifact commands also maintain a final
+MIR cache under
 `.zero/cache/native/mir-*.zmir`. The cache is keyed by graph hash, compiler
 version, target, emit kind, and backend request. On a miss, the compiler lowers
 the graph once, writes compact final MIR, memory-maps and verifies that cache,
 borrows stable string and readonly-data storage from the mapped file, then sends
-the verified MIR to codegen. On a hit, codegen can skip graph-to-MIR lowering.
-JSON build, size, run, test, ship, and mem outputs report graph
-`lowering: "mapped-final-mir"` when this path is used and include a
-`mappedFinalMir` compiler cache row with `path`, `hit`, `written`,
-`memoryMapped`, `borrowedStorage`, and `byteLength` facts.
+the verified MIR to codegen. On a warm standalone `.program-graph` build/run
+hit, the mapped final MIR is the immediate codegen input: the compiler skips
+graph-to-MIR lowering and checked Program reconstruction. Reporting commands
+such as `zero size` still reconstruct checked Program facts for their summaries.
+JSON outputs report graph `lowering: "mapped-final-mir"` when this path is used
+and include a `mappedFinalMir` compiler cache row with `path`, `hit`,
+`written`, `memoryMapped`, `borrowedStorage`, `byteLength`,
+`codegenImmediate`, and `programReconstructed` facts. Do not assume standalone
+artifact commands outside build/run/size use the mapped MIR path unless their
+JSON output reports it.
 
 Use normal build and run commands against `.program-graph` only when you
 intentionally need to validate a derived interchange artifact:

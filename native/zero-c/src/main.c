@@ -5,6 +5,7 @@
 #include "zero.h"
 #include "buildability.h"
 #include "c_import.h"
+#include "capability_summary.h"
 #include "canonical_text.h"
 #include "program_graph_build.h"
 #include "program_graph_command.h"
@@ -1027,23 +1028,6 @@ static bool remove_tree(const char *path, ZBuf *deleted) {
 }
 
 typedef struct {
-  bool args;
-  bool env;
-  bool fs;
-  bool memory;
-  bool alloc;
-  bool path;
-  bool codec;
-  bool parse;
-  bool time;
-  bool rand;
-  bool net;
-  bool proc;
-  bool web;
-  bool world;
-} CapabilitySummary;
-
-typedef struct {
   bool *used;
   size_t len;
 } HelperUseSummary;
@@ -1641,6 +1625,15 @@ static CapabilitySummary program_capabilities(const Program *program) {
       caps.web = caps.web || fun_caps.web;
       caps.world = caps.world || fun_caps.world;
     }
+  }
+  return caps;
+}
+
+static CapabilitySummary program_or_ir_capabilities(const Program *program, const IrProgram *ir) {
+  CapabilitySummary caps = program_capabilities(program);
+  if ((!program || program->functions.len == 0) && ir) {
+    CapabilitySummary ir_caps = z_ir_program_capabilities(ir);
+    z_capability_summary_merge(&caps, &ir_caps);
   }
   return caps;
 }
@@ -2303,11 +2296,13 @@ static void append_compiler_caches_json_ex(ZBuf *buf, const SourceInput *input, 
     append_json_string(buf, "ProgramGraph input, target, emit kind, backend, or compiler version");
     zbuf_append(buf, ",\"path\":");
     append_json_string(buf, input->mapped_mir_cache_path);
-    zbuf_appendf(buf, ",\"byteLength\":%zu,\"memoryMapped\":%s,\"borrowedStorage\":%s,\"written\":%s}",
+    zbuf_appendf(buf, ",\"byteLength\":%zu,\"memoryMapped\":%s,\"borrowedStorage\":%s,\"written\":%s,\"codegenImmediate\":%s,\"programReconstructed\":%s}",
                  input->mapped_mir_cache_bytes,
                  input->mapped_mir_memory_mapped ? "true" : "false",
                  input->mapped_mir_borrowed_storage ? "true" : "false",
-                 input->mapped_mir_cache_written ? "true" : "false");
+                 input->mapped_mir_cache_written ? "true" : "false",
+                 input->mapped_mir_codegen_immediate ? "true" : "false",
+                 input->mapped_mir_program_reconstructed ? "true" : "false");
     wrote = true;
   }
   APPEND_CACHE("emittedObject", object_key, input && input->emitted_object_cache_hit, graph_input ? "ProgramGraph input, target, profile, or backend" : "source, target, profile, or backend", GRAPH_CACHE_INPUTS_OBJECT);
@@ -2365,12 +2360,14 @@ static void append_incremental_invalidations_json_ex(ZBuf *buf, const SourceInpu
     if (input && input->mapped_mir_cache_path) {
       zbuf_append(buf, ",\"mappedFinalMir\":{\"path\":");
       append_json_string(buf, input->mapped_mir_cache_path);
-      zbuf_appendf(buf, ",\"byteLength\":%zu,\"hit\":%s,\"written\":%s,\"memoryMapped\":%s,\"borrowedStorage\":%s}",
+      zbuf_appendf(buf, ",\"byteLength\":%zu,\"hit\":%s,\"written\":%s,\"memoryMapped\":%s,\"borrowedStorage\":%s,\"codegenImmediate\":%s,\"programReconstructed\":%s}",
                    input->mapped_mir_cache_bytes,
                    input->mapped_mir_cache_hit ? "true" : "false",
                    input->mapped_mir_cache_written ? "true" : "false",
                    input->mapped_mir_memory_mapped ? "true" : "false",
-                   input->mapped_mir_borrowed_storage ? "true" : "false");
+                   input->mapped_mir_borrowed_storage ? "true" : "false",
+                   input->mapped_mir_codegen_immediate ? "true" : "false",
+                   input->mapped_mir_program_reconstructed ? "true" : "false");
     }
     zbuf_append(buf, "}");
   }
@@ -6885,7 +6882,7 @@ static void print_build_graph_source_json(const Command *command, const SourceIn
   printf("}");
 }
 
-static void print_build_json(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const char *emit_kind, const char *artifact_path, long long artifact_bytes, long long generated_c_bytes, long long elapsed_ms) {
+static void print_build_json(const Command *command, const SourceInput *input, const Program *program, const IrProgram *ir, const ZTargetInfo *target, const char *emit_kind, const char *artifact_path, long long artifact_bytes, long long generated_c_bytes, long long elapsed_ms) {
   bool llvm_ir_output = command && command->emit == EMIT_LLVM_IR && z_backend_request_is_llvm(command->backend, emit_kind);
   bool llvm_native_output = command_uses_llvm_native_exe(command, emit_kind);
   printf("{\n  \"schemaVersion\": 1,\n  \"sourceFile\": ");
@@ -6987,7 +6984,7 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   if (llvm_ir_output) z_append_llvm_ir_backend_json(&extra, input, target, emit_kind);
   else if (llvm_native_output) z_append_llvm_native_backend_json(&extra, input, target, emit_kind);
   else append_object_backend_json(&extra, input, target, command, emit_kind);
-  CapabilitySummary routing_caps = program_capabilities(program);
+  CapabilitySummary routing_caps = program_or_ir_capabilities(program, ir);
   zbuf_append(&extra, ",\n  \"selfHostRouting\": ");
   append_self_host_routing_json(&extra, "build", emit_kind, program, &routing_caps, target);
   fputs(extra.data, stdout);
@@ -13582,7 +13579,7 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
   }
 
   long long elapsed_ms = now_ms() - command_started_ms;
-  if (command->json) print_build_json(command, input, program, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
+  if (command->json) print_build_json(command, input, program, ir, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
   else print_artifact(exe_file, elapsed_ms);
   free(runtime_object_file); free(llvm_file); free(exe_file); zbuf_free(&llvm_ir); z_free_ir_program(ir); z_free_program(program); z_free_source(input);
   return 0;
@@ -13796,9 +13793,6 @@ int main(int argc, char **argv) {
   bool graph_subcommand_handled = false;
   int graph_subcommand_rc = run_graph_subcommand_dispatch(&command, target, graph_command_artifact_input, &diag, &graph_subcommand_handled);
   if (graph_subcommand_handled) return graph_subcommand_rc;
-  if (strcmp(command.command, "size") == 0 && path_has_program_graph_storage_header(command.input)) {
-    return run_graph_size_command(&command, target, &diag);
-  }
 
   if (graph_check_text_eq(command.command, "patch")) {
     bool top_patch_artifact_input = false;
@@ -13955,11 +13949,12 @@ int main(int argc, char **argv) {
   bool root_graph_artifact_input = path_has_program_graph_storage_header(command.input);
   bool graph_build_command = strcmp(command.command, "build") == 0 && root_graph_artifact_input;
   bool graph_run_artifact_command = strcmp(command.command, "run") == 0 && root_graph_artifact_input;
+  bool graph_size_artifact_command = strcmp(command.command, "size") == 0 && root_graph_artifact_input;
   bool graph_test_command = strcmp(command.command, "test") == 0 && root_graph_artifact_input;
   bool direct_graph_source_command = false;
-  if (direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command || graph_test_command) {
+  if (direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command || graph_size_artifact_command || graph_test_command) {
     ZProgramGraphArtifactSource graph_source = {0};
-    bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command;
+    bool graph_mir_command = direct_graph_manifest_command || direct_graph_source_command || graph_build_command || graph_run_artifact_command || graph_size_artifact_command;
     long long graph_lower_started = now_ms();
     if (command.repository_graph_input && command.emit == EMIT_LLVM_IR) {
       if (!z_backend_request_is_llvm(command.backend, emit_kind_name(command.emit))) {
@@ -13978,13 +13973,18 @@ int main(int argc, char **argv) {
     bool prepared_graph = command.repository_graph_input
       ? z_program_graph_prepare_repository_store_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, &program, &input, &graph_prepared_ir, &graph_source, &diag)
       : (graph_mir_command
-          ? z_program_graph_prepare_artifact_mir_input(command.input, target, &program, &input, &graph_prepared_ir, &graph_source, &diag)
+          ? z_program_graph_prepare_artifact_mir_input(command.input, target, emit_kind_name(command.emit), command.backend, !(graph_build_command || graph_run_artifact_command), &program, &input, &graph_prepared_ir, &graph_source, &diag)
           : z_program_graph_prepare_artifact_input(command.input, target, &program, &input, &graph_source, &diag));
     if (prepared_graph && graph_mir_command) {
       input.lower_ms = now_ms() - graph_lower_started;
       apply_ir_metrics_to_input(&input, &graph_prepared_ir, target);
     }
     if (!prepared_graph) {
+      if (graph_size_artifact_command && diag.code == 2004) {
+        free_loaded_command_state(&input, &program, &graph_prepared_ir);
+        diag = (ZDiag){0};
+        return run_graph_size_command(&command, target, &diag);
+      }
       if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       free_loaded_command_state(&input, &program, &graph_prepared_ir);
@@ -13998,7 +13998,7 @@ int main(int argc, char **argv) {
     }
     touch_program_graph_compiler_caches(&input, target, command.profile, graph_source.graph_hash);
     command.graph_source = graph_source;
-    if (!direct_graph_manifest_command && !direct_graph_source_command) {
+    if (!direct_graph_manifest_command && !direct_graph_source_command && !graph_size_artifact_command) {
       command.command = graph_run_artifact_command ? "run" : (graph_test_command ? "test" : "build");
       command.kind = NULL;
     }
@@ -14051,6 +14051,7 @@ int main(int argc, char **argv) {
       !direct_graph_source_command &&
       !graph_build_command &&
       !graph_run_artifact_command &&
+      !graph_size_artifact_command &&
       !graph_test_command &&
       z_program_graph_source_command_uses_graph_mir(command.command)) {
     long long graph_lower_started = now_ms();
@@ -14242,7 +14243,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     long long elapsed_ms = now_ms() - command_started_ms;
-    if (command.json) print_build_json(&command, &input, &program, target, "llvm-ir", llvm_file, file_size_or_negative(llvm_file), 0, elapsed_ms);
+    if (command.json) print_build_json(&command, &input, &program, &ir, target, "llvm-ir", llvm_file, file_size_or_negative(llvm_file), 0, elapsed_ms);
     else print_artifact(llvm_file, elapsed_ms);
     free(llvm_file);
     zbuf_free(&llvm_ir);
@@ -14309,7 +14310,7 @@ int main(int argc, char **argv) {
     }
 
     long long elapsed_ms = now_ms() - command_started_ms;
-    if (command.json) print_build_json(&command, &input, &program, target, "obj", object_file, file_size_or_negative(object_file), 0, elapsed_ms);
+    if (command.json) print_build_json(&command, &input, &program, &ir, target, "obj", object_file, file_size_or_negative(object_file), 0, elapsed_ms);
     else print_artifact(object_file, elapsed_ms);
     free(object_file);
     zbuf_free(&object);
@@ -14318,7 +14319,7 @@ int main(int argc, char **argv) {
     z_free_source(&input);
     return 0;
   }
-  CapabilitySummary direct_exe_caps = program_capabilities(&program);
+  CapabilitySummary direct_exe_caps = program_or_ir_capabilities(&program, &ir);
   if (artifact_command && command.emit == EMIT_EXE &&
       !validate_c_libraries_for_target(&input, target, &command, &diag)) {
     if (command.json) print_diag_json(diag.path ? diag.path : input.source_file, &diag);
@@ -14427,7 +14428,7 @@ int main(int argc, char **argv) {
     }
 
     long long elapsed_ms = now_ms() - command_started_ms;
-    if (command.json) print_build_json(&command, &input, &program, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
+    if (command.json) print_build_json(&command, &input, &program, &ir, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
     else print_artifact(exe_file, elapsed_ms);
     free(http_object_file);
     free(runtime_object_file);
@@ -14521,7 +14522,7 @@ int main(int argc, char **argv) {
       else print_ship_text(&ship, elapsed_ms);
       ship_artifacts_free(&ship);
     } else if (command.json) {
-      print_build_json(&command, &input, &program, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
+      print_build_json(&command, &input, &program, &ir, target, "exe", exe_file, file_size_or_negative(exe_file), 0, elapsed_ms);
     } else {
       print_artifact(exe_file, elapsed_ms);
     }

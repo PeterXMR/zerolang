@@ -873,10 +873,9 @@ typedef struct {
   size_t lowered_ir_bytes;
   char *mapped_mir_cache_path;
   size_t mapped_mir_cache_bytes;
-  bool mapped_mir_cache_hit;
-  bool mapped_mir_cache_written;
-  bool mapped_mir_memory_mapped;
-  bool mapped_mir_borrowed_storage;
+  bool mapped_mir_cache_hit, mapped_mir_cache_written;
+  bool mapped_mir_memory_mapped, mapped_mir_borrowed_storage;
+  bool mapped_mir_codegen_immediate, mapped_mir_program_reconstructed;
   size_t direct_function_count;
   size_t direct_export_count;
   size_t direct_stack_bytes;

@@ -432,13 +432,21 @@ async function assertCommandStateContracts() {
 
   const size = await zeroJson(["size", "--json", "--target", "linux-musl-x64", artifact]);
   assert.equal(size.graph.canonicalSource, false, "graph size should report artifact input");
-  assert.equal(size.graph.lowering, "typed-program-graph-mir", "graph size should lower through typed graph MIR");
+  assert.equal(size.graph.lowering, "mapped-final-mir", "graph size should lower through mapped final MIR");
   assert.equal(size.generatedCBytes, 0, "graph size should stay on the direct backend");
   assert.equal(size.cBridgeFallback, false, "graph size should not use C bridge fallback");
+  const sizeMirCache = size.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+  assert.equal(sizeMirCache.codegenImmediate, false, "graph size should keep checked program facts for reports");
+  assert.equal(sizeMirCache.programReconstructed, true, "graph size should reconstruct checked program facts");
+  const build = await zeroJson(["build", "--json", "--target", "linux-musl-x64", "--out", `${outDir}/state-contracts-build`, artifact]);
+  const buildMirCache = build.compilerCaches.find((cache) => cache.name === "mappedFinalMir");
+  assert.equal(buildMirCache.hit, true, "graph build should reuse the mapped final MIR warmed by size");
+  assert.equal(buildMirCache.codegenImmediate, true, "graph build should codegen immediately from mapped final MIR");
+  assert.equal(buildMirCache.programReconstructed, false, "graph build should not reconstruct checked program facts on a mapped MIR hit");
 
   const stdArgsArtifact = await dumpGraphArtifact("conformance/native/pass/std-args.0", "std-args-mir");
   const stdArgsSize = await zeroJson(["size", "--json", "--target", "linux-musl-x64", stdArgsArtifact]);
-  assert.equal(stdArgsSize.graph.lowering, "typed-program-graph-mir", "graph size should lower std args through typed graph MIR");
+  assert.equal(stdArgsSize.graph.lowering, "mapped-final-mir", "graph size should lower std args through mapped final MIR");
   assert.equal(stdArgsSize.generatedCBytes, 0, "graph MIR std args should stay on the direct backend");
   assert.equal(stdArgsSize.objectBackend.directFacts.functionCount, 1, "graph MIR std args should retain the main function");
   const stdArgsRun = await zeroText(["run", "--out", `${outDir}/std-args-run`, stdArgsArtifact, "one", "two"]);
@@ -898,7 +906,7 @@ async function assertBuildParity(fixture, name) {
 
   assert.equal(graph.graph.artifact, artifact, `${fixture}: graph build artifact`);
   assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph build should use artifact input`);
-  assert.equal(graph.graph.lowering, "typed-program-graph-mir", `${fixture}: graph build lowering`);
+  assert.equal(graph.graph.lowering, "mapped-final-mir", `${fixture}: graph build lowering`);
   assert.deepEqual(buildSummary(graph), buildSummary(source), `${fixture}: source and graph build summaries should agree`);
   assert(source.artifactBytes > 0, `${fixture}: source build should write an artifact`);
   assert(graph.artifactBytes > 0, `${fixture}: graph build should write an artifact`);
