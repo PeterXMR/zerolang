@@ -141,7 +141,7 @@ async function compilerDiagnostics(uri, text) {
 
 async function compilerFacts(path) {
   const [graphResult, sizeResult, memResult, docResult] = await Promise.all([
-    execFileAsync(zero, ["graph", "--json", path]).catch((error) => error),
+    execFileAsync(zero, ["inspect", "--json", path]).catch((error) => error),
     execFileAsync(zero, ["size", "--json", path]).catch((error) => error),
     execFileAsync(zero, ["mem", "--json", path]).catch((error) => error),
     execFileAsync(zero, ["doc", "--json", path]).catch((error) => error),

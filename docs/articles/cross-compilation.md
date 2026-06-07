@@ -44,7 +44,7 @@ emitters, and artifact facts:
 
 ```sh
 bin/zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.0
-bin/zero graph --json --target darwin-arm64 examples/memory-package
+bin/zero inspect --json --target darwin-arm64 examples/memory-package
 bin/zero size --json --target linux-musl-x64 examples/direct-exe-return.0
 ```
 

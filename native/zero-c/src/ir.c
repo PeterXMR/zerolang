@@ -145,18 +145,39 @@ static Stmt *clone_stmt(const Stmt *stmt) {
   return copy;
 }
 
-static IrTypeKind ir_span_element_kind(const char *type) {
+typedef struct { const char *name; IrTypeKind kind; } IrTypeName;
+
+static IrTypeKind ir_type_name_lookup(const IrTypeName *items, size_t len, const char *type) {
   if (!type) return IR_TYPE_UNSUPPORTED;
-  if (strcmp(type, "Bool") == 0 || strcmp(type, "bool") == 0) return IR_TYPE_BOOL;
-  if (strcmp(type, "u8") == 0) return IR_TYPE_U8;
-  if (strcmp(type, "u16") == 0) return IR_TYPE_U16;
-  if (strcmp(type, "usize") == 0) return IR_TYPE_USIZE;
-  if (strcmp(type, "i32") == 0) return IR_TYPE_I32;
-  if (strcmp(type, "u32") == 0) return IR_TYPE_U32;
-  if (strcmp(type, "i64") == 0) return IR_TYPE_I64;
-  if (strcmp(type, "u64") == 0) return IR_TYPE_U64;
+  for (size_t i = 0; i < len; i++) {
+    if (strcmp(type, items[i].name) == 0) return items[i].kind;
+  }
   return IR_TYPE_UNSUPPORTED;
 }
+
+static bool ir_type_name_is_one_of(const char *const *items, size_t len, const char *type) {
+  if (!type) return false;
+  for (size_t i = 0; i < len; i++) {
+    if (strcmp(type, items[i]) == 0) return true;
+  }
+  return false;
+}
+
+static const IrTypeName ir_scalar_type_names[] = {
+  {"Bool", IR_TYPE_BOOL}, {"bool", IR_TYPE_BOOL}, {"u8", IR_TYPE_U8}, {"u16", IR_TYPE_U16}, {"usize", IR_TYPE_USIZE}, {"i32", IR_TYPE_I32}, {"u32", IR_TYPE_U32}, {"i64", IR_TYPE_I64}, {"u64", IR_TYPE_U64},
+};
+
+static const IrTypeName ir_builtin_type_names[] = {
+  {"Void", IR_TYPE_VOID}, {"Duration", IR_TYPE_I64}, {"RandSource", IR_TYPE_U32}, {"ProcStatus", IR_TYPE_I32}, {"Net", IR_TYPE_I32}, {"HttpClient", IR_TYPE_I32},
+  {"HttpResult", IR_TYPE_U64}, {"HttpError", IR_TYPE_U32}, {"HttpHeaderValue", IR_TYPE_U64}, {"Fs", IR_TYPE_I32}, {"File", IR_TYPE_I32}, {"owned<File>", IR_TYPE_I32},
+  {"FixedBufAlloc", IR_TYPE_ALLOC}, {"Vec", IR_TYPE_VEC}, {"BufferedReader", IR_TYPE_BYTE_VIEW}, {"BufferedWriter", IR_TYPE_BYTE_VIEW},
+};
+
+static const char *const ir_byte_view_type_names[] = {"String", "Span<const u8>", "ByteBuf", "owned<ByteBuf>"};
+static const char *const ir_maybe_byte_view_type_names[] = {"Maybe<MutSpan<u8>>", "Maybe<Span<u8>>", "Maybe<String>", "Maybe<owned<ByteBuf>>"};
+static const char *const ir_maybe_scalar_type_names[] = {"Maybe<JsonDoc>", "Maybe<Bool>", "Maybe<u8>", "Maybe<u16>", "Maybe<usize>", "Maybe<i32>", "Maybe<u32>", "Maybe<owned<File>>"};
+
+static IrTypeKind ir_span_element_kind(const char *type) { return ir_type_name_lookup(ir_scalar_type_names, sizeof(ir_scalar_type_names) / sizeof(ir_scalar_type_names[0]), type); }
 
 static bool ir_span_type_element(const char *type, bool *is_mutable, IrTypeKind *element_type) {
   if (!type) return false;
@@ -200,37 +221,16 @@ static IrTypeKind ir_view_element_type_for_type(const char *type) {
 
 static IrTypeKind ir_type_kind(const char *type) {
   if (!type) return IR_TYPE_UNSUPPORTED;
-  if (strcmp(type, "Void") == 0) return IR_TYPE_VOID;
   IrTypeKind scalar_type = ir_span_element_kind(type);
   if (scalar_type != IR_TYPE_UNSUPPORTED) return scalar_type;
-  if (strcmp(type, "Duration") == 0) return IR_TYPE_I64;
-  if (strcmp(type, "RandSource") == 0) return IR_TYPE_U32;
-  if (strcmp(type, "ProcStatus") == 0) return IR_TYPE_I32;
-  if (strcmp(type, "Net") == 0 || strcmp(type, "HttpClient") == 0) return IR_TYPE_I32;
-  if (strcmp(type, "HttpResult") == 0) return IR_TYPE_U64;
-  if (strcmp(type, "HttpError") == 0) return IR_TYPE_U32;
-  if (strcmp(type, "HttpHeaderValue") == 0) return IR_TYPE_U64;
-  if (strcmp(type, "Fs") == 0 || strcmp(type, "File") == 0 || strcmp(type, "owned<File>") == 0) return IR_TYPE_I32;
-  if (strcmp(type, "String") == 0 ||
-      strcmp(type, "Span<const u8>") == 0 ||
-      strcmp(type, "ByteBuf") == 0 ||
-      strcmp(type, "owned<ByteBuf>") == 0 ||
+  IrTypeKind builtin_type = ir_type_name_lookup(ir_builtin_type_names, sizeof(ir_builtin_type_names) / sizeof(ir_builtin_type_names[0]), type);
+  if (builtin_type != IR_TYPE_UNSUPPORTED) return builtin_type;
+  if (ir_type_name_is_one_of(ir_byte_view_type_names, sizeof(ir_byte_view_type_names) / sizeof(ir_byte_view_type_names[0]), type) ||
       ir_span_type_element(type, NULL, NULL)) {
     return IR_TYPE_BYTE_VIEW;
   }
-  if (strcmp(type, "FixedBufAlloc") == 0) return IR_TYPE_ALLOC;
-  if (strcmp(type, "Vec") == 0) return IR_TYPE_VEC;
-  if (strcmp(type, "BufferedReader") == 0 || strcmp(type, "BufferedWriter") == 0) return IR_TYPE_BYTE_VIEW;
-  if (strcmp(type, "Maybe<MutSpan<u8>>") == 0 || strcmp(type, "Maybe<Span<u8>>") == 0 ||
-      strcmp(type, "Maybe<String>") == 0 || strcmp(type, "Maybe<owned<ByteBuf>>") == 0) return IR_TYPE_MAYBE_BYTE_VIEW;
-  if (strcmp(type, "Maybe<JsonDoc>") == 0 ||
-      strcmp(type, "Maybe<Bool>") == 0 ||
-      strcmp(type, "Maybe<u8>") == 0 ||
-      strcmp(type, "Maybe<u16>") == 0 ||
-      strcmp(type, "Maybe<usize>") == 0 ||
-      strcmp(type, "Maybe<i32>") == 0 ||
-      strcmp(type, "Maybe<u32>") == 0 ||
-      strcmp(type, "Maybe<owned<File>>") == 0) return IR_TYPE_MAYBE_SCALAR;
+  if (ir_type_name_is_one_of(ir_maybe_byte_view_type_names, sizeof(ir_maybe_byte_view_type_names) / sizeof(ir_maybe_byte_view_type_names[0]), type)) return IR_TYPE_MAYBE_BYTE_VIEW;
+  if (ir_type_name_is_one_of(ir_maybe_scalar_type_names, sizeof(ir_maybe_scalar_type_names) / sizeof(ir_maybe_scalar_type_names[0]), type)) return IR_TYPE_MAYBE_SCALAR;
   return IR_TYPE_UNSUPPORTED;
 }
 
@@ -4008,9 +4008,9 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         free(callee_name);
         return true;
       }
-      const char *source_backed_std = z_std_source_target_for_public_call(callee_name);
-      if (source_backed_std) {
-        bool ok = ir_lower_named_direct_call(program, ir, fun, expr, source_backed_std, callee_name, out);
+      const char *stdlib_graph_target = z_std_source_target_for_public_call(callee_name);
+      if (stdlib_graph_target) {
+        bool ok = ir_lower_named_direct_call(program, ir, fun, expr, stdlib_graph_target, callee_name, out);
         free(callee_name);
         return ok;
       }
@@ -5210,6 +5210,12 @@ void z_free_ir_program(IrProgram *program) {
     free(fun->name);
     free(fun->stable_id);
     free(fun->world_param_name);
+    for (size_t binding_index = 0; binding_index < fun->generic_binding_len; binding_index++) {
+      free(fun->generic_param_names[binding_index]);
+      free(fun->generic_arg_types[binding_index]);
+    }
+    free(fun->generic_param_names);
+    free(fun->generic_arg_types);
     for (size_t local_index = 0; local_index < fun->local_len; local_index++) {
       free(fun->locals[local_index].name);
       free(fun->locals[local_index].shape_name);

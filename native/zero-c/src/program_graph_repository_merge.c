@@ -55,7 +55,7 @@ static bool merge_fail(
     snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "repository graph merge conflict");
     snprintf(diag->expected, sizeof(diag->expected), "independent repository graph edits");
     snprintf(diag->actual, sizeof(diag->actual), "%s", node_id && node_id[0] ? node_id : "conflicting graph facts");
-    snprintf(diag->help, sizeof(diag->help), "resolve the graph conflict by editing one side, then rerun zero graph merge");
+    snprintf(diag->help, sizeof(diag->help), "resolve the graph conflict by editing one side, then rerun zero merge");
   }
   return false;
 }

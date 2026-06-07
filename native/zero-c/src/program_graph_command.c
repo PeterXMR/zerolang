@@ -19,60 +19,60 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   GRAPH_NO_OUT(
     "init",
     Z_PROGRAM_GRAPH_INPUT_PATH,
-    "graph init writes repository files and does not support --out",
-    "zero graph init [--json] <project-path>",
-    "zero graph init --out",
-    "graph init writes zero.json and zero.graph at the selected project path; remove --out"
+    "init writes repository files and does not support --out",
+    "zero init [--json] <project-path>",
+    "zero init --out",
+    "init writes zero.json and zero.graph at the selected project path; remove --out"
   ),
   GRAPH_OUT("dump", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_OUT("import", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_NO_OUT(
     "query",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
-    "graph query does not support --out",
-    "zero graph query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>",
-    "zero graph query --out",
+    "query does not support --out",
+    "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>",
+    "zero query --out",
     "queries are reported on stdout; remove --out"
   ),
   GRAPH_NO_OUT(
     "inspect",
     Z_PROGRAM_GRAPH_INPUT_SOURCE,
-    "graph inspect does not support --out",
-    "zero graph inspect [--json] <file.0|project|zero.json>",
-    "zero graph inspect --out",
-    "use zero graph dump or zero graph import with --out when you need a derived ProgramGraph artifact"
+    "inspect does not support --out",
+    "zero inspect [--json] <file.0|project|zero.json>",
+    "zero inspect --out",
+    "use zero dump or zero import with --out when you need a derived ProgramGraph artifact"
   ),
   GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
   GRAPH_NO_OUT(
     "source-map",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
-    "graph source-map does not support --out",
-    "zero graph source-map [--json] <program-graph-or-source>",
-    "zero graph source-map --out",
+    "source-map does not support --out",
+    "zero source-map [--json] <program-graph-or-source>",
+    "zero source-map --out",
     "source maps are reported on stdout; remove --out"
   ),
   GRAPH_NO_OUT(
     "reconcile",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
-    "graph reconcile does not support --out",
-    "zero graph reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>",
-    "zero graph reconcile --out",
+    "reconcile does not support --out",
+    "zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>",
+    "zero reconcile --out",
     "reconciliation reports identity decisions on stdout; remove --out"
   ),
-  GRAPH_NO_OUT("status", Z_PROGRAM_GRAPH_INPUT_SOURCE, "graph status does not support --out", "zero graph status [--json] <project|zero.json|file.0>", "zero graph status --out", "status is reported on stdout; remove --out"),
-  GRAPH_NO_OUT("verify-sync", Z_PROGRAM_GRAPH_INPUT_SOURCE, "graph verify-sync does not support --out", "zero graph verify-sync [--json] <project|zero.json|file.0>", "zero graph verify-sync --out", "verify-sync is a no-write check; remove --out"),
-  GRAPH_NO_OUT("sync", Z_PROGRAM_GRAPH_INPUT_SOURCE, "graph sync writes fixed repository paths and does not support --out", "zero graph sync (--from-source|--from-graph) <project|zero.json|file.0>", "zero graph sync --out", "choose --from-source or --from-graph; sync writes repository graph/source paths when enabled"),
-  GRAPH_NO_OUT("merge", Z_PROGRAM_GRAPH_INPUT_SOURCE, "graph merge writes the target zero.graph and does not support --out", "zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>", "zero graph merge --out", "merge writes the repository graph store selected by the input path; remove --out"),
+  GRAPH_NO_OUT("status", Z_PROGRAM_GRAPH_INPUT_SOURCE, "status does not support --out", "zero status [--json] <project|zero.json|file.0>", "zero status --out", "status is reported on stdout; remove --out"),
+  GRAPH_NO_OUT("verify-sync", Z_PROGRAM_GRAPH_INPUT_SOURCE, "verify-sync does not support --out", "zero verify-sync [--json] <project|zero.json|file.0>", "zero verify-sync --out", "verify-sync is a no-write check; remove --out"),
+  GRAPH_NO_OUT("sync", Z_PROGRAM_GRAPH_INPUT_SOURCE, "sync writes fixed repository paths and does not support --out", "zero sync (--from-source|--from-graph) <project|zero.json|file.0>", "zero sync --out", "choose --from-source or --from-graph; sync writes repository graph/source paths when enabled"),
+  GRAPH_NO_OUT("merge", Z_PROGRAM_GRAPH_INPUT_SOURCE, "merge writes the target zero.graph and does not support --out", "zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>", "zero merge --out", "merge writes the repository graph store selected by the input path; remove --out"),
   GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_OUT("run", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
   GRAPH_NO_OUT(
     "test",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
-    "graph test does not support --out",
-    "zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>",
-    "zero graph test --out",
+    "zero test does not support --out",
+    "zero test [--json] [--filter <name>] [--target <target>] <program-graph-artifact>",
+    "zero test --out",
     "test results are reported on stdout; remove --out"
   ),
   GRAPH_OUT("roundtrip", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
@@ -106,16 +106,16 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
   static const ZProgramGraphOutputContract check_contract = {
     false,
     "zero check does not support --out",
-    "zero graph view --out <file.0> <program-graph-or-source>",
+    "zero view --out <file.0> <program-graph-or-source>",
     "zero check --out",
-    "run zero graph view to render canonical source, or run zero check without --out to typecheck the ProgramGraph input",
+    "run zero view to render canonical source, or run zero check without --out to typecheck the ProgramGraph input",
   };
   static const ZProgramGraphOutputContract fallback = {
     false,
-    "graph requires an output-capable subcommand for --out",
-    "zero graph dump|import|validate|roundtrip --out <program-graph-artifact> <input>",
-    "zero graph --out",
-    "use zero graph view --out <file.0> for canonical source, or choose a graph subcommand with command-specific output",
+    "output requires an output-capable graph command",
+    "zero dump|import|validate|roundtrip --out <program-graph-artifact> <input>",
+    "zero --out",
+    "use zero view --out <file.0> for canonical source, or choose a graph subcommand with command-specific output",
   };
   if (strcmp(kind ? kind : "", "check") == 0) return check_contract;
   const ZProgramGraphCommandKind *item = graph_kind(kind);
@@ -123,22 +123,22 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
 }
 
 void z_program_graph_print_command_help(void) {
-  printf("Usage: zero graph [init|dump|import|query|inspect|validate|view|source-map|reconcile|status|verify-sync|sync|merge|size|build|run|test|roundtrip] [--json] [--target <target>] <input>\n\n");
-  printf("Graph-first project usage: zero graph init [--json] <project-path>\n");
-  printf("Output usage: zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-artifact> <input>\n");
-  printf("View output usage: zero graph view [--json] [--out <file.0>] <program-graph-or-source>\n");
-  printf("Source map usage: zero graph source-map [--json] <program-graph-or-source>\n");
-  printf("Query usage: zero graph query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>\n");
-  printf("Reconcile usage: zero graph reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>\n");
-  printf("Repository sync usage: zero graph status|verify-sync [--json] <project|zero.json|file.0>; zero graph sync (--from-source|--from-graph) [--json] <project|zero.json|file.0>; zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.json|file.0>\n");
-  printf("Size output usage: zero graph size [--json] [--target <target>] --out <artifact> <input>\n");
+  printf("Usage: zero init|query|view|status|verify-sync|sync|dump|import|inspect|validate|source-map|reconcile|merge|roundtrip [--json] <input>\n\n");
+  printf("Graph-first project usage: zero init [--json] <project-path>\n");
+  printf("Output usage: zero dump|import|validate|roundtrip [--json] --out <program-graph-artifact> <input>\n");
+  printf("View output usage: zero view [--json] [--out <file.0>] <program-graph-or-source>\n");
+  printf("Source map usage: zero source-map [--json] <program-graph-or-source>\n");
+  printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>\n");
+  printf("Reconcile usage: zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>\n");
+  printf("Repository sync usage: zero status|verify-sync [--json] <project|zero.json|file.0>; zero sync (--from-source|--from-graph) [--json] <project|zero.json|file.0>; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.json|file.0>\n");
+  printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] <program-graph-artifact>\n");
   printf("Patch usage: zero patch [--json] [--check-only|--dry-run] [--out <program-graph-artifact>] [<input>] (<patch-file>|--op <operation>)\n");
   printf("  In a graph-first package, zero patch --op <operation> defaults to the current directory.\nPatch operation help: zero patch --op help\n\n");
-  printf("Build usage: zero graph build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package>\n\n");
-  printf("Run usage: zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]\n\n");
-  printf("Test usage: zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>\n\n");
+  printf("Build usage: zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-artifact>\n\n");
+  printf("Run usage: zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-artifact> [-- args...]\n\n");
+  printf("Test usage: zero test [--json] [--filter <name>] [--target <target>] <program-graph-artifact>\n\n");
   printf("Inspect modules, symbols, capabilities, static metadata, stdlib helpers, or deterministic ProgramGraph inputs.\n\n");
-  printf("Subcommands:\n");
+  printf("Graph commands:\n");
   printf("  init      create a graph-first package with zero.graph as compiler input\n");
   printf("  dump      print or write only the deterministic ProgramGraph\n");
   printf("  import    convert current Zero source into deterministic ProgramGraph input\n");
@@ -152,8 +152,6 @@ void z_program_graph_print_command_help(void) {
   printf("  verify-sync check graph/source projection sync without writing files\n");
   printf("  sync      synchronize repository graph and source projections when enabled\n");
   printf("  merge     combine independent repository graph store edits by durable node id\n");
-  printf("  size      report size, helper, runtime, and backend facts for ProgramGraph input\n");
-  printf("  build     build ProgramGraph input through direct graph lowering\n  run       build and run ProgramGraph input through direct graph lowering\n  test      run test blocks from ProgramGraph input through direct graph lowering\n");
   printf("  roundtrip compare graph semantics after direct ProgramGraph lowering\n");
   printf("\nCommon patch operations:\n");
   printf("  addMain\n");

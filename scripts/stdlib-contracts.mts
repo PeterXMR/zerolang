@@ -194,7 +194,7 @@ const sourceModulesByName = new Map(sourceModules.map((module) => [module.module
 const sourceModulePaths = new Set(sourceModules.map((module) => module.path));
 const sourceModuleGraphPaths = new Set(sourceModules.map((module) => module.graphPath));
 const sourceCallsByPublicName = new Map(sourceCalls.map((call) => [call.publicName, call]));
-const sourceImplementedHelperModules = new Set(sourceCalls.map((call) => call.module));
+const graphImplementedHelperModules = new Set(sourceCalls.map((call) => call.module));
 const partiallyGraphBackedModules = new Set(["std.args", "std.cli", "std.codec", "std.env", "std.fs", "std.http", "std.io", "std.json", "std.math", "std.mem", "std.net", "std.parse", "std.path", "std.proc", "std.search", "std.time"]);
 const docsEntries = await readdir(publicModuleDocsDir, { withFileTypes: true });
 const publicModuleDocs = new Set(
@@ -287,10 +287,10 @@ for (const call of sourceCalls) {
   }
 }
 for (const sourceModule of sourceModules) {
-  if (!sourceImplementedHelperModules.has(sourceModule.module)) continue;
+  if (!graphImplementedHelperModules.has(sourceModule.module)) continue;
   if (partiallyGraphBackedModules.has(sourceModule.module)) continue;
   for (const helper of helpers.filter((candidate) => candidate.module === sourceModule.module)) {
-    pushIf(!sourceCallsByPublicName.has(helper.name), failures, `${helper.name}: graph-backed module helper is missing std_source.c mapping`);
+    pushIf(!sourceCallsByPublicName.has(helper.name), failures, `${helper.name}: graph-backed module helper is missing embedded std graph mapping`);
   }
 }
 const graphStorageComplete = stdProjectionFiles.length === sourceModules.length &&
@@ -306,8 +306,8 @@ const summary = {
   embeddedStdModuleCount: sourceModules.length,
   graphStoredModuleCount: sourceModules.length,
   graphStorageComplete,
-  sourceImplementedHelperModuleCount: sourceImplementedHelperModules.size,
-  graphBackedSourceHelperCount: sourceCalls.length,
+  graphImplementedHelperModuleCount: graphImplementedHelperModules.size,
+  graphBackedHelperCount: sourceCalls.length,
   nativeOrTableHelperCount: helpers.length - sourceCalls.length,
   fixtureFileCount: fixtureFiles.length,
   ok: failures.length === 0,
@@ -317,7 +317,7 @@ const summary = {
 if (process.argv.includes("--json")) {
   console.log(JSON.stringify(summary, null, 2));
 } else if (failures.length === 0) {
-  console.log(`stdlib contracts ok (${summary.helperCount} helpers, ${summary.graphStoredModuleCount}/${summary.stdProjectionModuleCount} std modules graph-stored, ${summary.graphBackedSourceHelperCount} graph-backed source helper mappings)`);
+  console.log(`stdlib contracts ok (${summary.helperCount} helpers, ${summary.graphStoredModuleCount}/${summary.stdProjectionModuleCount} std modules graph-stored, ${summary.graphBackedHelperCount} graph-backed helper mappings)`);
 } else {
   console.error(`stdlib contracts failed (${failures.length} issue${failures.length === 1 ? "" : "s"})`);
   for (const failure of failures.slice(0, 40)) console.error(`- ${failure}`);

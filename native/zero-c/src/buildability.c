@@ -8,7 +8,9 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
     switch (value->kind) {
       case IR_VALUE_INT: case IR_VALUE_BOOL: case IR_VALUE_LOCAL: case IR_VALUE_CAST: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
       case IR_VALUE_STRING_LITERAL: case IR_VALUE_ARRAY_BYTE_VIEW: case IR_VALUE_BYTE_SLICE: case IR_VALUE_BYTE_VIEW_LEN: case IR_VALUE_BYTE_VIEW_REMAINING:
-      case IR_VALUE_BYTE_VIEW_INDEX_LOAD: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL: case IR_VALUE_BYTE_VIEW_EQ:
+      case IR_VALUE_BYTE_VIEW_INDEX_LOAD: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL:
+      case IR_VALUE_ITEM_COPY: case IR_VALUE_ITEM_FILL: case IR_VALUE_ITEM_CONTAINS:
+      case IR_VALUE_BYTE_VIEW_EQ:
       case IR_VALUE_INDEX_LOAD: case IR_VALUE_MAYBE_HAS: case IR_VALUE_MAYBE_VALUE: case IR_VALUE_MAYBE_BYTE_VIEW_LITERAL:
       case IR_VALUE_MAYBE_SCALAR_LITERAL: case IR_VALUE_RAND_NEXT_U32: case IR_VALUE_CRC32_BYTES:
         (void)local_set_value;
@@ -26,6 +28,12 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
       case IR_VALUE_FMT_USIZE:
       case IR_VALUE_TIME_RUNTIME:
       case IR_VALUE_MATH_RUNTIME:
+      case IR_VALUE_SEARCH_RUNTIME:
+      case IR_VALUE_SORT_RUNTIME:
+      case IR_VALUE_JSON_VALIDATE_BYTES:
+      case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+      case IR_VALUE_HTTP_REQUEST_METHOD_NAME:
+      case IR_VALUE_HTTP_REQUEST_PATH:
         (void)local_set_value;
         return ctx->backend == Z_DIRECT_BACKEND_ELF_AARCH64 || ctx->backend == Z_DIRECT_BACKEND_COFF_AARCH64;
       default:
@@ -37,7 +45,9 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
     switch (value->kind) {
       case IR_VALUE_INT: case IR_VALUE_BOOL: case IR_VALUE_LOCAL: case IR_VALUE_CAST: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
       case IR_VALUE_STRING_LITERAL: case IR_VALUE_ARRAY_BYTE_VIEW: case IR_VALUE_BYTE_SLICE: case IR_VALUE_BYTE_VIEW_LEN: case IR_VALUE_BYTE_VIEW_REMAINING:
-      case IR_VALUE_BYTE_VIEW_INDEX_LOAD: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL: case IR_VALUE_BYTE_VIEW_EQ:
+      case IR_VALUE_BYTE_VIEW_INDEX_LOAD: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL:
+      case IR_VALUE_ITEM_COPY: case IR_VALUE_ITEM_FILL: case IR_VALUE_ITEM_CONTAINS:
+      case IR_VALUE_BYTE_VIEW_EQ:
       case IR_VALUE_INDEX_LOAD: case IR_VALUE_FIELD_LOAD: case IR_VALUE_CHECK:
       case IR_VALUE_MAYBE_HAS: case IR_VALUE_MAYBE_VALUE: case IR_VALUE_MAYBE_BYTE_VIEW_LITERAL: case IR_VALUE_MAYBE_SCALAR_LITERAL:
       case IR_VALUE_RAND_NEXT_U32: case IR_VALUE_CRC32_BYTES:
@@ -45,6 +55,9 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
       case IR_VALUE_PARSE_I32: case IR_VALUE_PARSE_U32:
       case IR_VALUE_FMT_BOOL: case IR_VALUE_FMT_HEX_U32: case IR_VALUE_FMT_I32: case IR_VALUE_FMT_U32: case IR_VALUE_FMT_USIZE:
       case IR_VALUE_STR_RUNTIME: case IR_VALUE_TIME_RUNTIME: case IR_VALUE_MATH_RUNTIME:
+      case IR_VALUE_SEARCH_RUNTIME: case IR_VALUE_SORT_RUNTIME:
+      case IR_VALUE_JSON_PARSE_BYTES: case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+      case IR_VALUE_HTTP_REQUEST_METHOD_NAME: case IR_VALUE_HTTP_REQUEST_PATH:
         return true;
       default:
         (void)local_set_value;
@@ -96,6 +109,7 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
              ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_COFF_X64 ||
              z_build_backend_is_aarch64_direct(ctx->backend);
     case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL:
+    case IR_VALUE_ITEM_COPY: case IR_VALUE_ITEM_FILL: case IR_VALUE_ITEM_CONTAINS:
       return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 ||
              ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_COFF_X64;
     case IR_VALUE_BYTE_VIEW_EQ:
@@ -126,19 +140,27 @@ static bool build_value_supported(const ZBuildability *ctx, const IrValue *value
     case IR_VALUE_SEARCH_RUNTIME: case IR_VALUE_SORT_RUNTIME:
     case IR_VALUE_ARGS_PARSE_U32: case IR_VALUE_ARGS_FIND: case IR_VALUE_ARGS_CONTAINS:
     case IR_VALUE_ARGS_VALUE_AFTER_PARSE_U32:
-      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
+      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 ||
+             (ctx->backend == Z_DIRECT_BACKEND_COFF_X64 && !ctx->executable);
     case IR_VALUE_CHECK: return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 || ctx->backend == Z_DIRECT_BACKEND_MACHO_X64;
     case IR_VALUE_RESCUE: return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
     case IR_VALUE_MAYBE_VALUE:
       return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 ||
              ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_COFF_X64;
-    case IR_VALUE_JSON_PARSE_BYTES: case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+    case IR_VALUE_JSON_PARSE_BYTES:
+      if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64) return !ctx->executable;
+      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
+    case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+      if (ctx->backend == Z_DIRECT_BACKEND_MACHO_X64 || ctx->backend == Z_DIRECT_BACKEND_COFF_X64) return !ctx->executable;
+      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
     case IR_VALUE_HTTP_FETCH: case IR_VALUE_HTTP_RESULT_OK: case IR_VALUE_HTTP_RESULT_STATUS: case IR_VALUE_HTTP_RESULT_BODY_LEN:
     case IR_VALUE_HTTP_RESULT_ERROR: case IR_VALUE_HTTP_RESPONSE_LEN: case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN:
     case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: case IR_VALUE_HTTP_HEADER_VALUE: case IR_VALUE_HTTP_HEADER_FOUND:
     case IR_VALUE_HTTP_HEADER_OFFSET: case IR_VALUE_HTTP_HEADER_LEN: case IR_VALUE_HTTP_WRITE_JSON_RESPONSE:
     case IR_VALUE_HTTP_REQUEST_METHOD_NAME: case IR_VALUE_HTTP_REQUEST_PATH: case IR_VALUE_HTTP_STATUS_CLASS:
-      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
+      return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64 ||
+             ((value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME || value->kind == IR_VALUE_HTTP_REQUEST_PATH) &&
+              ctx->backend == Z_DIRECT_BACKEND_COFF_X64 && !ctx->executable);
   }
   return false;
 }

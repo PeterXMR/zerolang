@@ -60,6 +60,9 @@ const char *z_build_value_kind_name(IrValueKind kind) {
     case IR_VALUE_FMT_USIZE: return "IR_VALUE_FMT_USIZE";
     case IR_VALUE_BYTE_COPY: return "IR_VALUE_BYTE_COPY";
     case IR_VALUE_BYTE_FILL: return "IR_VALUE_BYTE_FILL";
+    case IR_VALUE_ITEM_COPY: return "IR_VALUE_ITEM_COPY";
+    case IR_VALUE_ITEM_FILL: return "IR_VALUE_ITEM_FILL";
+    case IR_VALUE_ITEM_CONTAINS: return "IR_VALUE_ITEM_CONTAINS";
     case IR_VALUE_CRC32_BYTES: return "IR_VALUE_CRC32_BYTES";
     case IR_VALUE_FIXED_BUF_ALLOC: return "IR_VALUE_FIXED_BUF_ALLOC";
     case IR_VALUE_VEC_INIT: return "IR_VALUE_VEC_INIT";

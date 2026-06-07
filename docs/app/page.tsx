@@ -170,7 +170,7 @@ export default function HomePage() {
         <section className="relative z-10 mx-auto w-[min(100%-3rem,var(--container-content))] border-t border-border py-[clamp(4rem,8vh,6rem)]">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <CodeWindow title="main.0 projection" html={CODE_EXAMPLE} />
-            <CodeWindow title="zero graph dump">
+            <CodeWindow title="zero dump">
               {GRAPH_EXAMPLE}
             </CodeWindow>
           </div>

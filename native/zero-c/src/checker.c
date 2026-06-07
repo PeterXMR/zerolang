@@ -6564,6 +6564,49 @@ static bool stdlib_require_supported_item_element(const Program *program, const 
   return set_diag_detail(diag, 3012, message, expr ? expr->line : 0, expr ? expr->column : 0, "Bool, u8, u16, usize, i32, u32, i64, or u64 item storage", element_type ? element_type : "Unknown", "use a supported scalar item type or write a specialized helper for this type");
 }
 
+static bool stdlib_validate_item_write_lifetimes(Scope *scope, const char *target_root, const ValueProvenance *origins, const Expr *site, ZDiag *diag, const char *display_name) {
+  if (!scope || !target_root || !origins) return true;
+  Scope *target_scope = scope_binding_scope(scope, target_root);
+  for (size_t i = 0; i < origins->len; i++) {
+    const ProvenanceEntry *entry = &origins->items[i];
+    Scope *root_scope = entry->origin.root_scope ? entry->origin.root_scope : scope_binding_scope(scope, entry->origin.root);
+    if (target_scope && root_scope && !scope_is_ancestor_or_self(root_scope, target_scope)) {
+      char actual[256];
+      snprintf(actual, sizeof(actual), "reference to shorter-lived local '%s'", entry->origin.root ? entry->origin.root : "<unknown>");
+      char message[256];
+      snprintf(message, sizeof(message), "cannot store a shorter-lived reference through %s", display_name ? display_name : "std.mem item write");
+      return set_diag_detail(diag, 3030, message, site ? site->line : 0, site ? site->column : 0, "borrow source that outlives the destination storage", actual, "copy only references derived from caller-owned values into longer-lived storage");
+    }
+  }
+  return true;
+}
+
+static bool stdlib_install_item_write_provenance(CheckContext *ctx, const Program *program, const Expr *dst, const Expr *value, Scope *scope, ZDiag *diag, const char *value_type, bool value_is_span, const char *display_name) {
+  ValueProvenance origins = {0};
+  bool have_origins = value_is_span
+    ? span_view_expr_provenance(ctx, program, value, scope, value_type, &origins)
+    : (expr_reference_provenance(ctx, program, value, scope, &origins) || span_view_expr_provenance(ctx, program, value, scope, value_type, &origins));
+  if (!have_origins || origins.len == 0) {
+    value_provenance_free(&origins);
+    return true;
+  }
+  char root[128];
+  char path[256];
+  if (!expr_binding_path(dst, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) {
+    value_provenance_free(&origins);
+    return true;
+  }
+  if (!stdlib_validate_item_write_lifetimes(scope, root, &origins, value, diag, display_name)) {
+    value_provenance_free(&origins);
+    return false;
+  }
+  char *target_path = origin_path_join(path, "[*]");
+  scope_set_value_provenance_path_in_scope(scope, scope_binding_scope(scope, root), root, target_path, &origins);
+  free(target_path);
+  value_provenance_free(&origins);
+  return true;
+}
+
 static bool check_stdlib_mem_copy_items_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
   const char *dst_actual = NULL;
   char element_type[128];
@@ -6581,6 +6624,7 @@ static bool check_stdlib_mem_copy_items_call_expected(CheckContext *ctx, const P
   if (!types_compatible_in_scope(program, scope, expected_src, src_actual)) {
     return set_diag_detail(diag, 3012, "std.mem.copyItems source element type must match destination", expr->args.items[1]->line, expr->args.items[1]->column, expected_src, src_actual, "copy between spans with the same element type");
   }
+  if (!stdlib_install_item_write_provenance(ctx, program, expr->args.items[0], expr->args.items[1], scope, diag, expected_src, true, "std.mem.copyItems")) return false;
   set_expr_resolved_type(expr, "usize");
   z_call_resolution_set_return_type(resolution, "usize");
   stdlib_record_single_type_arg(expr, element_type);
@@ -6602,6 +6646,7 @@ static bool check_stdlib_mem_fill_items_call_expected(CheckContext *ctx, const P
   if (!types_compatible_in_scope(program, scope, element_type, value_actual)) {
     return set_diag_detail(diag, 3012, "std.mem.fillItems value type must match destination element", expr->args.items[1]->line, expr->args.items[1]->column, element_type, value_actual, "fill storage with a value of the same element type");
   }
+  if (!stdlib_install_item_write_provenance(ctx, program, expr->args.items[0], expr->args.items[1], scope, diag, element_type, false, "std.mem.fillItems")) return false;
   set_expr_resolved_type(expr, "usize");
   z_call_resolution_set_return_type(resolution, "usize");
   stdlib_record_single_type_arg(expr, element_type);
@@ -8406,7 +8451,7 @@ static bool resolve_named_provenance_call(CheckContext *ctx, const Program *prog
   return true;
 }
 
-static bool resolve_source_backed_stdlib_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out, bool *handled) {
+static bool resolve_graph_backed_stdlib_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *return_type, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out, bool *handled) {
   if (handled) *handled = false;
   if (!program || !call || call->kind != EXPR_CALL || !call->left || call->left->kind != EXPR_MEMBER || !out) return true;
 
@@ -8514,7 +8559,7 @@ static bool resolve_provenance_call(CheckContext *ctx, const Program *program, c
   if (call->left->kind != EXPR_MEMBER) return false;
 
   bool handled = false;
-  if (!resolve_source_backed_stdlib_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;
+  if (!resolve_graph_backed_stdlib_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;
   if (handled) return true;
 
   if (!resolve_shape_namespace_provenance_call(ctx, program, call, scope, return_type, context_bindings, context_binding_len, out, &handled)) return false;

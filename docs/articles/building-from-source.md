@@ -24,7 +24,7 @@ bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out
 Inspect package/module structure:
 
 ```sh
-bin/zero graph --json examples/systems-package
+bin/zero inspect --json examples/systems-package
 ```
 
 Inspect artifact size metadata:

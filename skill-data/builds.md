@@ -19,8 +19,8 @@ For packages with `repositoryGraph.compilerInput: true`, normal check, build,
 run, test, size, ship, and mem commands compile from the checked-in
 `zero.graph` store. Source projections may be clean, missing, stale, or in
 conflict; commands report that state and do not rewrite `.0` files. Use
-`zero graph verify-sync` when CI or review needs graph/source drift to fail, and
-`zero graph sync --from-graph` to regenerate projections from the store. Other
+`zero verify-sync` when CI or review needs graph/source drift to fail, and
+`zero sync --from-graph` to regenerate projections from the store. Other
 packages compile from `.0` source text.
 
 ## Run
@@ -77,16 +77,16 @@ zero run .
 zero build . --out .zero/out/app
 ```
 
-Use `zero graph sync --from-graph <package>` when humans need checked-in `.0`
+Use `zero sync --from-graph <package>` when humans need checked-in `.0`
 projections. If a human edits a projection, run
-`zero graph sync --from-source <package>` before the next graph-store compile.
+`zero sync --from-source <package>` before the next graph-store compile.
 
-Use graph build and run against `.program-graph` only when you intentionally
-need to validate a derived interchange artifact:
+Use normal build and run commands against `.program-graph` only when you
+intentionally need to validate a derived interchange artifact:
 
 ```sh
-zero graph build --out .zero/out/app .zero/agent/app.program-graph
-zero graph run .zero/agent/app.program-graph
+zero build --out .zero/out/app .zero/agent/app.program-graph
+zero run .zero/agent/app.program-graph
 ```
 
 ## Targets
@@ -96,7 +96,7 @@ Inspect target names and capability facts before cross-building:
 ```sh
 zero targets
 zero check --target linux-musl-x64 examples/memory-package
-zero graph --target linux-musl-x64 examples/memory-package
+zero inspect --target linux-musl-x64 examples/memory-package
 ```
 
 Hosted APIs such as process args, environment, filesystem, net, and proc are target-gated. A non-host target may reject code that checks on the host.

@@ -485,11 +485,16 @@ static const ZStdSourceModule *store_std_source_module_for_path(const char *path
 static bool store_graph_source_path_is_embedded_std(const ZProgramGraph *graph, const char *path) {
   const ZStdSourceModule *module = store_std_source_module_for_path(path);
   if (!graph || !module) return false;
+  const char *short_name = strrchr(module->module ? module->module : "", '.');
+  short_name = short_name ? short_name + 1 : module->module;
   bool has_module_node = false;
   for (size_t i = 0; i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];
     if (!store_text_eq(node->path, path)) continue;
-    if (node->kind == Z_PROGRAM_GRAPH_NODE_MODULE && store_text_eq(node->name, module->module)) has_module_node = true;
+    if (node->kind == Z_PROGRAM_GRAPH_NODE_MODULE &&
+        (store_text_eq(node->name, module->module) || store_text_eq(node->name, short_name))) {
+      has_module_node = true;
+    }
   }
   return has_module_node;
 }

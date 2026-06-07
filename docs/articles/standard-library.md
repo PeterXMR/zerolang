@@ -3,7 +3,7 @@
 Zero's standard library is pay-as-used and capability-aware. Importing memory
 helpers does not pull in hosted filesystem helpers.
 
-Hosted APIs report their target requirements in `zero graph` and `zero size`.
+Hosted APIs report their target requirements in `zero inspect` and `zero size`.
 
 Runnable modules:
 
@@ -42,7 +42,7 @@ Use the CLI to inspect what a program actually retains:
 
 | Command | Shows |
 | --- | --- |
-| `zero graph --json <input>` | Required capabilities and imported helpers. |
+| `zero inspect --json <input>` | Required capabilities and imported helpers. |
 | `zero size --json <input>` | Helper metadata and retained helper cost. |
 | `zero mem --json <input>` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |
 

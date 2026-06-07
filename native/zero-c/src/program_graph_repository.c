@@ -202,8 +202,8 @@ static const char *repo_diagnostic_path(const RepositoryGraphState *state) {
 }
 
 static void repo_append_contract_json(ZBuf *buf, const RepositoryGraphState *state) {
-  char *from_source = repo_command_text("zero graph sync --from-source", state->input);
-  char *from_graph = repo_command_text("zero graph sync --from-graph", state->input);
+  char *from_source = repo_command_text("zero sync --from-source", state->input);
+  char *from_graph = repo_command_text("zero sync --from-graph", state->input);
   zbuf_append(buf, "{");
   zbuf_append(buf, "\"artifact\":\"zero.graph\",\"sourceProjection\":\"checked-in .0 source text\",");
   zbuf_append(buf, "\"optIn\":\"repository graph loader plus checked-in zero.graph at the package root\",");
@@ -350,10 +350,10 @@ static bool repo_diag_is_identity_reconcile_error(const ZDiag *diag) {
 
 static int repo_missing_or_invalid_store_error(const RepositoryGraphState *state, bool json, const char *mode) {
   if (!state->store_present) {
-    return repo_graph_error(state, json, mode, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero graph sync --from-source to create the repository graph store", REPO_GRAPH_REPAIR_FROM_SOURCE);
+    return repo_graph_error(state, json, mode, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero sync --from-source to create the repository graph store", REPO_GRAPH_REPAIR_FROM_SOURCE);
   }
   if (!state->store_valid) {
-    return repo_graph_error(state, json, mode, "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", state->store_error ? state->store_error : "invalid zero.graph", "run zero graph sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
+    return repo_graph_error(state, json, mode, "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", state->store_error ? state->store_error : "invalid zero.graph", "run zero sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
   }
   return 0;
 }
@@ -392,14 +392,14 @@ static int repo_graph_direction_error(const RepositoryGraphState *state, bool js
     repo_append_state_json(&buf, state, false, "sync", false);
     zbuf_append(&buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"RGP002\",\"message\":\"graph sync requires exactly one direction\",\"path\":");
     repo_append_json_string(&buf, state->input);
-    zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"zero graph sync --from-source or zero graph sync --from-graph\",\"actual\":");
+    zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"zero sync --from-source or zero sync --from-graph\",\"actual\":");
     repo_append_json_string(&buf, actual);
     zbuf_append(&buf, ",\"help\":\"choose whether source text or zero.graph is authoritative for this sync\",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"choose-graph-sync-direction\",\"summary\":\"Choose exactly one graph sync direction.\"},\"related\":[]}],\n  \"repairCommands\": []\n}\n");
     fputs(buf.data, stdout);
     zbuf_free(&buf);
   } else {
     fprintf(stderr, "%s:1:1 RGP002: graph sync requires exactly one direction\n", state->input);
-    fprintf(stderr, "  expected: zero graph sync --from-source or zero graph sync --from-graph\n");
+    fprintf(stderr, "  expected: zero sync --from-source or zero sync --from-graph\n");
     fprintf(stderr, "  actual: %s\n", actual);
     fprintf(stderr, "  help: choose whether source text or zero.graph is authoritative for this sync\n");
   }
@@ -500,12 +500,12 @@ int z_repository_graph_verify_sync_command(const char *input, const ZTargetInfo 
   ZProgramGraphStore store;
   ZDiag diag = {0};
   if (!z_program_graph_store_load_path(state.store_path, &store, &diag)) {
-    rc = repo_graph_error(&state, json, "verify-sync", "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", diag.message, "run zero graph sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
+    rc = repo_graph_error(&state, json, "verify-sync", "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", diag.message, "run zero sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
     repo_graph_state_free(&state);
     return rc;
   }
   if (state.projection_missing) {
-    rc = repo_graph_error(&state, json, "verify-sync", "RGP006", "source projection is missing", "checked-in .0 source text matching zero.graph projection", "missing source projection file", "run zero graph sync --from-graph after reviewing graph changes", REPO_GRAPH_REPAIR_FROM_GRAPH);
+    rc = repo_graph_error(&state, json, "verify-sync", "RGP006", "source projection is missing", "checked-in .0 source text matching zero.graph projection", "missing source projection file", "run zero sync --from-graph after reviewing graph changes", REPO_GRAPH_REPAIR_FROM_GRAPH);
     z_program_graph_store_free(&store);
     repo_graph_state_free(&state);
     return rc;
@@ -514,13 +514,13 @@ int z_repository_graph_verify_sync_command(const char *input, const ZTargetInfo 
   bool projection_checked = z_program_graph_projection_sources_match(&store, target, &projection_current, &diag);
   if (!projection_checked || !projection_current) {
     if (source_graph && !z_program_graph_store_graph_matches_source(&store, source_graph)) {
-      rc = repo_graph_error(&state, json, "verify-sync", "RGP005", "repository graph store is out of sync with source text", "zero.graph projection matching checked-in .0 source text", source_graph && source_graph->graph_hash ? source_graph->graph_hash : "changed source graph", "run zero graph sync --from-source after reviewing source changes", REPO_GRAPH_REPAIR_FROM_SOURCE);
+      rc = repo_graph_error(&state, json, "verify-sync", "RGP005", "repository graph store is out of sync with source text", "zero.graph projection matching checked-in .0 source text", source_graph && source_graph->graph_hash ? source_graph->graph_hash : "changed source graph", "run zero sync --from-source after reviewing source changes", REPO_GRAPH_REPAIR_FROM_SOURCE);
       z_program_graph_store_free(&store);
       repo_graph_state_free(&state);
       return rc;
     }
     const char *actual = projection_checked ? "source projection differs" : (diag.message[0] ? diag.message : "projection unavailable");
-    rc = repo_graph_error(&state, json, "verify-sync", "RGP006", "source projection is out of sync with repository graph", "checked-in .0 source text matching zero.graph projection", actual, "run zero graph sync --from-graph after reviewing graph changes", REPO_GRAPH_REPAIR_FROM_GRAPH);
+    rc = repo_graph_error(&state, json, "verify-sync", "RGP006", "source projection is out of sync with repository graph", "checked-in .0 source text matching zero.graph projection", actual, "run zero sync --from-graph after reviewing graph changes", REPO_GRAPH_REPAIR_FROM_GRAPH);
     z_program_graph_store_free(&store);
     repo_graph_state_free(&state);
     return rc;
@@ -557,7 +557,7 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
     ZProgramGraphStore store;
     ZDiag diag = {0};
     if (!z_program_graph_store_load_path(state.store_path, &store, &diag)) {
-      rc = repo_graph_error(&state, json, "sync-from-graph", "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", diag.message, "run zero graph sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
+      rc = repo_graph_error(&state, json, "sync-from-graph", "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", diag.message, "run zero sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
       repo_graph_state_free(&state);
       return rc;
     }
@@ -579,7 +579,7 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
     bool post_clean = state.store_present && state.store_valid && state.projection_checked && state.projection_current;
     post_clean = post_clean && !state.projection_error;
     if (post_checked && (!post_ok || !post_clean)) {
-      rc = repo_graph_error_paths(&state, json, "sync-from-graph", "RGP006", "repository graph store is not clean after sync from graph", "clean repository graph state", repo_sync_state(&state), "run zero graph status to inspect repository graph state before choosing a repair", projection.changed_len > 0, (const char *const *)projection.changed_paths, projection.changed_len, REPO_GRAPH_REPAIR_STATUS);
+      rc = repo_graph_error_paths(&state, json, "sync-from-graph", "RGP006", "repository graph store is not clean after sync from graph", "clean repository graph state", repo_sync_state(&state), "run zero status to inspect repository graph state before choosing a repair", projection.changed_len > 0, (const char *const *)projection.changed_paths, projection.changed_len, REPO_GRAPH_REPAIR_STATUS);
       z_program_graph_free(&post_graph);
       z_program_graph_projection_free(&projection);
       z_program_graph_store_free(&store);
@@ -615,7 +615,7 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
                               identity_error ? diag.message : "repository graph store could not be saved",
                               module_identity_error ? diag.expected : (identity_error ? "unambiguous graph identity match between zero.graph and edited source" : "byte-stable zero.graph repository graph store"),
                               diag.actual[0] ? diag.actual : (diag.message[0] ? diag.message : "save failed"),
-                              module_identity_error ? "sync from the original source path, or recreate zero.graph after reviewing the module rename" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero graph status to inspect repository graph state"),
+                              module_identity_error ? "sync from the original source path, or recreate zero.graph after reviewing the module rename" : (identity_error ? "split the source edit or make it through zero patch so node identity is explicit" : "run zero status to inspect repository graph state"),
                               identity_error ? REPO_GRAPH_REPAIR_NONE : REPO_GRAPH_REPAIR_STATUS);
     repo_graph_state_free(&state);
     return rc;
@@ -624,7 +624,7 @@ int z_repository_graph_sync_command(const char *input, const ZTargetInfo *target
   state = repo_graph_state(input, target, source_graph, NULL);
   if (strcmp(repo_sync_state(&state), "clean") != 0) {
     const char *paths[1] = {saved.path};
-    int rc = repo_graph_error_paths(&state, json, "sync-from-source", "RGP006", "repository graph store is not clean after sync from source", "clean repository graph state", repo_sync_state(&state), "run zero graph status to inspect repository graph state before choosing a repair", saved.path && saved.path[0], saved.path && saved.path[0] ? paths : NULL, saved.path && saved.path[0] ? 1 : 0, REPO_GRAPH_REPAIR_STATUS);
+    int rc = repo_graph_error_paths(&state, json, "sync-from-source", "RGP006", "repository graph store is not clean after sync from source", "clean repository graph state", repo_sync_state(&state), "run zero status to inspect repository graph state before choosing a repair", saved.path && saved.path[0], saved.path && saved.path[0] ? paths : NULL, saved.path && saved.path[0] ? 1 : 0, REPO_GRAPH_REPAIR_STATUS);
     z_program_graph_store_free(&saved);
     repo_graph_state_free(&state);
     return rc;
@@ -642,14 +642,14 @@ static int repo_graph_merge_direction_error(const RepositoryGraphState *state, b
     repo_append_state_json(&buf, state, false, "merge", false);
     zbuf_append(&buf, ",\n  \"diagnostics\": [{\"severity\":\"error\",\"code\":\"RGM001\",\"message\":\"graph merge requires base, left, and right stores\",\"path\":");
     repo_append_json_string(&buf, state->input);
-    zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>\",\"actual\":");
+    zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>\",\"actual\":");
     repo_append_json_string(&buf, actual ? actual : "missing merge input");
     zbuf_append(&buf, ",\"help\":\"pass the common ancestor store and both side stores\",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"choose-repository-graph-merge-inputs\",\"summary\":\"Choose the three repository graph stores to merge.\"},\"related\":[]}],\n  \"repairCommands\": []\n}\n");
     fputs(buf.data, stdout);
     zbuf_free(&buf);
   } else {
     fprintf(stderr, "%s:1:1 RGM001: graph merge requires base, left, and right stores\n", state->input);
-    fprintf(stderr, "  expected: zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>\n");
+    fprintf(stderr, "  expected: zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> <project|zero.json|file.0>\n");
     fprintf(stderr, "  actual: %s\n", actual ? actual : "missing merge input");
     fprintf(stderr, "  help: pass the common ancestor store and both side stores\n");
   }
@@ -673,7 +673,7 @@ static int repo_graph_merge_load_error(const RepositoryGraphState *state, bool j
   zbuf_append(&actual, path ? path : "");
   zbuf_append(&actual, ": ");
   zbuf_append(&actual, diag && diag->message[0] ? diag->message : "invalid store");
-  int rc = repo_graph_error(state, json, "merge", "RGM001", message, "valid zero.graph repository graph store", actual.data ? actual.data : "", "check the merge input path and rerun zero graph merge", REPO_GRAPH_REPAIR_NONE);
+  int rc = repo_graph_error(state, json, "merge", "RGM001", message, "valid zero.graph repository graph store", actual.data ? actual.data : "", "check the merge input path and rerun zero merge", REPO_GRAPH_REPAIR_NONE);
   zbuf_free(&actual);
   return rc;
 }
@@ -704,7 +704,7 @@ static int repo_graph_merge_conflict(const RepositoryGraphState *state, bool jso
     repo_append_json_string(&buf, merge && merge->source_path[0] ? merge->source_path : state->input);
     zbuf_append(&buf, ",\"line\":1,\"column\":1,\"length\":1,\"expected\":\"independent repository graph edits\",\"actual\":");
     repo_append_json_string(&buf, merge && merge->node_id[0] ? merge->node_id : "conflicting graph facts");
-    zbuf_append(&buf, ",\"help\":\"resolve the graph conflict by editing one side, then rerun zero graph merge\",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"resolve-repository-graph-merge-conflict\",\"summary\":\"Resolve the conflicting graph node or edge before merging.\"},\"related\":[{\"kind\":\"graphNode\",\"id\":");
+    zbuf_append(&buf, ",\"help\":\"resolve the graph conflict by editing one side, then rerun zero merge\",\"fixSafety\":\"requires-human-review\",\"repair\":{\"id\":\"resolve-repository-graph-merge-conflict\",\"summary\":\"Resolve the conflicting graph node or edge before merging.\"},\"related\":[{\"kind\":\"graphNode\",\"id\":");
     repo_append_json_string(&buf, merge ? merge->node_id : "");
     zbuf_append(&buf, "},{\"kind\":\"semanticObject\",\"id\":");
     repo_append_json_string(&buf, merge ? merge->semantic_object : "");
@@ -721,7 +721,7 @@ static int repo_graph_merge_conflict(const RepositoryGraphState *state, bool jso
     fprintf(stderr, "  node: %s\n", merge && merge->node_id[0] ? merge->node_id : "unknown");
     fprintf(stderr, "  semantic object: %s\n", merge && merge->semantic_object[0] ? merge->semantic_object : "unknown");
     fprintf(stderr, "  field: %s\n", merge && merge->field[0] ? merge->field : "unknown");
-    fprintf(stderr, "  help: resolve the graph conflict by editing one side, then rerun zero graph merge\n");
+    fprintf(stderr, "  help: resolve the graph conflict by editing one side, then rerun zero merge\n");
   }
   return 1;
 }

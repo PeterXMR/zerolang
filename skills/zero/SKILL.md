@@ -42,9 +42,8 @@ Use `zero skills list` to discover additional skills bundled with that Zero vers
 
 ```sh
 zero check <file-or-package>
-zero graph <file-or-package>
-zero graph query <file-or-package>
-zero graph view <file-or-package>
+zero query <file-or-package>
+zero view <file-or-package>
 zero patch <file-or-package>
 zero size <file-or-package>
 zero explain <diagnostic-code>

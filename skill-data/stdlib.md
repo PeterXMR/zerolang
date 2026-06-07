@@ -60,7 +60,7 @@ Non-host targets may reject these APIs with target diagnostics. Inspect target f
 ```sh
 zero targets
 zero check --target linux-musl-x64 <input>
-zero graph --target linux-musl-x64 <input>
+zero inspect --target linux-musl-x64 <input>
 ```
 
 Add `--json` only when a tool needs exact target facts or diagnostics.

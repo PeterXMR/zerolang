@@ -145,7 +145,7 @@ static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *
       diag->line = 1;
       diag->column = 1;
       diag->length = 1;
-      snprintf(diag->message, sizeof(diag->message), "out of memory while rendering source-backed graph view");
+      snprintf(diag->message, sizeof(diag->message), "out of memory while rendering projection-backed graph view");
     }
     return false;
   }
@@ -169,7 +169,7 @@ static bool view_slice_graph_for_source(const ZProgramGraph *graph, const char *
       diag->line = 1;
       diag->column = 1;
       diag->length = 1;
-      snprintf(diag->message, sizeof(diag->message), "source-backed graph has no module for input file");
+      snprintf(diag->message, sizeof(diag->message), "projection-backed graph has no module for input file");
       snprintf(diag->expected, sizeof(diag->expected), "Module node with matching source path");
       snprintf(diag->actual, sizeof(diag->actual), "missing module");
       snprintf(diag->help, sizeof(diag->help), "dump the graph and patch a node that belongs to the input .0 file");

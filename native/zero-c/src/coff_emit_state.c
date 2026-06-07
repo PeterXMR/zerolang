@@ -6,6 +6,7 @@
 
 static const char *const runtime_helper_symbols[COFF_RUNTIME_HELPER_COUNT] = {
   "zero_world_write",
+  "zero_json_parse_bytes",
   "zero_str_buffer_op",
   "zero_str_concat",
   "zero_str_repeat",
@@ -27,6 +28,11 @@ static const char *const runtime_helper_symbols[COFF_RUNTIME_HELPER_COUNT] = {
   "zero_time_op",
   "zero_math_op",
   "zero_math_usize_op",
+  "zero_search_op",
+  "zero_sort_op",
+  "zero_sort_is_sorted_op",
+  "zero_http_request_method_name",
+  "zero_http_request_path",
 };
 
 static bool coff_emit_state_diag(ZDiag *diag, const char *message, int line, int column, const char *actual) {

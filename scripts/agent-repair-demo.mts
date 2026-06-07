@@ -66,7 +66,7 @@ const projectMain = join(projectDir, "src", "main.0");
 const projectMainSource = readFileSync(projectMain, "utf8");
 writeFileSync(projectMain, projectMainSource.split('\n\ntest "package import works"')[0] + "\n");
 
-const projectGraph = zeroJson(["graph", "--json", projectDir]);
+const projectGraph = zeroJson(["inspect", "--json", projectDir]);
 assert.equal(projectGraph.selfHostRouting.cBridge.required, false);
 
 const projectDoc = zeroJson(["doc", "--json", projectDir]);

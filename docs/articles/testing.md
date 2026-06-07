@@ -78,7 +78,7 @@ fuzz fixtures, and minimized crash repros.
 
 ## Fuzz And Crasher Repros
 
-Fuzz harnesses should be small, deterministic, and source-backed:
+Fuzz harnesses should be small, deterministic, and projection-backed:
 
 - Parser fuzzing should run `zero tokens --json` and `zero parse --json` on generated `.0` files.
 - Checker fuzzing should run `zero check --json` and assert diagnostics for invalid programs instead of accepting crashes.

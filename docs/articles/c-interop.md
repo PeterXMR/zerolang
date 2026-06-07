@@ -31,7 +31,7 @@ Header imports expose typed metadata and scalar C functions are callable through
 the declared import alias:
 
 ```sh
-bin/zero graph --json --target linux-musl-x64 conformance/check/pass/c-header-import.0
+bin/zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.0
 ```
 
 The graph JSON exposes `cImports[].typedModel` with imported functions,
@@ -57,7 +57,7 @@ It also includes a cache object keyed by:
 - flags hash
 - sysroot fingerprint
 
-External C calls require target library audit facts. `zero graph --json` reports
+External C calls require target library audit facts. `zero inspect --json` reports
 each `cLibraries[].linkPlan` with include paths, library paths, sysroot status,
 target ABI, and host discovery status.
 

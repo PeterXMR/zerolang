@@ -50,20 +50,14 @@ async function fileExists(path) {
 }
 
 function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean", options = {}) {
-  const astToMirFallbackUsed = options.astToMirFallbackUsed === true;
   const graphHirToMirUsed = options.graphHirToMirUsed === false ? false : true;
-  const stdHelperAstFallbackUsed = options.stdHelperAstFallbackUsed === true;
-  const compilerInputReady = body.targetReadiness?.ok === true && graphHirToMirUsed && !stdHelperAstFallbackUsed;
+  const compilerInputReady = body.targetReadiness?.ok === true && graphHirToMirUsed;
   assert.equal(body.graphCompiler.input, "repository-graph-store");
   assert.equal(body.graphCompiler.graphStoreLoaded, true);
   assert.equal(body.graphCompiler.sourceProjectionRequiredForCompilerInput, false);
   assert.equal(body.graphCompiler.sourceProjectionState, sourceProjectionState);
-  assert.equal(body.graphCompiler.legacyProgramAstReconstructed, false);
-  assert.equal(body.graphCompiler.graphToProgramLoweringUsed, astToMirFallbackUsed);
   assert.equal(body.graphCompiler.graphNativeCheckerUsed, true);
   assert.equal(body.graphCompiler.graphHirToMirUsed, graphHirToMirUsed);
-  assert.equal(body.graphCompiler.astToMirFallbackUsed, astToMirFallbackUsed);
-  assert.equal(body.graphCompiler.stdHelperAstFallbackUsed, stdHelperAstFallbackUsed);
   assert.equal(body.graphCompiler.unsupportedGraphFacts.count, 0);
   assert.equal(body.graphCompiler.resolution.ok, true);
   assert.equal(body.graphCompiler.resolution.state, "resolved-graph-facts");
@@ -81,10 +75,8 @@ function assertRepositoryGraphNativeCheck(body, sourceProjectionState = "clean",
   assert.equal(body.graphCompiler.defaultReadiness.sourceFreeCompile, compilerInputReady);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionRequired, false);
   assert.equal(body.graphCompiler.defaultReadiness.sourceProjectionState, sourceProjectionState);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphToProgramLoweringUsed, astToMirFallbackUsed);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.graphHirToMirUsed, graphHirToMirUsed);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.astToMirFallbackUsed, astToMirFallbackUsed);
-  assert.equal(body.graphCompiler.defaultReadiness.fallback.stdHelperAstFallbackUsed, stdHelperAstFallbackUsed);
+  assert.equal(body.graphCompiler.defaultReadiness.graphMir.used, graphHirToMirUsed);
+  assert.equal(Object.hasOwn(body.graphCompiler.defaultReadiness, "fallback"), false);
   assert.equal(body.graphCompiler.defaultReadiness.performance.validationInLoad, true);
   assert.equal(body.graphCompiler.defaultReadiness.cacheInvalidation.parserArtifactsInKey, false);
   assert(body.graphCompiler.defaultReadiness.cacheInvalidation.keyedBy.includes("nodeHashes"));
@@ -445,6 +437,37 @@ function assertX64SliceBoundsTrapBytes(bytes) {
 function assertX64U16RecordFieldBytes(bytes) {
   assert(bytes.includes(Buffer.from([0x0f, 0xb7])));
   assert(bytes.includes(Buffer.from([0x66, 0x89])));
+}
+
+function isRexW(byte) {
+  return (byte & 0xf8) === 0x48;
+}
+
+function hasX64MovMemoryToR64(bytes) {
+  for (let i = 0; i + 2 < bytes.length; i++) {
+    if (!isRexW(bytes[i]) || bytes[i + 1] !== 0x8b) continue;
+    const mod = bytes[i + 2] >> 6;
+    if (mod !== 3) return true;
+  }
+  return false;
+}
+
+function hasX64MovR64ToMemory(bytes) {
+  for (let i = 0; i + 2 < bytes.length; i++) {
+    if (!isRexW(bytes[i]) || bytes[i + 1] !== 0x89) continue;
+    const mod = bytes[i + 2] >> 6;
+    if (mod !== 3) return true;
+  }
+  return false;
+}
+
+function hasX64CmpR64(bytes) {
+  for (let i = 0; i + 2 < bytes.length; i++) {
+    if (!isRexW(bytes[i]) || bytes[i + 1] !== 0x39) continue;
+    const mod = bytes[i + 2] >> 6;
+    if (mod === 3) return true;
+  }
+  return false;
 }
 
 async function assertMachOArm64Executable(path) {
@@ -1064,7 +1087,7 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
 }
 assert.equal(directCallBuildDiag.backendBlocker.stage, "buildability");
 const directCallExeGraph = await execFileAsync(zero, [
-  "graph",
+  "inspect",
   "--json",
   "--emit",
   "exe",
@@ -1405,8 +1428,8 @@ assert.equal(coffU64CopyBuildBody.compiler, "zero-coff-x64");
 assert.equal(coffU64CopyBuildBody.generatedCBytes, 0);
 assert.equal(coffU64CopyBuildBody.objectBackend.objectEmission.path, "direct-coff-x64-object");
 const coffU64CopyBytes = await assertCoffX64Object(coffU64CopyPath, "main");
-assert(coffU64CopyBytes.includes(Buffer.from([0x48, 0x8b, 0x00])));
-assert(coffU64CopyBytes.includes(Buffer.from([0x48, 0x89, 0x02])));
+assert(hasX64MovMemoryToR64(coffU64CopyBytes));
+assert(hasX64MovR64ToMemory(coffU64CopyBytes));
 
 const coffU64ContainsFixture = "conformance/native/pass/std-mem-u64-contains.0";
 const coffU64ContainsReadiness = await execFileAsync(zero, [
@@ -1441,8 +1464,8 @@ assert.equal(coffU64ContainsBuildBody.generatedCBytes, 0);
 assert.equal(coffU64ContainsBuildBody.objectBackend.objectEmission.path, "direct-coff-x64-object");
 const coffU64ContainsBytes = await assertCoffX64Object(coffU64ContainsPath, "main");
 assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00])));
-assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0x8b, 0x00])));
-assert(coffU64ContainsBytes.includes(Buffer.from([0x48, 0x39, 0xc8])));
+assert(hasX64MovMemoryToR64(coffU64ContainsBytes));
+assert(hasX64CmpR64(coffU64ContainsBytes));
 
 const coffBoolCopyFixture = "conformance/native/pass/std-mem-bool-copy-items.0";
 const coffBoolCopyReadiness = await execFileAsync(zero, [
@@ -1996,9 +2019,9 @@ async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, exp
   });
 }
 
-await assertAgentSurfaceOwnedDropUnsupported("linux-musl-x64", "obj", "agent-surface-owned-drop-elf.o", /ELF64/, "elf", "zero-elf64");
-await assertAgentSurfaceOwnedDropUnsupported("darwin-arm64", "obj", "agent-surface-owned-drop-macho.o", /Mach-O/, "macho", "zero-macho64");
-await assertAgentSurfaceOwnedDropUnsupported("win32-x64.exe", "obj", "agent-surface-owned-drop-coff.obj", /COFF/, "coff", "zero-coff-x64");
+await assertAgentSurfaceOwnedDropUnsupported("linux-musl-x64", "obj", "agent-surface-owned-drop-elf.o", /typed program graph MIR subset/, "elf", "zero-elf64");
+await assertAgentSurfaceOwnedDropUnsupported("darwin-arm64", "obj", "agent-surface-owned-drop-macho.o", /typed program graph MIR subset/, "macho", "zero-macho64");
+await assertAgentSurfaceOwnedDropUnsupported("win32-x64.exe", "obj", "agent-surface-owned-drop-coff.obj", /typed program graph MIR subset/, "coff", "zero-coff-x64");
 
 const mismatchedDirectEmitter = await execFileAsync(zero, [
   "build",
@@ -2047,7 +2070,7 @@ const commonPassFixtures = [
 for (const [fixture, name, expected] of commonPassFixtures) {
   const check = await execFileAsync(zero, ["check", "--json", fixture]);
   assert.equal(JSON.parse(check.stdout).ok, true);
-  const graph = await execFileAsync(zero, ["graph", "--json", fixture]);
+  const graph = await execFileAsync(zero, ["inspect", "--json", fixture]);
   assert(JSON.parse(graph.stdout).sourceFiles.includes(fixture));
   const size = await execFileAsync(zero, ["size", "--json", fixture]);
   assert.equal(JSON.parse(size.stdout).schemaVersion, 1);
@@ -2099,7 +2122,7 @@ assert.equal(compileTimeBody.safetyFacts.initialization.maybePayloadReads, "guar
 assert.equal(compileTimeBody.safetyFacts.aliasing.mutableAliases, "diagnostic");
 assert.equal(compileTimeBody.safetyFacts.mir.invalidMemoryContractsBlockEmission, true);
 
-const compileTimeGraph = await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/compile-time-v1.0"]);
+const compileTimeGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/native/pass/compile-time-v1.0"]);
 const compileTimeGraphBody = JSON.parse(compileTimeGraph.stdout);
 assert.equal(compileTimeGraphBody.compileTime.deterministic, true);
 assert.equal(compileTimeGraphBody.safetyFacts.profileKey, "small");
@@ -2118,7 +2141,7 @@ assert.equal(fastCheckBody.incrementalInvalidation.profileDependency, "fast");
 assert.equal(fastCheckBody.safetyFacts.profile, "release-fast");
 assert.equal(fastCheckBody.safetyFacts.profileKey, "fast");
 
-const fastGraph = await execFileAsync(zero, ["graph", "--json", "--profile", "fast", "examples/hello.0"]);
+const fastGraph = await execFileAsync(zero, ["inspect", "--json", "--profile", "fast", "examples/hello.0"]);
 const fastGraphBody = JSON.parse(fastGraph.stdout);
 assert.equal(fastGraphBody.packageCache.profile, "fast");
 assert.equal(fastGraphBody.incrementalInvalidation.profileDependency, "fast");
@@ -2793,7 +2816,7 @@ pub fn main() -> Void {
 const shapeMethodStaticParamJson = await execFileAsync(zero, ["check", "--json", shapeMethodStaticParamFixture]);
 const shapeMethodStaticParamBody = JSON.parse(shapeMethodStaticParamJson.stdout);
 assert.equal(shapeMethodStaticParamBody.ok, true);
-const shapeMethodStaticParamGraph = await execFileAsync(zero, ["graph", "--json", shapeMethodStaticParamFixture]);
+const shapeMethodStaticParamGraph = await execFileAsync(zero, ["inspect", "--json", shapeMethodStaticParamFixture]);
 const shapeMethodStaticParamGraphBody = JSON.parse(shapeMethodStaticParamGraph.stdout);
 const shapeMethodStaticBox = shapeMethodStaticParamGraphBody.shapes.find((item) => item.name === "Box");
 assert(shapeMethodStaticBox);
@@ -2844,7 +2867,7 @@ pub fn main() -> Void {
 const interfaceMethodStaticParamJson = await execFileAsync(zero, ["check", "--json", interfaceMethodStaticParamFixture]);
 const interfaceMethodStaticParamBody = JSON.parse(interfaceMethodStaticParamJson.stdout);
 assert.equal(interfaceMethodStaticParamBody.ok, true);
-const interfaceMethodStaticParamGraph = await execFileAsync(zero, ["graph", "--json", interfaceMethodStaticParamFixture]);
+const interfaceMethodStaticParamGraph = await execFileAsync(zero, ["inspect", "--json", interfaceMethodStaticParamFixture]);
 const interfaceMethodStaticParamGraphBody = JSON.parse(interfaceMethodStaticParamGraph.stdout);
 const interfaceMethodStaticWidth = interfaceMethodStaticParamGraphBody.interfaces.find((item) => item.name === "Width");
 assert(interfaceMethodStaticWidth);
@@ -2882,7 +2905,7 @@ pub fn main() -> Void {
 const interfaceMethodStaticRenamedParamJson = await execFileAsync(zero, ["check", "--json", interfaceMethodStaticRenamedParamFixture]);
 const interfaceMethodStaticRenamedParamBody = JSON.parse(interfaceMethodStaticRenamedParamJson.stdout);
 assert.equal(interfaceMethodStaticRenamedParamBody.ok, true);
-const interfaceMethodStaticRenamedParamGraph = await execFileAsync(zero, ["graph", "--json", interfaceMethodStaticRenamedParamFixture]);
+const interfaceMethodStaticRenamedParamGraph = await execFileAsync(zero, ["inspect", "--json", interfaceMethodStaticRenamedParamFixture]);
 const interfaceMethodStaticRenamedParamGraphBody = JSON.parse(interfaceMethodStaticRenamedParamGraph.stdout);
 const interfaceMethodStaticRenamedWidth = interfaceMethodStaticRenamedParamGraphBody.interfaces.find((item) => item.name === "Width");
 assert(interfaceMethodStaticRenamedWidth);
@@ -3327,7 +3350,7 @@ assert.equal(fixApplyBody.applied, true);
 assert.match(await readFile(fixApplyFixture, "utf8"), /var dst/);
 await execFileAsync(zero, ["check", fixApplyFixture]);
 
-const importGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/imports"]);
+const importGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/imports"]);
 const importGraphBody = JSON.parse(importGraph.stdout);
 assert.deepEqual(importGraphBody.imports, ["math", "types"]);
 assert.equal(importGraphBody.sourceFiles.length, 3);
@@ -3366,7 +3389,7 @@ await writeFile(`${whitespaceUsePackage}/src/types.0`, 'type Point {\n    value:
 await writeFile(`${whitespaceUsePackage}/src/main.0`, 'use math\nuse math . util\nuse   types   as   model\n\npub fn main(world: World) -> Void raises {\n    let point: Point = Point { value: add_two(40) }\n    if point.value == add_one(41) {\n        check world.out.write("whitespace imports pass\\n")\n    }\n}\n');
 const whitespaceUseCheck = await execFileAsync(zero, ["check", "--json", whitespaceUsePackage]);
 assert.equal(JSON.parse(whitespaceUseCheck.stdout).ok, true);
-const whitespaceUseGraph = await execFileAsync(zero, ["graph", "--json", whitespaceUsePackage]);
+const whitespaceUseGraph = await execFileAsync(zero, ["inspect", "--json", whitespaceUsePackage]);
 const whitespaceUseGraphBody = JSON.parse(whitespaceUseGraph.stdout);
 assert.deepEqual(whitespaceUseGraphBody.useImports.map((item) => `${item.from}->${item.to}:${item.kind}:${item.alias ?? "null"}:${item.sourceRange.end.column}`), [
   "main->math:package-local:null:9",
@@ -3375,7 +3398,7 @@ assert.deepEqual(whitespaceUseGraphBody.useImports.map((item) => `${item.from}->
 ]);
 assert.deepEqual(whitespaceUseGraphBody.importEdges.map((item) => `${item.from}->${item.to}`), ["main->math", "main->math.util", "main->types"]);
 
-const packageUseGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/package"]);
+const packageUseGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/package"]);
 const packageUseGraphBody = JSON.parse(packageUseGraph.stdout);
 assert.deepEqual(packageUseGraphBody.useImports.map((item) => `${item.from}->${item.to}:${item.kind}:${item.resolvedPath ?? "null"}`), [
   "main->std.codec:stdlib:null",
@@ -3384,7 +3407,7 @@ assert.deepEqual(packageUseGraphBody.useImports.map((item) => `${item.from}->${i
   "main->types:package-local:conformance/check/pass/package/src/types.0",
 ]);
 
-const resourceGraph = await execFileAsync(zero, ["graph", "--json", "examples/resource-cli"]);
+const resourceGraph = await execFileAsync(zero, ["inspect", "--json", "examples/resource-cli"]);
 const resourceGraphBody = JSON.parse(resourceGraph.stdout);
 assert(resourceGraphBody.targets.some((item) => item.name === "cli" && item.kind === "exe"));
 assert.deepEqual(resourceGraphBody.importEdges.map((item) => `${item.from}->${item.to}`), ["main->config", "main->payload"]);
@@ -3395,7 +3418,7 @@ assert(resourceMainSymbol.effects.includes("fs"));
 assert.equal(resourceMainSymbol.allocationBehavior, "no heap allocation");
 assert.equal(resourceMainSymbol.ownership.params[0].type, "World");
 
-const memoryGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "examples/memory-package"]);
+const memoryGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "examples/memory-package"]);
 const memoryGraphBody = JSON.parse(memoryGraph.stdout);
 assert.deepEqual(memoryGraphBody.importEdges.map((item) => `${item.from}->${item.to}`), ["main->buffer", "main->checksum"]);
 assert(memoryGraphBody.requiresCapabilities.includes("memory"));
@@ -3456,24 +3479,24 @@ assert.equal(parseTreeBody.functions[0].name, "main");
 assert.equal(parseTreeBody.functions[0].paramCount, 1);
 assert.deepEqual(parseTreeBody.functions[0].bodyKinds, ["if", "while", "check", "return"]);
 
-const constGraph = await execFileAsync(zero, ["graph", "--json", "examples/const-arithmetic.0"]);
+const constGraph = await execFileAsync(zero, ["inspect", "--json", "examples/const-arithmetic.0"]);
 const constGraphBody = JSON.parse(constGraph.stdout);
 assert(constGraphBody.consts.some((item) => item.name === "answer" && item.type === "i32"));
 assert(constGraphBody.symbols.some((item) => item.name === "answer" && item.kind === "const" && item.public === false));
 
-const genericPairGraph = await execFileAsync(zero, ["graph", "--json", "examples/generic-pair.0"]);
+const genericPairGraph = await execFileAsync(zero, ["inspect", "--json", "examples/generic-pair.0"]);
 const genericPairGraphBody = JSON.parse(genericPairGraph.stdout);
 assert(genericPairGraphBody.functions.some((item) => item.name === "makePair" && item.generic === true && item.returnType === "Pair<T, U>"));
 assert(genericPairGraphBody.shapes.some((item) => item.name === "Pair" && item.generic === true && item.typeParams.join(",") === "T,U"));
 
-const staticValueGraph = await execFileAsync(zero, ["graph", "--json", "examples/static-value-params.0"]);
+const staticValueGraph = await execFileAsync(zero, ["inspect", "--json", "examples/static-value-params.0"]);
 const staticValueGraphBody = JSON.parse(staticValueGraph.stdout);
 const fixedVecShape = staticValueGraphBody.shapes.find((item) => item.name === "FixedVec");
 assert(fixedVecShape);
 assert(fixedVecShape.staticParams.some((item) => item.name === "N" && item.type === "usize" && item.staticDispatch === true));
 assert(staticValueGraphBody.functions.some((item) => item.name === "first" && item.staticParams.some((param) => param.name === "N")));
 
-const fixedVecGraph = await execFileAsync(zero, ["graph", "--json", "examples/fixed-vec.0"]);
+const fixedVecGraph = await execFileAsync(zero, ["inspect", "--json", "examples/fixed-vec.0"]);
 const fixedVecGraphBody = JSON.parse(fixedVecGraph.stdout);
 const fixedVecMethodsShape = fixedVecGraphBody.shapes.find((item) => item.name === "FixedVec");
 assert(fixedVecMethodsShape);
@@ -3483,24 +3506,24 @@ assert.equal(pushMethod.inheritedShapeParams, true);
 assert.deepEqual(pushMethod.shapeTypeParams, ["T", "N"]);
 assert(pushMethod.shapeStaticParams.some((item) => item.name === "N" && item.staticDispatch === true));
 
-const aliasGraph = await execFileAsync(zero, ["graph", "--json", "examples/type-alias.0"]);
+const aliasGraph = await execFileAsync(zero, ["inspect", "--json", "examples/type-alias.0"]);
 const aliasGraphBody = JSON.parse(aliasGraph.stdout);
 assert(aliasGraphBody.aliases.some((item) => item.name === "BytePair" && item.target === "Pair<u8, u8>"));
 assert(aliasGraphBody.symbols.some((item) => item.name === "BytePair" && item.kind === "type-alias"));
 
-const staticMethodGraph = await execFileAsync(zero, ["graph", "--json", "examples/static-method.0"]);
+const staticMethodGraph = await execFileAsync(zero, ["inspect", "--json", "examples/static-method.0"]);
 const staticMethodGraphBody = JSON.parse(staticMethodGraph.stdout);
 const counterShape = staticMethodGraphBody.shapes.find((item) => item.name === "Counter");
 assert(counterShape);
 assert(counterShape.methods.some((item) => item.name === "add" && item.staticDispatch === true && item.returnType === "i32"));
 
-const staticInterfaceGraph = await execFileAsync(zero, ["graph", "--json", "examples/static-interface.0"]);
+const staticInterfaceGraph = await execFileAsync(zero, ["inspect", "--json", "examples/static-interface.0"]);
 const staticInterfaceGraphBody = JSON.parse(staticInterfaceGraph.stdout);
 assert(staticInterfaceGraphBody.interfaces.some((item) => item.name === "Readable" && item.staticOnly === true));
 assert(staticInterfaceGraphBody.functions.some((item) => item.name === "readValue" && item.constraints.some((constraint) => constraint.interface === "Readable<T>" && constraint.staticDispatch === true)));
 assert(staticInterfaceGraphBody.symbols.some((item) => item.name === "Readable" && item.kind === "interface"));
 
-const callResolutionGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/call-resolution-inspection.0"]);
+const callResolutionGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/call-resolution-inspection.0"]);
 const callResolutionGraphBody = JSON.parse(callResolutionGraph.stdout);
 const callFacts = callResolutionGraphBody.callResolution;
 assert.equal(callFacts.schemaVersion, 1);
@@ -3522,11 +3545,11 @@ assert(callFacts.calls.some((item) => item.kind === "function" && item.calleeNam
 assert(callFacts.calls.some((item) => item.kind === "function" && item.calleeName === "risky" && item.fallible === true && item.errors.includes("BadInput")));
 assert(callFacts.calls.some((item) => item.kind === "receiver" && item.calleeName === "checkedRead" && item.fallible === true && item.errors.includes("EmptyCounter")));
 
-const callResolutionMemGetGraph = await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/checked-bounds-get.0"]);
+const callResolutionMemGetGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/native/pass/checked-bounds-get.0"]);
 const callResolutionMemGetFacts = JSON.parse(callResolutionMemGetGraph.stdout).callResolution;
 assert(callResolutionMemGetFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.get" && item.returnType === "Maybe<u8>" && item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "[3]u8")));
 
-const callResolutionGenericShapeGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/generic-shape-methods.0"]);
+const callResolutionGenericShapeGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/generic-shape-methods.0"]);
 const callResolutionGenericShapeFacts = JSON.parse(callResolutionGenericShapeGraph.stdout).callResolution;
 assert(callResolutionGenericShapeFacts.calls.some((item) =>
   item.kind === "stdlib" &&
@@ -3538,24 +3561,24 @@ assert(callResolutionGenericShapeFacts.calls.some((item) =>
   item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "[4]u8")
 ));
 
-const callResolutionFsReadGraph = await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/std-fs-resource.0"]);
+const callResolutionFsReadGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/native/pass/std-fs-resource.0"]);
 const callResolutionFsReadFacts = JSON.parse(callResolutionFsReadGraph.stdout).callResolution;
 assert(callResolutionFsReadFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.fs.read" && item.returnType === "Maybe<usize>" && item.args.some((arg) => arg.paramIndex === 0 && arg.expectedType === "mutref<File>" && arg.actualType === "mutref<File>")));
 
-const callResolutionPackageGraph = await execFileAsync(zero, ["graph", "--json", "examples/systems-package"]);
+const callResolutionPackageGraph = await execFileAsync(zero, ["inspect", "--json", "examples/systems-package"]);
 const callResolutionPackageFacts = JSON.parse(callResolutionPackageGraph.stdout).callResolution;
 assert(callResolutionPackageFacts.calls.some((item) => item.calleeName === "cleanup" && item.path === "examples/systems-package/src/main.0" && item.line === 12));
 
-const callResolutionEdgeGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/call-resolution-edge-cases.0"]);
+const callResolutionEdgeGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/call-resolution-edge-cases.0"]);
 const callResolutionEdgeFacts = JSON.parse(callResolutionEdgeGraph.stdout).callResolution;
 assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "function" && item.calleeName === "add" && item.owner === "constTotal" && item.returnType === "i32"));
 assert(callResolutionEdgeFacts.calls.some((item) => item.kind === "stdlib" && item.calleeName === "std.mem.len" && item.owner === "main" && item.args.some((arg) => arg.paramIndex === 0 && arg.actualType === "String")));
 
-const programGraphBody = JSON.parse((await execFileAsync(zero, ["graph", "--json", "examples/hello.0"])).stdout).programGraph;
-const programGraphBodyAgain = JSON.parse((await execFileAsync(zero, ["graph", "--json", "examples/hello.0"])).stdout).programGraph;
-const programGraphDump = (await execFileAsync(zero, ["graph", "dump", "examples/hello.0"])).stdout;
-const programGraphDumpAgain = (await execFileAsync(zero, ["graph", "dump", "examples/hello.0"])).stdout;
-const programGraphDumpJson = JSON.parse((await execFileAsync(zero, ["graph", "dump", "--json", "examples/hello.0"])).stdout);
+const programGraphBody = JSON.parse((await execFileAsync(zero, ["inspect", "--json", "examples/hello.0"])).stdout).programGraph;
+const programGraphBodyAgain = JSON.parse((await execFileAsync(zero, ["inspect", "--json", "examples/hello.0"])).stdout).programGraph;
+const programGraphDump = (await execFileAsync(zero, ["dump", "examples/hello.0"])).stdout;
+const programGraphDumpAgain = (await execFileAsync(zero, ["dump", "examples/hello.0"])).stdout;
+const programGraphDumpJson = JSON.parse((await execFileAsync(zero, ["dump", "--json", "examples/hello.0"])).stdout);
 const programGraphDumpPath = `${outDir}/hello.program-graph`;
 const programGraphDumpJsonPath = `${outDir}/hello.dump-json.program-graph`;
 const programGraphCanonicalPath = `${outDir}/hello.canonical.program-graph`;
@@ -3641,26 +3664,26 @@ await rm(programGraphRichPath, { force: true });
 await rm(programGraphRichViewPath, { force: true });
 await rm(programGraphCharPath, { force: true });
 await rm(programGraphCharViewPath, { force: true });
-const programGraphDumpOut = await execFileAsync(zero, ["graph", "dump", "--out", programGraphDumpPath, "examples/hello.0"]);
-const programGraphDumpOutJson = JSON.parse((await execFileAsync(zero, ["graph", "dump", "--json", "--out", programGraphDumpJsonPath, "examples/hello.0"])).stdout);
+const programGraphDumpOut = await execFileAsync(zero, ["dump", "--out", programGraphDumpPath, "examples/hello.0"]);
+const programGraphDumpOutJson = JSON.parse((await execFileAsync(zero, ["dump", "--json", "--out", programGraphDumpJsonPath, "examples/hello.0"])).stdout);
 const programGraphDumpFile = await readFile(programGraphDumpPath, "utf8");
 const programGraphDumpJsonFile = await readFile(programGraphDumpJsonPath, "utf8");
-const programGraphValidate = await execFileAsync(zero, ["graph", "validate", programGraphDumpPath]);
-const programGraphDumpJsonValidate = await execFileAsync(zero, ["graph", "validate", programGraphDumpJsonPath]);
-const programGraphValidateJson = JSON.parse((await execFileAsync(zero, ["graph", "validate", "--json", "--out", programGraphCanonicalPath, programGraphDumpPath])).stdout);
+const programGraphValidate = await execFileAsync(zero, ["validate", programGraphDumpPath]);
+const programGraphDumpJsonValidate = await execFileAsync(zero, ["validate", programGraphDumpJsonPath]);
+const programGraphValidateJson = JSON.parse((await execFileAsync(zero, ["validate", "--json", "--out", programGraphCanonicalPath, programGraphDumpPath])).stdout);
 const programGraphCanonicalFile = await readFile(programGraphCanonicalPath, "utf8");
-const programGraphView = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
-const programGraphViewAgain = (await execFileAsync(zero, ["graph", "view", programGraphDumpPath])).stdout;
-const programGraphViewJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", programGraphDumpPath])).stdout);
-const programGraphTypeInvalidView = (await execFileAsync(zero, ["graph", "view", "conformance/check/fail/unknown-name.0"])).stdout;
+const programGraphView = (await execFileAsync(zero, ["view", programGraphDumpPath])).stdout;
+const programGraphViewAgain = (await execFileAsync(zero, ["view", programGraphDumpPath])).stdout;
+const programGraphViewJson = JSON.parse((await execFileAsync(zero, ["view", "--json", programGraphDumpPath])).stdout);
+const programGraphTypeInvalidView = (await execFileAsync(zero, ["view", "conformance/check/fail/unknown-name.0"])).stdout;
 const programGraphTypeInvalidCheckJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/unknown-name.0"]).catch((error) => error);
-const programGraphViewOut = await execFileAsync(zero, ["graph", "view", "--out", programGraphViewPath, programGraphDumpPath]);
+const programGraphViewOut = await execFileAsync(zero, ["view", "--out", programGraphViewPath, programGraphDumpPath]);
 const programGraphViewFile = await readFile(programGraphViewPath, "utf8");
-const programGraphViewOutJson = JSON.parse((await execFileAsync(zero, ["graph", "view", "--json", "--out", programGraphViewPath, programGraphDumpPath])).stdout);
-const programGraphRoundtrip = await execFileAsync(zero, ["graph", "roundtrip", "examples/hello.0"]);
-const programGraphRoundtripJson = JSON.parse((await execFileAsync(zero, ["graph", "roundtrip", "--json", "examples/hello.0"])).stdout);
-const programGraphArtifactRoundtrip = await execFileAsync(zero, ["graph", "roundtrip", programGraphDumpPath]);
-const programGraphArtifactRoundtripJson = JSON.parse((await execFileAsync(zero, ["graph", "roundtrip", "--json", "--out", programGraphArtifactRoundtripPath, programGraphDumpPath])).stdout);
+const programGraphViewOutJson = JSON.parse((await execFileAsync(zero, ["view", "--json", "--out", programGraphViewPath, programGraphDumpPath])).stdout);
+const programGraphRoundtrip = await execFileAsync(zero, ["roundtrip", "examples/hello.0"]);
+const programGraphRoundtripJson = JSON.parse((await execFileAsync(zero, ["roundtrip", "--json", "examples/hello.0"])).stdout);
+const programGraphArtifactRoundtrip = await execFileAsync(zero, ["roundtrip", programGraphDumpPath]);
+const programGraphArtifactRoundtripJson = JSON.parse((await execFileAsync(zero, ["roundtrip", "--json", "--out", programGraphArtifactRoundtripPath, programGraphDumpPath])).stdout);
 const programGraphSourceFixtureText = await readFile(programGraphSourceFixturePath, "utf8");
 const programGraphSourceFixtureStoreText = await readFile(programGraphSourceFixtureStorePath, "utf8");
 const programGraphSourceFixturePackageCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixturePackage])).stdout);
@@ -3675,9 +3698,9 @@ const programGraphSourceFreeRun = await execFileAsync(zero, ["run", "--out", pro
 const programGraphSourceFreeTestJson = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeShipJson = JSON.parse((await execFileAsync(zero, ["ship", "--json", "--target", "linux-musl-x64", "--out", programGraphSourceFreeShipPath, programGraphSourceFreePackage])).stdout);
 const programGraphSourceFreeMemJson = JSON.parse((await execFileAsync(zero, ["mem", "--json", programGraphSourceFreePackage])).stdout);
-const programGraphSourceFreeVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
-const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
-const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFreePackage])).stdout);
+const programGraphSourceFreeVerify = await execFileAsync(zero, ["verify-sync", "--json", programGraphSourceFreePackage]).catch((error) => error);
+const programGraphSourceFreeSyncFromGraph = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphSourceFreePackage])).stdout);
+const programGraphSourceFreeVerifyAfter = JSON.parse((await execFileAsync(zero, ["verify-sync", "--json", programGraphSourceFreePackage])).stdout);
 await mkdir(programGraphSourceFreeStdStrPackage, { recursive: true });
 await writeFile(`${programGraphSourceFreeStdStrPackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-source-free-std-str", version: "0.1.0" },
@@ -3685,7 +3708,7 @@ await writeFile(`${programGraphSourceFreeStdStrPackage}/zero.json`, JSON.stringi
   repositoryGraph: { compilerInput: true },
 }, null, 2));
 await writeFile(`${programGraphSourceFreeStdStrPackage}/main.0`, await readFile("examples/std-str.0", "utf8"));
-const programGraphSourceFreeStdStrSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphSourceFreeStdStrPackage])).stdout);
+const programGraphSourceFreeStdStrSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphSourceFreeStdStrPackage])).stdout);
 await rm(`${programGraphSourceFreeStdStrPackage}/main.0`, { force: true });
 const programGraphSourceFreeStdStrCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeStdStrPackage])).stdout);
 const programGraphCrmApiCheckJson = JSON.parse((await execFileAsync(zero, ["check", "--json", "examples/crm-api"])).stdout);
@@ -3694,7 +3717,7 @@ const programGraphCrmApiHealth = await execFileAsync(programGraphCrmApiBuildPath
 const programGraphCrmApiAccounts = await execFileAsync(programGraphCrmApiBuildPath, ["GET /crm/accounts\n\n"]);
 const programGraphCrmApiDealUpdate = await execFileAsync(programGraphCrmApiBuildPath, ["POST /crm/deals/42/update\n\n{\"stage\":\"won\"}"]);
 const programGraphCrmApiMissing = await execFileAsync(programGraphCrmApiBuildPath, ["GET /missing\n\n"]);
-const programGraphAuthoringInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringPackage}/src/main.0`);
 const programGraphAuthoringPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
@@ -3715,22 +3738,22 @@ const programGraphAuthoringPatch = JSON.parse((await execFileAsync(zero, [
   "addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"",
 ], { cwd: programGraphAuthoringPackage })).stdout);
 const programGraphAuthoringProjectionExistsAfterPatch = await fileExists(`${programGraphAuthoringPackage}/src/main.0`);
-const programGraphAuthoringStatusMissing = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", programGraphAuthoringPackage])).stdout);
-const programGraphAuthoringVerifyMissing = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphAuthoringPackage]).catch((error) => error);
+const programGraphAuthoringStatusMissing = JSON.parse((await execFileAsync(zero, ["status", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringVerifyMissing = await execFileAsync(zero, ["verify-sync", "--json", programGraphAuthoringPackage]).catch((error) => error);
 const programGraphAuthoringCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringRun = await execFileAsync(zero, ["run", "--out", programGraphAuthoringRunPath, programGraphAuthoringPackage]);
 const programGraphAuthoringTest = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphAuthoringPackage])).stdout);
-const programGraphAuthoringSyncFromGraph = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringSyncFromGraph = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringProjectionText = await readFile(`${programGraphAuthoringPackage}/src/main.0`, "utf8");
-const programGraphAuthoringVerifyAfter = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringVerifyAfter = JSON.parse((await execFileAsync(zero, ["verify-sync", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringCheckAfter = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringEditedText = programGraphAuthoringProjectionText.replace("graph authoring ok", "human edit ok");
 await writeFile(`${programGraphAuthoringPackage}/src/main.0`, programGraphAuthoringEditedText);
-const programGraphAuthoringStatusAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", programGraphAuthoringPackage])).stdout);
-const programGraphAuthoringSyncFromSource = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringStatusAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["status", "--json", programGraphAuthoringPackage])).stdout);
+const programGraphAuthoringSyncFromSource = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringCheckAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringPackage])).stdout);
 const programGraphAuthoringRunAfterHumanEdit = await execFileAsync(zero, ["run", "--out", programGraphAuthoringRunAfterHumanEditPath, programGraphAuthoringPackage]);
-const programGraphBuilderOpsInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
   "--json",
@@ -3756,21 +3779,21 @@ const programGraphBuilderOpsPatch = JSON.parse((await execFileAsync(zero, [
   "addTest name=\"add twice\" call=\"add_twice\" arg0=\"3\" arg1=\"2\" expect=\"7\" type=\"u32\"",
 ], { cwd: programGraphBuilderOpsPackage })).stdout);
 const programGraphBuilderOpsProjectionExistsAfterPatch = await fileExists(`${programGraphBuilderOpsPackage}/src/main.0`);
-const programGraphBuilderOpsQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphBuilderOpsPackage])).stdout);
-const programGraphBuilderOpsView = (await execFileAsync(zero, ["graph", "view", programGraphBuilderOpsPackage])).stdout;
+const programGraphBuilderOpsQuery = JSON.parse((await execFileAsync(zero, ["query", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsView = (await execFileAsync(zero, ["view", programGraphBuilderOpsPackage])).stdout;
 const programGraphBuilderOpsCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsTest = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsRun = await execFileAsync(zero, ["run", "--out", programGraphBuilderOpsRunPath, programGraphBuilderOpsPackage]);
-const programGraphBuilderOpsSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphBuilderOpsPackage])).stdout);
+const programGraphBuilderOpsSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphBuilderOpsPackage])).stdout);
 const programGraphBuilderOpsProjectionText = await readFile(`${programGraphBuilderOpsPackage}/src/main.0`, "utf8");
-const programGraphBlockBodyInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphBlockBodyPackage])).stdout);
 const programGraphBlockBodyMainPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
   "--json",
   "--op",
   "addMain",
 ], { cwd: programGraphBlockBodyPackage })).stdout);
-const programGraphBlockBodyMainQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyMainQuery = JSON.parse((await execFileAsync(zero, ["query", "--json", programGraphBlockBodyPackage])).stdout);
 const programGraphBlockBodyGreetingPatchText = [
   "zero-program-graph-patch v1",
   `expect graphHash "${programGraphBlockBodyMainQuery.graphHash}"`,
@@ -3786,7 +3809,7 @@ const programGraphBlockBodyGreetingPatchText = [
   "",
 ].join("\n");
 const programGraphBlockBodyGreetingPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyGreetingPatchText])).stdout);
-const programGraphBlockBodyBlocks = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", "--find", "Block", programGraphBlockBodyPackage])).stdout);
+const programGraphBlockBodyBlocks = JSON.parse((await execFileAsync(zero, ["query", "--json", "--find", "Block", programGraphBlockBodyPackage])).stdout);
 const programGraphBlockBodyThen = programGraphBlockBodyBlocks.matches.find((node) => node.kind === "Block" && node.name === "then");
 assert(programGraphBlockBodyThen, "expected row-patched greeting body to expose a then block handle");
 const programGraphBlockBodyPatchText = [
@@ -3801,10 +3824,10 @@ const programGraphBlockBodyPatchText = [
 ].join("\n");
 const programGraphBlockBodyDryRun = JSON.parse((await execFileAsync(zero, ["patch", "--json", "--check-only", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyPatchText])).stdout);
 const programGraphBlockBodyPatch = JSON.parse((await execFileAsync(zero, ["patch", "--json", programGraphBlockBodyPackage, "--patch-text", programGraphBlockBodyPatchText])).stdout);
-const programGraphBlockBodyView = (await execFileAsync(zero, ["graph", "view", programGraphBlockBodyPackage])).stdout;
+const programGraphBlockBodyView = (await execFileAsync(zero, ["view", programGraphBlockBodyPackage])).stdout;
 const programGraphBlockBodyCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBlockBodyPackage])).stdout);
 const programGraphBlockBodyRun = await execFileAsync(zero, ["run", "--out", programGraphBlockBodyRunPath, programGraphBlockBodyPackage, "--", "Ada"]);
-const programGraphAuthoringCliInit = JSON.parse((await execFileAsync(zero, ["graph", "init", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliInit = JSON.parse((await execFileAsync(zero, ["init", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliProjectionExistsAfterInit = await fileExists(`${programGraphAuthoringCliPackage}/src/main.0`);
 const programGraphAuthoringCliPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
@@ -3820,7 +3843,7 @@ const programGraphAuthoringCliPatch = JSON.parse((await execFileAsync(zero, [
   "--op",
   "addReturnBinary fn=\"add_u32\" name=\"+\" left=\"x\" right=\"y\" type=\"u32\"",
 ], { cwd: programGraphAuthoringCliPackage })).stdout);
-const programGraphAuthoringCliBodyQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliBodyQuery = JSON.parse((await execFileAsync(zero, ["query", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliBodyPatchText = [
   "zero-program-graph-patch v1",
   `expect graphHash "${programGraphAuthoringCliBodyQuery.graphHash}"`,
@@ -3855,8 +3878,8 @@ const programGraphAuthoringCliStaleAddPatch = JSON.parse((await execFileAsync(ze
   "--op",
   "addTest name=\"add works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"",
 ], { cwd: programGraphAuthoringCliPackage })).stdout);
-const programGraphAuthoringCliFindAdd = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", "--find", "add", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliNodeAdd = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", "--node", "#fn_add", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliFindAdd = JSON.parse((await execFileAsync(zero, ["query", "--json", "--find", "add", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliNodeAdd = JSON.parse((await execFileAsync(zero, ["query", "--json", "--node", "#fn_add", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliCleanupPatch = JSON.parse((await execFileAsync(zero, [
   "patch",
   "--json",
@@ -3867,26 +3890,26 @@ const programGraphAuthoringCliCleanupPatch = JSON.parse((await execFileAsync(zer
   "--op",
   "addTest name=\"add_u32 works\" call=\"add_u32\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"u32\"",
 ], { cwd: programGraphAuthoringCliPackage })).stdout);
-const programGraphAuthoringCliCallsText = (await execFileAsync(zero, ["graph", "query", "--fn", "main", "--calls", "std", programGraphAuthoringCliPackage])).stdout;
-const programGraphAuthoringCliRefsText = (await execFileAsync(zero, ["graph", "query", "--refs", "add_u32", programGraphAuthoringCliPackage])).stdout;
-const programGraphAuthoringCliQuery = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliCallsText = (await execFileAsync(zero, ["query", "--fn", "main", "--calls", "std", programGraphAuthoringCliPackage])).stdout;
+const programGraphAuthoringCliRefsText = (await execFileAsync(zero, ["query", "--refs", "add_u32", programGraphAuthoringCliPackage])).stdout;
+const programGraphAuthoringCliQuery = JSON.parse((await execFileAsync(zero, ["query", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliGraphBuild = await execFileAsync(zero, ["graph", "build", "--out", programGraphAuthoringCliGraphBuildPath, programGraphAuthoringCliPackage]);
+const programGraphAuthoringCliGraphBuild = await execFileAsync(zero, ["build", "--out", programGraphAuthoringCliGraphBuildPath, programGraphAuthoringCliPackage]);
 const programGraphAuthoringCliBuild = await execFileAsync(zero, ["build", "--out", programGraphAuthoringCliBuildPath, programGraphAuthoringCliPackage]);
 const programGraphAuthoringCliTest = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliGraphTest = await execFileAsync(zero, ["graph", "test", programGraphAuthoringCliPackage]);
+const programGraphAuthoringCliGraphTest = await execFileAsync(zero, ["test", programGraphAuthoringCliPackage]);
 const programGraphAuthoringCliRun = await execFileAsync(zero, ["run", "--out", programGraphAuthoringCliRunPath, programGraphAuthoringCliPackage, "--", "40", "2"]);
-const programGraphAuthoringCliGraphRun = await execFileAsync(zero, ["graph", "run", programGraphAuthoringCliPackage, "--", "7", "8"]);
+const programGraphAuthoringCliGraphRun = await execFileAsync(zero, ["run", programGraphAuthoringCliPackage, "--", "7", "8"]);
 const programGraphAuthoringCliSize = JSON.parse((await execFileAsync(zero, ["size", "--json", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliProjectionText = await readFile(`${programGraphAuthoringCliPackage}/src/main.0`, "utf8");
 const programGraphAuthoringCliEditedProjectionText = programGraphAuthoringCliProjectionText.replace("usage: zero run . -- <x> <y>\\n", "usage: zero run . -- <left> <right>\\n");
 await writeFile(`${programGraphAuthoringCliPackage}/src/main.0`, programGraphAuthoringCliEditedProjectionText);
-const programGraphAuthoringCliStatusAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliSyncFromSource = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliQueryAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["graph", "query", "--json", "--calls", "std", programGraphAuthoringCliPackage])).stdout);
-const programGraphAuthoringCliFindUsageText = (await execFileAsync(zero, ["graph", "query", "--find", "usage", programGraphAuthoringCliPackage])).stdout;
-const programGraphAuthoringCliVerifyAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliStatusAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["status", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliSyncFromSource = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliQueryAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["query", "--json", "--calls", "std", programGraphAuthoringCliPackage])).stdout);
+const programGraphAuthoringCliFindUsageText = (await execFileAsync(zero, ["query", "--find", "usage", programGraphAuthoringCliPackage])).stdout;
+const programGraphAuthoringCliVerifyAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["verify-sync", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliCheckAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliTestAfterHumanEdit = JSON.parse((await execFileAsync(zero, ["test", "--json", programGraphAuthoringCliPackage])).stdout);
 const programGraphAuthoringCliRunAfterHumanEdit = await execFileAsync(zero, ["run", "--out", programGraphAuthoringCliRunAfterHumanEditPath, programGraphAuthoringCliPackage, "--", "5", "6"]);
@@ -3909,7 +3932,7 @@ pub fn main(world: World) -> Void raises {
     check world.out.write("source-free c import ok\\n")
 }
 `);
-const programGraphSourceFreeCImportSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphSourceFreeCImportPackage])).stdout);
+const programGraphSourceFreeCImportSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphSourceFreeCImportPackage])).stdout);
 await rm(`${programGraphSourceFreeCImportPackage}/src`, { recursive: true, force: true });
 const programGraphSourceFreeCImportCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFreeCImportPackage])).stdout);
 const programGraphSourceFreeCImportRun = await execFileAsync(zero, ["run", "--out", programGraphSourceFreeCImportRunPath, programGraphSourceFreeCImportPackage]);
@@ -3947,9 +3970,9 @@ await writeFile(`${programGraphBadProjectionPackage}/zero.graph`, programGraphSo
   /^projection path:"hello\.0" text:.*$/m,
   `projection path:"hello.0" text:${JSON.stringify("pub fn broken( {\n")}`,
 ));
-const programGraphBadProjectionStatus = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", programGraphBadProjectionPackage])).stdout);
+const programGraphBadProjectionStatus = JSON.parse((await execFileAsync(zero, ["status", "--json", programGraphBadProjectionPackage])).stdout);
 const programGraphBadProjectionCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphBadProjectionPackage])).stdout);
-const programGraphBadProjectionSync = await execFileAsync(zero, ["graph", "sync", "--from-graph", "--json", programGraphBadProjectionPackage]).catch((error) => error);
+const programGraphBadProjectionSync = await execFileAsync(zero, ["sync", "--from-graph", "--json", programGraphBadProjectionPackage]).catch((error) => error);
 await mkdir(programGraphMissingStorePackage, { recursive: true });
 await writeFile(`${programGraphMissingStorePackage}/zero.json`, JSON.stringify({
   package: { name: "program-graph-missing-store", version: "0.1.0" },
@@ -3972,7 +3995,7 @@ await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.json`, await read
 await writeFile(`${programGraphSourceFixtureDriftPackage}/zero.graph`, programGraphSourceFixtureStoreText);
 await writeFile(`${programGraphSourceFixtureDriftPackage}/hello.0`, programGraphSourceFixtureText.replace("hello from zero", "hello from drift"));
 const programGraphSourceFixtureDriftCheck = JSON.parse((await execFileAsync(zero, ["check", "--json", programGraphSourceFixtureDriftPackage])).stdout);
-const programGraphSourceFixtureDriftVerify = await execFileAsync(zero, ["graph", "verify-sync", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
+const programGraphSourceFixtureDriftVerify = await execFileAsync(zero, ["verify-sync", "--json", programGraphSourceFixtureDriftPackage]).catch((error) => error);
 await mkdir(programGraphTargetWebbitsPackage, { recursive: true });
 await writeFile(`${programGraphTargetWebbitsPackage}/zero.json`, await readFile("conformance/packages/target-webbits/zero.json", "utf8"));
 await mkdir(`${programGraphTargetIncompatiblePackage}/src`, { recursive: true });
@@ -3983,7 +4006,7 @@ await writeFile(`${programGraphTargetIncompatiblePackage}/zero.json`, JSON.strin
   repositoryGraph: { compilerInput: true },
 }, null, 2));
 await writeFile(`${programGraphTargetIncompatiblePackage}/src/main.0`, await readFile("conformance/packages/target-incompatible-app/src/main.0", "utf8"));
-const programGraphTargetIncompatibleSync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphTargetIncompatiblePackage])).stdout);
+const programGraphTargetIncompatibleSync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphTargetIncompatiblePackage])).stdout);
 const programGraphTargetIncompatibleCheck = await execFileAsync(zero, ["check", "--json", "--target", "linux-musl-x64", programGraphTargetIncompatiblePackage]).catch((error) => error);
 await mkdir(programGraphTargetCapabilityPackage, { recursive: true });
 await writeFile(`${programGraphTargetCapabilityPackage}/zero.json`, JSON.stringify({
@@ -3998,13 +4021,13 @@ await writeFile(`${programGraphTargetCapabilityPackage}/main.0`, `pub fn main(wo
     }
 }
 `);
-const programGraphTargetCapabilitySync = JSON.parse((await execFileAsync(zero, ["graph", "sync", "--from-source", "--json", programGraphTargetCapabilityPackage])).stdout);
+const programGraphTargetCapabilitySync = JSON.parse((await execFileAsync(zero, ["sync", "--from-source", "--json", programGraphTargetCapabilityPackage])).stdout);
 const programGraphTargetCapabilityCheck = await execFileAsync(zero, ["check", "--json", "--target", "linux-arm64", programGraphTargetCapabilityPackage]).catch((error) => error);
-await execFileAsync(zero, ["graph", "dump", "--out", programGraphRichPath, "conformance/native/pass/open-ended-slices.0"]);
-await execFileAsync(zero, ["graph", "view", "--out", programGraphRichViewPath, programGraphRichPath]);
+await execFileAsync(zero, ["dump", "--out", programGraphRichPath, "conformance/native/pass/open-ended-slices.0"]);
+await execFileAsync(zero, ["view", "--out", programGraphRichViewPath, programGraphRichPath]);
 const programGraphRichView = await readFile(programGraphRichViewPath, "utf8");
-await execFileAsync(zero, ["graph", "dump", "--out", programGraphCharPath, "conformance/native/pass/float-char-casts.0"]);
-await execFileAsync(zero, ["graph", "view", "--out", programGraphCharViewPath, programGraphCharPath]);
+await execFileAsync(zero, ["dump", "--out", programGraphCharPath, "conformance/native/pass/float-char-casts.0"]);
+await execFileAsync(zero, ["view", "--out", programGraphCharViewPath, programGraphCharPath]);
 const programGraphCharView = await readFile(programGraphCharViewPath, "utf8");
 const programGraphViewCoverage = [
   ["compile-time-v1", "examples/compile-time-v1.0", [/const field_type: String = meta fieldType\(Point, "x"\)/, /readGate<enabled, selected>\(&gate\)/]],
@@ -4032,8 +4055,8 @@ for (const [name, fixture, patterns] of programGraphViewCoverage) {
   const viewPath = `${outDir}/${name}.graph-view.0`;
   await rm(graphPath, { force: true });
   await rm(viewPath, { force: true });
-  await execFileAsync(zero, ["graph", "dump", "--out", graphPath, fixture]);
-  await execFileAsync(zero, ["graph", "view", "--out", viewPath, graphPath]);
+  await execFileAsync(zero, ["dump", "--out", graphPath, fixture]);
+  await execFileAsync(zero, ["view", "--out", viewPath, graphPath]);
   const view = await readFile(viewPath, "utf8");
   for (const pattern of patterns) assert.match(view, pattern);
   assert.doesNotMatch(view, /fn __zero_test_/);
@@ -4061,14 +4084,14 @@ for (const fixture of [
   "std/path.0",
   "std/str.0",
 ]) {
-  const roundtrip = JSON.parse((await execFileAsync(zero, ["graph", "roundtrip", "--json", fixture])).stdout);
+  const roundtrip = JSON.parse((await execFileAsync(zero, ["roundtrip", "--json", fixture])).stdout);
   assert.equal(roundtrip.ok, true);
   assert.equal(roundtrip.semanticStable, true);
   assert.equal(roundtrip.roundtripModuleIdentity, roundtrip.moduleIdentity);
   assert.equal(roundtrip.comparison.ok, true);
   assert.deepEqual(roundtrip.semanticCounts.original, roundtrip.semanticCounts.roundtrip);
 }
-const stdPathRecursiveView = (await execFileAsync(zero, ["graph", "view", "conformance/native/pass/std-path-io-breadth.0"])).stdout;
+const stdPathRecursiveView = (await execFileAsync(zero, ["view", "conformance/native/pass/std-path-io-breadth.0"])).stdout;
 assert.match(stdPathRecursiveView, /std\.path\.relative\(rel_buf, "src", "src\/main\.0"\)/);
 assert.doesNotMatch(stdPathRecursiveView, /__zero_std_/);
 assert.equal(programGraphBody.schemaVersion, 1);
@@ -4175,7 +4198,7 @@ assert.notEqual(programGraphSourceFreeVerify.code, 0);
 const programGraphSourceFreeVerifyBody = JSON.parse(programGraphSourceFreeVerify.stdout);
 assert.equal(programGraphSourceFreeVerifyBody.diagnostics[0].code, "RGP006");
 assert.equal(programGraphSourceFreeVerifyBody.diagnostics[0].actual, "missing source projection file");
-assert.match(programGraphSourceFreeVerifyBody.repairCommands.join("\n"), /zero graph sync --from-graph/);
+assert.match(programGraphSourceFreeVerifyBody.repairCommands.join("\n"), /zero sync --from-graph/);
 assert.equal(programGraphSourceFreeSyncFromGraph.ok, true);
 assert.deepEqual(programGraphSourceFreeSyncFromGraph.changedPaths, [`${programGraphSourceFreePackage}/hello.0`]);
 assert.equal(await readFile(`${programGraphSourceFreePackage}/hello.0`, "utf8"), programGraphSourceFixtureText);
@@ -4218,7 +4241,7 @@ assert.notEqual(programGraphAuthoringVerifyMissing.code, 0);
 const programGraphAuthoringVerifyMissingBody = JSON.parse(programGraphAuthoringVerifyMissing.stdout);
 assert.equal(programGraphAuthoringVerifyMissingBody.diagnostics[0].code, "RGP006");
 assert.equal(programGraphAuthoringVerifyMissingBody.diagnostics[0].actual, "missing source projection file");
-assert.match(programGraphAuthoringVerifyMissingBody.repairCommands.join("\n"), /zero graph sync --from-graph/);
+assert.match(programGraphAuthoringVerifyMissingBody.repairCommands.join("\n"), /zero sync --from-graph/);
 assert.equal(programGraphAuthoringCheck.ok, true);
 assert.equal(programGraphAuthoringCheck.sourceFile, `${programGraphAuthoringPackage}/zero.graph`);
 assert.equal(programGraphAuthoringCheck.graph.sourceProjectionState, "missing");
@@ -4401,7 +4424,7 @@ assert.equal(programGraphMissingStoreBody.mode, "compiler-input");
 assert.equal(programGraphMissingStoreBody.repositoryGraph.storePresent, false);
 assert.equal(programGraphMissingStoreBody.diagnostics[0].code, "RGP001");
 assert.equal(programGraphMissingStoreBody.diagnostics[0].path, programGraphMissingStorePackage);
-assert.match(programGraphMissingStoreBody.repairCommands.join("\n"), /zero graph sync --from-source/);
+assert.match(programGraphMissingStoreBody.repairCommands.join("\n"), /zero sync --from-source/);
 assert.notEqual(programGraphInvalidStoreCheck.code, 0);
 const programGraphInvalidStoreBody = JSON.parse(programGraphInvalidStoreCheck.stdout);
 assert.equal(programGraphInvalidStoreBody.ok, false);
@@ -4410,7 +4433,7 @@ assert.equal(programGraphInvalidStoreBody.repositoryGraph.storePresent, true);
 assert.equal(programGraphInvalidStoreBody.repositoryGraph.storeValid, false);
 assert.equal(programGraphInvalidStoreBody.diagnostics[0].code, "RGP003");
 assert.equal(programGraphInvalidStoreBody.diagnostics[0].path, programGraphInvalidStorePackage);
-assert.match(programGraphInvalidStoreBody.repairCommands.join("\n"), /zero graph sync --from-source/);
+assert.match(programGraphInvalidStoreBody.repairCommands.join("\n"), /zero sync --from-source/);
 assert.equal(programGraphSourceFixtureDriftCheck.ok, true);
 assert.equal(programGraphSourceFixtureDriftCheck.graph.lowering, "graph-native-check");
 assert.equal(programGraphSourceFixtureDriftCheck.graph.sourceProjectionState, "stale");
@@ -4421,7 +4444,7 @@ assert.equal(programGraphSourceFixtureDriftBody.ok, false);
 assert.equal(programGraphSourceFixtureDriftBody.mode, "verify-sync");
 assert.equal(programGraphSourceFixtureDriftBody.repositoryGraph.compilerInput, "repository-graph");
 assert.equal(programGraphSourceFixtureDriftBody.diagnostics[0].code, "RGP005");
-assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero graph sync --from-source/);
+assert.match(programGraphSourceFixtureDriftBody.repairCommands.join("\n"), /zero sync --from-source/);
 assert.equal(programGraphTargetIncompatibleSync.ok, true);
 assert.notEqual(programGraphTargetIncompatibleCheck.code, 0);
 const programGraphTargetIncompatibleBody = JSON.parse(programGraphTargetIncompatibleCheck.stdout);
@@ -4439,12 +4462,12 @@ assert.equal(programGraphBackendMismatchCheck.ok, true);
 assert.equal(programGraphBackendMismatchCheck.targetReadiness.ok, false);
 assert.equal(programGraphBackendMismatchCheck.targetReadiness.diagnostics[0].code, "BLD004");
 assert.equal(programGraphBackendMismatchCheck.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
-const programGraphRepositoryStatus = JSON.parse((await execFileAsync(zero, ["graph", "status", "--json", "--target", "linux-musl-x64", programGraphSourceFixturePackage])).stdout);
+const programGraphRepositoryStatus = JSON.parse((await execFileAsync(zero, ["status", "--json", "--target", "linux-musl-x64", programGraphSourceFixturePackage])).stdout);
 assert.equal(programGraphRepositoryStatus.repositoryGraph.storePresent, true);
 assert.equal(programGraphRepositoryStatus.repositoryGraph.storeValid, true);
 assert.equal(programGraphRepositoryStatus.repositoryGraph.syncState, "clean");
 assert.equal(programGraphRepositoryStatus.repositoryGraph.compilerInput, "repository-graph");
-const programGraphRepositoryVerify = JSON.parse((await execFileAsync(zero, ["graph", "verify-sync", "--json", "--target", "linux-musl-x64", programGraphSourceFixturePackage])).stdout);
+const programGraphRepositoryVerify = JSON.parse((await execFileAsync(zero, ["verify-sync", "--json", "--target", "linux-musl-x64", programGraphSourceFixturePackage])).stdout);
 assert.equal(programGraphRepositoryVerify.ok, true);
 assert.equal(programGraphRepositoryVerify.writes, false);
 assert.deepEqual(programGraphDumpJson, programGraphBody);
@@ -4482,7 +4505,7 @@ assert(programGraphBody.nodes.some((item) => item.kind === "MethodCall"));
 assert(programGraphBody.edges.some((item) => item.kind === "body"));
 const programGraphWrongSchemaPath = `${outDir}/wrong-schema.program-graph`;
 await writeFile(programGraphWrongSchemaPath, "zero-graph v2\n");
-const programGraphWrongSchema = await execFileAsync(zero, ["graph", "validate", "--json", programGraphWrongSchemaPath]).catch((error) => error);
+const programGraphWrongSchema = await execFileAsync(zero, ["validate", "--json", programGraphWrongSchemaPath]).catch((error) => error);
 assert(programGraphWrongSchema.code);
 assert.equal(JSON.parse(programGraphWrongSchema.stdout).diagnostics[0].message, "unknown program graph schema version");
 const programGraphFailedArtifactPath = `${outDir}/failed-validation.program-graph`;
@@ -4495,12 +4518,12 @@ await writeFile(programGraphFailedArtifactPath, [
   "diagnostic code:\"GRF001\" message:\"program graph construction failed\"",
   "",
 ].join("\n"));
-const programGraphFailedArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphFailedArtifactPath]).catch((error) => error);
+const programGraphFailedArtifact = await execFileAsync(zero, ["validate", "--json", programGraphFailedArtifactPath]).catch((error) => error);
 assert(programGraphFailedArtifact.code);
 assert.equal(JSON.parse(programGraphFailedArtifact.stdout).diagnostics[0].message, "program graph input reports failed validation");
 const programGraphTrailingArtifactPath = `${outDir}/trailing-content.program-graph`;
 await writeFile(programGraphTrailingArtifactPath, `${programGraphDump}\nextra\n`);
-const programGraphTrailingArtifact = await execFileAsync(zero, ["graph", "validate", "--json", programGraphTrailingArtifactPath]).catch((error) => error);
+const programGraphTrailingArtifact = await execFileAsync(zero, ["validate", "--json", programGraphTrailingArtifactPath]).catch((error) => error);
 assert(programGraphTrailingArtifact.code);
 assert.equal(JSON.parse(programGraphTrailingArtifact.stdout).diagnostics[0].message, "unexpected content after graph header");
 assert(programGraphBody.edges.some((item) => item.kind === "statement" && item.order === 0));
@@ -4513,9 +4536,9 @@ await writeFile(programGraphDuplicateIdFixture, [
   "}",
   "",
 ].join("\n"));
-const programGraphDuplicateIdDump = await execFileAsync(zero, ["graph", "dump", "--out", programGraphDuplicateIdPath, programGraphDuplicateIdFixture]);
+const programGraphDuplicateIdDump = await execFileAsync(zero, ["dump", "--out", programGraphDuplicateIdPath, programGraphDuplicateIdFixture]);
 assert.equal(programGraphDuplicateIdDump.stdout, "");
-assert.equal((await execFileAsync(zero, ["graph", "validate", programGraphDuplicateIdPath])).stdout, "program graph ok\n");
+assert.equal((await execFileAsync(zero, ["validate", programGraphDuplicateIdPath])).stdout, "program graph ok\n");
 const programGraphDuplicateIdText = await readFile(programGraphDuplicateIdPath, "utf8");
 const programGraphDuplicateIds = [...programGraphDuplicateIdText.matchAll(/^node (#[^ ]+)/gm)].map((match) => match[1]);
 assert.equal(new Set(programGraphDuplicateIds).size, programGraphDuplicateIds.length);
@@ -4523,17 +4546,17 @@ assert(programGraphDuplicateIds.some((id) => /^#[a-z][a-z0-9]*_[0-9a-f]{8}-[0-9a
 
 const programGraphControlFixture = `${outDir}/program-graph-control.0`;
 await writeFile(programGraphControlFixture, "pub fn main(world: World) -> Void raises {\n    check world.out.write(\"\\x01 ok\\n\")\n}\n");
-const programGraphControl = JSON.parse((await execFileAsync(zero, ["graph", "--json", programGraphControlFixture])).stdout).programGraph;
+const programGraphControl = JSON.parse((await execFileAsync(zero, ["inspect", "--json", programGraphControlFixture])).stdout).programGraph;
 assert(programGraphControl.nodes.some((item) => item.kind === "Literal" && item.value === "\u0001 ok\n"));
 
-const programGraphMatchRanges = JSON.parse((await execFileAsync(zero, ["graph", "--json", "conformance/native/pass/match-scalar-guards.0"])).stdout).programGraph;
+const programGraphMatchRanges = JSON.parse((await execFileAsync(zero, ["inspect", "--json", "conformance/native/pass/match-scalar-guards.0"])).stdout).programGraph;
 const programGraphRangeArm = programGraphMatchRanges.nodes.find((item) => item.kind === "MatchArm" && item.name === "1");
 assert(programGraphRangeArm);
 const programGraphRangeEdge = programGraphMatchRanges.edges.find((item) => item.from === programGraphRangeArm.id && item.kind === "rangeEnd");
 assert(programGraphRangeEdge);
 assert(programGraphMatchRanges.nodes.some((item) => item.id === programGraphRangeEdge.to && item.kind === "Literal" && item.value === "3"));
 
-const programGraphShapeDefaults = JSON.parse((await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/shape-field-defaults.0"])).stdout).programGraph;
+const programGraphShapeDefaults = JSON.parse((await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/shape-field-defaults.0"])).stdout).programGraph;
 const programGraphDefaultField = programGraphShapeDefaults.nodes.find((item) => item.kind === "Field" && item.name === "left");
 assert(programGraphDefaultField);
 const programGraphDefaultEdge = programGraphShapeDefaults.edges.find((item) => item.from === programGraphDefaultField.id && item.kind === "default");
@@ -4640,7 +4663,7 @@ const targetProcUnsupportedBody = JSON.parse(targetProcUnsupportedJson.stdout);
 assert.equal(targetProcUnsupportedBody.diagnostics[0].code, "TAR002");
 assert.match(targetProcUnsupportedBody.diagnostics[0].actual, /lacks Proc/);
 
-const cHeaderGraph = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/c-header-import.0"]);
+const cHeaderGraph = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/c-header-import.0"]);
 const cHeaderGraphBody = JSON.parse(cHeaderGraph.stdout);
 assert(cHeaderGraphBody.cImports.some((item) => item.header === "conformance/c/simple.h" && item.imports.functions >= 1 && item.cacheKey));
 const simpleHeaderImport = cHeaderGraphBody.cImports.find((item) => item.header === "conformance/c/simple.h");
@@ -4661,12 +4684,12 @@ const cImportTargetWinBody = JSON.parse(cImportTargetWin.stdout);
 assert.equal(cImportTargetWinBody.ok, true);
 assert.equal(cImportTargetWinBody.targetReadiness.ok, true);
 assert.equal(cImportTargetWinBody.targetReadiness.buildable, true);
-const cImportTargetLinuxGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "conformance/check/pass/c-import-target-linux.0"]);
+const cImportTargetLinuxGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "conformance/check/pass/c-import-target-linux.0"]);
 const cImportTargetLinuxModel = JSON.parse(cImportTargetLinuxGraph.stdout).cImports.find((item) => item.header === "conformance/c/target-conditional.h").typedModel;
 assert(cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_linux_add"));
 assert(cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_not_windows"));
 assert(!cImportTargetLinuxModel.functions.some((item) => item.name === "zero_c_windows_add"));
-const cImportTargetWinGraph = await execFileAsync(zero, ["graph", "--json", "--target", "win32-x64.exe", "conformance/check/pass/c-import-target-win.0"]);
+const cImportTargetWinGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "win32-x64.exe", "conformance/check/pass/c-import-target-win.0"]);
 const cImportTargetWinModel = JSON.parse(cImportTargetWinGraph.stdout).cImports.find((item) => item.header === "conformance/c/target-conditional.h").typedModel;
 assert(cImportTargetWinModel.functions.some((item) => item.name === "zero_c_windows_add"));
 assert(!cImportTargetWinModel.functions.some((item) => item.name === "zero_c_linux_add"));
@@ -4676,7 +4699,7 @@ const cImportTypeShadowReadiness = await execFileAsync(zero, ["check", "--json",
 const cImportTypeShadowReadinessBody = JSON.parse(cImportTypeShadowReadiness.stdout);
 assert.equal(cImportTypeShadowReadinessBody.ok, true);
 assert.equal(cImportTypeShadowReadinessBody.targetReadiness.buildable, false);
-assert.equal(cImportTypeShadowReadinessBody.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "Counter.zero_c_add");
+assert.equal(cImportTypeShadowReadinessBody.targetReadiness.diagnostics[0].backendBlocker.unsupportedFeature, "ref<Self>");
 const cImportLaterLocalReadiness = await execFileAsync(zero, ["check", "--json", "--emit", "obj", "conformance/native/pass/c-import-alias-later-local.0"]);
 const cImportLaterLocalReadinessBody = JSON.parse(cImportLaterLocalReadiness.stdout);
 assert.equal(cImportLaterLocalReadinessBody.ok, true);
@@ -4848,7 +4871,7 @@ assert.equal(externCallScalarCrossReadinessBody.ok, true);
 assert.equal(externCallScalarCrossReadinessBody.targetReadiness.ok, true);
 assert.equal(externCallScalarCrossReadinessBody.targetReadiness.buildable, true);
 assert.equal(externCallScalarCrossReadinessBody.targetReadiness.diagnostics.length, 0);
-const externCallGraph = await execFileAsync(zero, ["graph", "--json", externCallRoot]);
+const externCallGraph = await execFileAsync(zero, ["inspect", "--json", externCallRoot]);
 const externCallGraphBody = JSON.parse(externCallGraph.stdout);
 const externCallImport = externCallGraphBody.cImports.find((item) => item.header === "vendor/include/zero_ext.h");
 assert(externCallImport);
@@ -4859,11 +4882,11 @@ assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_block_commented"));
 assert(!externCallImport.typedModel.functions.some((item) => item.name === "zero_ext_disabled"));
 const externCallGraphArtifact = `${externCallRoot}/extern-call.program-graph`;
-await execFileAsync(zero, ["graph", "dump", "--out", externCallGraphArtifact, externCallRoot]);
+await execFileAsync(zero, ["dump", "--out", externCallGraphArtifact, externCallRoot]);
 const externCallGraphCheck = await execFileAsync(zero, ["check", "--json", externCallGraphArtifact]);
 assert.equal(JSON.parse(externCallGraphCheck.stdout).ok, true);
 const externCallGraphSizeArtifact = `${externCallRoot}/extern-call-size-metadata.json`;
-const externCallGraphSize = await execFileAsync(zero, ["graph", "size", "--json", "--out", externCallGraphSizeArtifact, externCallGraphArtifact]);
+const externCallGraphSize = await execFileAsync(zero, ["size", "--json", "--out", externCallGraphSizeArtifact, externCallGraphArtifact]);
 assert.equal(JSON.parse(externCallGraphSize.stdout).graph.moduleIdentity, "package:extern-c-call@0.1.0");
 const externCallBuildOut = `${externCallRoot}/extern-call`;
 const externCallBuild = await execFileAsync(zero, ["build", "--json", externCallRoot, "--out", externCallBuildOut]);
@@ -4890,7 +4913,7 @@ assert.equal(
 assert.equal(externCallBuildBody.releaseTargetContract.selectedEmitter, externCallBuildBody.releaseTargetContract.directObjectEmitter);
 assert.equal(externCallBuildBody.releaseTargetContract.libc.artifactMode, externCallBuildBody.releaseTargetContract.libc.targetMode);
 const externCallGraphBuildOut = `${externCallRoot}/extern-call-graph`;
-const externCallGraphBuild = await execFileAsync(zero, ["graph", "build", "--json", externCallGraphArtifact, "--out", externCallGraphBuildOut]);
+const externCallGraphBuild = await execFileAsync(zero, ["build", "--json", externCallGraphArtifact, "--out", externCallGraphBuildOut]);
 const externCallGraphBuildBody = JSON.parse(externCallGraphBuild.stdout);
 assert.equal(externCallGraphBuildBody.emit, "exe");
 assert(externCallGraphBuildBody.objectBackend.linkerPlan.staticLibraries.some((item) => item.endsWith(externCallObjectRel)));
@@ -4959,7 +4982,7 @@ const runtimeManifestRun = await execFileAsync(zero, ["run", runtimeManifestRoot
 assert.equal(runtimeManifestRun.stdout, "runtime manifest ignored\n");
 await rm(runtimeManifestRoot, { recursive: true, force: true });
 
-const cInteropGraph = await execFileAsync(zero, ["graph", "--json", "examples/c-interop"]);
+const cInteropGraph = await execFileAsync(zero, ["inspect", "--json", "examples/c-interop"]);
 const cInteropGraphBody = JSON.parse(cInteropGraph.stdout);
 const mathLib = cInteropGraphBody.cLibraries.find((item) => item.name === "math");
 assert(mathLib);
@@ -4967,12 +4990,12 @@ assert.equal(mathLib.linkMode, "static");
 assert.equal(mathLib.targetValidation.vendoredLibraries, true);
 assert.equal(mathLib.targetValidation.vendoredHeaders, true);
 assert.equal(mathLib.targetValidation.pkgConfigTargetSafe, true);
-const cInteropCrossGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "examples/c-interop"]);
+const cInteropCrossGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "examples/c-interop"]);
 const cInteropCrossGraphBody = JSON.parse(cInteropCrossGraph.stdout);
 assert.equal(cInteropCrossGraphBody.cLibraries[0].targetValidation.pkgConfigTargetSafe, true);
 assert.equal(cInteropCrossGraphBody.cLibraries[0].targetValidation.implicitHostDiscovery, false);
 assert.equal(cInteropCrossGraphBody.cLibraries[0].linkPlan.hostDiscovery, "none");
-const hostLeakGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "conformance/c/host-leak-package"]);
+const hostLeakGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "conformance/c/host-leak-package"]);
 const hostLeakGraphBody = JSON.parse(hostLeakGraph.stdout);
 assert.equal(hostLeakGraphBody.cLibraries[0].targetValidation.hostHeaderLeakage, true);
 assert.equal(hostLeakGraphBody.cLibraries[0].targetValidation.implicitHostDiscovery, true);
@@ -4991,7 +5014,7 @@ const hostLeakBuildBody = JSON.parse(hostLeakBuild.stdout);
 assert.equal(hostLeakBuildBody.diagnostics[0].code, "CIMP003");
 assert.match(hostLeakBuildBody.diagnostics[0].help, /target sysroot|vendored/);
 
-const depGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "conformance/packages/dep-app"]);
+const depGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "conformance/packages/dep-app"]);
 const depGraphBody = JSON.parse(depGraph.stdout);
 assert.equal(depGraphBody.package.name, "dep-app");
 assert.equal(depGraphBody.package.version, "0.1.0");
@@ -5012,7 +5035,7 @@ const depBuildBody = JSON.parse(depBuild.stdout);
 assert.equal(depBuildBody.package.dependencies.length, 2);
 assert.equal(depBuildBody.packageCache.invalidationReasons.includes("dependency graph changed"), true);
 assert.match(depBuildBody.compilerCaches[0].dependencyGraphHash, /^[0-9a-f]{16}$/);
-const targetGraph = await execFileAsync(zero, ["graph", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"]);
+const targetGraph = await execFileAsync(zero, ["inspect", "--json", "--target", "linux-musl-x64", "conformance/packages/target-incompatible-app"]);
 const targetGraphBody = JSON.parse(targetGraph.stdout);
 assert.equal(targetGraphBody.package.dependencies[0].targetCompatible, false);
 const missingDep = await execFileAsync(zero, ["check", "--json", "conformance/packages/missing-dep-app"]).catch((error) => error);
@@ -5137,7 +5160,7 @@ assert.equal(zeroTestJsonBody.passedTests, 1);
 assert.equal(zeroTestJsonBody.graph.artifact, "conformance/native/pass/test-blocks.0");
 assert.equal(zeroTestJsonBody.graph.canonicalSource, true);
 assert.equal(zeroTestJsonBody.graph.moduleIdentity, "module:test-blocks");
-assert.equal(zeroTestJsonBody.graph.lowering, "program-graph-ast-mir");
+assert.equal(zeroTestJsonBody.graph.lowering, "typed-program-graph-mir");
 assert.equal(zeroTestJsonBody.testDiscovery.mode, "program-graph");
 assert.equal(zeroTestJsonBody.testDiscovery.filter, "addition");
 assert.equal(zeroTestJsonBody.fixtures.snapshotKey, "zero-test-direct-frontend-v1");
@@ -5218,7 +5241,7 @@ if (helloRunArgs) {
   assert.match(run.stdout, /hello conformance/);
 }
 
-const packageGraphJson = await execFileAsync(zero, ["graph", "--json", "conformance/check/pass/package"]);
+const packageGraphJson = await execFileAsync(zero, ["inspect", "--json", "conformance/check/pass/package"]);
 const packageGraph = JSON.parse(packageGraphJson.stdout);
 assert.deepEqual(packageGraph.sourceFiles.sort(), [
   "conformance/check/pass/package/src/main.0",

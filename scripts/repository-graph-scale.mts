@@ -38,12 +38,12 @@ writeFileSync(
   `${functions.join("\n")}\npub fn main(world: World) -> Void raises {\n    check world.out.write("repository graph scale ok\\n")\n}\n`,
 );
 
-const sync = elapsed(() => json(["graph", "sync", "--from-source", "--json", source]));
+const sync = elapsed(() => json(["sync", "--from-source", "--json", source]));
 assert.equal(sync.value.code, 0);
 assert.equal(sync.value.body.repositoryGraph.syncState, "clean");
 assert(sync.ms < maxMs, `repository graph sync took ${sync.ms}ms`);
 
-const status = elapsed(() => json(["graph", "status", "--json", source]));
+const status = elapsed(() => json(["status", "--json", source]));
 assert.equal(status.value.body.repositoryGraph.storeValid, true);
 assert.equal(status.value.body.storage.encoding, "single-file-text");
 assert.equal(status.value.body.storage.interface, "ProgramGraphStore");
@@ -60,7 +60,7 @@ assert(status.value.body.scale.nodes >= 300, `expected a large graph, got ${stat
 assert(status.value.body.scale.edges >= 200, `expected many graph edges, got ${status.value.body.scale.edges}`);
 assert(status.ms < maxMs, `repository graph status took ${status.ms}ms`);
 
-const verify = elapsed(() => json(["graph", "verify-sync", "--json", source]));
+const verify = elapsed(() => json(["verify-sync", "--json", source]));
 assert.equal(verify.value.code, 0);
 assert.equal(verify.value.body.ok, true);
 assert(verify.ms < maxMs, `repository graph verify-sync took ${verify.ms}ms`);
@@ -71,7 +71,7 @@ assert.match(originalStore, /^compilerTables schema:1 package:/m);
 assert.match(originalStore, /^compilerHashInputs graphHashExcludes:"source-path,line,column,projection-text"/m);
 
 rmSync(source, { force: true });
-const sourceFreeStatus = elapsed(() => json(["graph", "status", "--json", root]));
+const sourceFreeStatus = elapsed(() => json(["status", "--json", root]));
 assert.equal(sourceFreeStatus.value.body.repositoryGraph.storeValid, true);
 assert.equal(sourceFreeStatus.value.body.repositoryGraph.semanticValidity, "shape-valid");
 assert.equal(sourceFreeStatus.value.body.repositoryGraph.projectionValidity, "missing");
@@ -82,7 +82,7 @@ assert.equal(sourceFreeStatus.value.body.compilerStore.tables.node, status.value
 assert(sourceFreeStatus.ms < maxMs, `repository graph source-free status took ${sourceFreeStatus.ms}ms`);
 
 writeFileSync(store, originalStore.replace("zero-repository-graph v1", "zero-repository-graph v2"));
-const futureSchema = json(["graph", "status", "--json", root], true);
+const futureSchema = json(["status", "--json", root], true);
 assert.notEqual(futureSchema.code, 0);
 assert.equal(futureSchema.body.diagnostics[0].code, "RGP003");
 assert.match(futureSchema.body.diagnostics[0].actual, /invalid repository graph store|valid zero.graph/);

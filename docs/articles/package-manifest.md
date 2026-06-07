@@ -37,19 +37,19 @@ conflicting, or unavailable, and do not rewrite `.0` files. A graph-first
 package can be created with:
 
 ```sh
-zero graph init app
+zero init app
 cd app
 zero patch --op 'addMain'
 zero check .
 ```
 
-Use `zero graph sync --from-graph` to materialize or refresh `.0` projections
-for human review. Use `zero graph sync --from-source` after humans edit `.0` so
+Use `zero sync --from-graph` to materialize or refresh `.0` projections
+for human review. Use `zero sync --from-source` after humans edit `.0` so
 the graph store reflects the reviewed source projection. Use
-`zero graph verify-sync` when CI or review needs the no-write graph/source drift
+`zero verify-sync` when CI or review needs the no-write graph/source drift
 gate. Leave the field unset or `false` for source-text packages.
 
-`zero graph --json <package>` reports:
+`zero inspect --json <package>` reports:
 
 - `package.dependencies`
 - `package.lockfile`

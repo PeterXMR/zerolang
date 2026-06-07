@@ -753,7 +753,7 @@ bool z_resolve_manifest_graph_artifact_path(const char *input_path, char **out_a
                               "zero.json is missing targets.cli.graph",
                               "targets.cli.graph pointing at a derived ProgramGraph artifact",
                               "missing targets.cli.graph",
-                              "run zero graph import --out <module.program-graph> <source>, then set targets.cli.graph");
+                              "run zero import --out <module.program-graph> <source>, then set targets.cli.graph");
       ok = false;
     }
   } else {

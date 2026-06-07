@@ -12,11 +12,11 @@ Use this when working with `zero.json`, package-local modules, package tests, or
 For agent-authored packages, start graph-first:
 
 ```sh
-zero graph init hello
+zero init hello
 cd hello
 zero patch --op 'addMain'
 zero check .
-zero graph sync --from-graph .
+zero sync --from-graph .
 ```
 
 `zero.graph` is the package graph store and compiler input. `.0` files are the
@@ -62,7 +62,7 @@ Avoid implicit files. If an import is unknown, run:
 
 ```sh
 zero check <package>
-zero graph <package>
+zero inspect <package>
 ```
 
 ## Dependencies
@@ -83,14 +83,14 @@ Set `repositoryGraph.compilerInput` to `true` only for packages that check in a
 valid `zero.graph` store. Normal compiler commands validate and compile from
 that store, including target and package metadata, and can operate when `.0`
 source projections are missing. Commands report projection state and never
-rewrite `.0` files. Use `zero graph verify-sync` when drift must fail the
-workflow, and `zero graph sync --from-graph` to regenerate projections. Leave
+rewrite `.0` files. Use `zero verify-sync` when drift must fail the
+workflow, and `zero sync --from-graph` to regenerate projections. Leave
 the field unset or `false` for source-text packages.
 
 ## Inspect
 
 ```sh
-zero graph <package>
+zero inspect <package>
 zero doc <package>
 zero dev <package>
 ```
@@ -102,7 +102,7 @@ Use `--json` when a tool needs exact graph, doc, or dev fields. Useful `graph` f
 For agent-authored packages, prefer the repository graph surface:
 
 ```sh
-zero graph init <package>
+zero init <package>
 cd <package>
 zero patch --op 'addMain'
 zero check .
@@ -113,14 +113,14 @@ Inspect and patch existing packages through the graph. Create an artifact under
 `.zero/` only when another tool needs a file artifact:
 
 ```sh
-zero graph view <package>
+zero view <package>
 zero check <package>
 zero patch <package> --op 'addMain'
 ```
 
 When `repositoryGraph.compilerInput` is true, package-level patches write
-`zero.graph`; use `zero graph sync --from-graph <package>` to materialize `.0`
-for human review and `zero graph sync --from-source <package>` after humans edit
+`zero.graph`; use `zero sync --from-graph <package>` to materialize `.0`
+for human review and `zero sync --from-source <package>` after humans edit
 that projection. Keep derived graph artifacts out of the package source unless
 the user explicitly asks for them.
 

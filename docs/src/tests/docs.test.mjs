@@ -100,7 +100,7 @@ describe("docs registry", () => {
     assert.match(await readDoc("getting-started"), /curl -fsSL https:\/\/zerolang\.ai\/install\.sh \| bash/);
     const gettingStarted = await readDoc("getting-started");
     assert.match(gettingStarted, /Ask An Agent For Hello World/);
-    assert.match(gettingStarted, /zero graph init hello/);
+    assert.match(gettingStarted, /zero init hello/);
     assert.match(gettingStarted, /zero patch --op 'addMain'/);
     assert.match(gettingStarted, /`src\/main\.0` is the human-readable projection/);
     assert.match(await readDoc("getting-started"), /zero build --target linux-musl-x64/);
@@ -113,7 +113,7 @@ describe("docs registry", () => {
     assert.match(diagnostics, /JSON For Tools/);
     assert.match(diagnostics, /CIMP003/);
     assert.match(diagnostics, /configure-target-c-dependency/);
-    assert.match(await readDoc("standard-library"), /zero graph --json/);
+    assert.match(await readDoc("standard-library"), /zero inspect --json/);
     assert.match(await readDoc("standard-library"), /usedStdlibHelpers/);
     assert.match(await readDoc("standard-library"), /ownershipNotes/);
     for (const moduleSlug of ["module-io", "module-rand", "module-proc", "module-crypto", "module-net", "module-http"]) {

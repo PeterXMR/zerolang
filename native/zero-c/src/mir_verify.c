@@ -922,6 +922,50 @@ static bool mir_verify_maybe_value_contract(IrProgram *ir, const IrFunction *fun
   return false;
 }
 
+static bool mir_verify_mutable_item_storage(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value, IrTypeKind element_type, const char *message, const char *role) {
+  if (!mir_verify_value_type(ir, value, IR_TYPE_BYTE_VIEW, message, role)) return false;
+  if (value->kind == IR_VALUE_LOCAL) {
+    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->local_index];
+    if (local->type == IR_TYPE_BYTE_VIEW && local->is_mutable &&
+        (local->element_type == IR_TYPE_UNSUPPORTED || local->element_type == element_type)) {
+      return true;
+    }
+    char actual[192];
+    snprintf(actual, sizeof(actual), "%s local %s has %s element %s and is %s", role ? role : "storage", local->name ? local->name : "<unnamed>", mir_type_kind_name(local->type), mir_type_kind_name(local->element_type), local->is_mutable ? "mutable" : "immutable");
+    mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+    return false;
+  }
+  if (value->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (!mir_verify_local_index(ir, fun, value->array_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->array_index];
+    if (local->is_array && local->element_type == element_type && local->is_mutable) return true;
+    if (local->is_record && local->is_mutable && value->element_type == element_type) return true;
+    char actual[192];
+    snprintf(actual, sizeof(actual), "%s local %s is %s %s storage and is %s", role ? role : "storage", local->name ? local->name : "<unnamed>", (local->is_array && local->element_type == element_type) || (local->is_record && value->element_type == element_type) ? "a" : "not a", mir_type_kind_name(element_type), local->is_mutable ? "mutable" : "immutable");
+    mir_verify_mark_unsupported(ir, message, value->line, value->column, actual);
+    return false;
+  }
+  if (value->kind == IR_VALUE_BYTE_SLICE) {
+    if (value->index && !mir_verify_value_is_integer(ir, value->index, message, "slice start")) return false;
+    if (value->right && !mir_verify_value_is_integer(ir, value->right, message, "slice end")) return false;
+    return mir_verify_mutable_item_storage(ir, fun, state, value->left, element_type, message, role);
+  }
+  if (value->kind == IR_VALUE_MAYBE_VALUE) {
+    if (!mir_verify_local_index(ir, fun, value->local_index, value->line, value->column, message)) return false;
+    const IrLocal *local = &fun->locals[value->local_index];
+    if (local->type == IR_TYPE_MAYBE_BYTE_VIEW &&
+        (value->element_type == IR_TYPE_UNSUPPORTED || value->element_type == element_type) &&
+        mir_state_has_mutable_maybe_byte_payload(state, value->local_index)) {
+      return true;
+    }
+  }
+  char actual[160];
+  snprintf(actual, sizeof(actual), "%s is %s", role ? role : "storage", value ? "an unsupported value kind" : "missing");
+  mir_verify_mark_unsupported(ir, message, value ? value->line : 1, value ? value->column : 1, actual);
+  return false;
+}
+
 static bool mir_verify_byte_view_value_contract(IrProgram *ir, const IrValue *value) {
   if (!mir_verify_value_type(ir, value, IR_TYPE_BYTE_VIEW, "MIR verifier found byte-view result type mismatch", "byte-view result")) return false;
   if (value->kind == IR_VALUE_BYTE_SLICE) {
@@ -942,6 +986,53 @@ static bool mir_verify_byte_mutation_value_contract(IrProgram *ir, const IrFunct
   if (value->kind == IR_VALUE_BYTE_FILL) {
     if (!mir_verify_value_type(ir, value->left, IR_TYPE_U8, "MIR verifier found invalid byte fill value", "byte fill value")) return false;
     return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid byte fill destination", "byte fill destination");
+  }
+  return true;
+}
+
+static bool mir_verify_item_element_type(IrProgram *ir, IrTypeKind type, const IrValue *site, const char *role) {
+  if (type == IR_TYPE_BOOL || mir_type_is_value(type)) return true;
+  char actual[160];
+  snprintf(actual, sizeof(actual), "%s has %s", role ? role : "item", mir_type_kind_name(type));
+  mir_verify_mark_unsupported(ir, "MIR verifier found unsupported item helper element type", site ? site->line : 1, site ? site->column : 1, actual);
+  return false;
+}
+
+static bool mir_verify_item_helper_value_contract(IrProgram *ir, const IrFunction *fun, const MirVerifierState *state, const IrValue *value) {
+  if (!ir || !ir->mir_valid || !value) return false;
+  if (!mir_verify_item_element_type(ir, value->element_type, value, "item helper element")) return false;
+  if (value->kind == IR_VALUE_ITEM_COPY) {
+    if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "item copy result")) return false;
+    if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid item copy source", "item copy source")) return false;
+    if (value->left->element_type != IR_TYPE_UNSUPPORTED && value->left->element_type != value->element_type) {
+      mir_verify_mark_unsupported(ir, "MIR verifier found item copy source element mismatch", value->line, value->column, "source element does not match copy element");
+      return false;
+    }
+    if (!mir_verify_mutable_item_storage(ir, fun, state, value->right, value->element_type, "MIR verifier found invalid item copy destination", "item copy destination")) return false;
+    if (value->right && value->right->element_type != IR_TYPE_UNSUPPORTED && value->right->element_type != value->element_type) {
+      mir_verify_mark_unsupported(ir, "MIR verifier found item copy destination element mismatch", value->line, value->column, "destination element does not match copy element");
+      return false;
+    }
+    return true;
+  }
+  if (value->kind == IR_VALUE_ITEM_FILL) {
+    if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "item fill result")) return false;
+    if (!mir_verify_value_type(ir, value->left, value->element_type, "MIR verifier found invalid item fill value", "item fill value")) return false;
+    if (!mir_verify_mutable_item_storage(ir, fun, state, value->right, value->element_type, "MIR verifier found invalid item fill destination", "item fill destination")) return false;
+    if (value->right && value->right->element_type != IR_TYPE_UNSUPPORTED && value->right->element_type != value->element_type) {
+      mir_verify_mark_unsupported(ir, "MIR verifier found item fill destination element mismatch", value->line, value->column, "destination element does not match fill element");
+      return false;
+    }
+    return true;
+  }
+  if (value->kind == IR_VALUE_ITEM_CONTAINS) {
+    if (!mir_verify_helper_result_type(ir, value, IR_TYPE_BOOL, "item contains result")) return false;
+    if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid item contains input", "item contains input")) return false;
+    if (value->left && value->left->element_type != IR_TYPE_UNSUPPORTED && value->left->element_type != value->element_type) {
+      mir_verify_mark_unsupported(ir, "MIR verifier found item contains input element mismatch", value->line, value->column, "input element does not match contains element");
+      return false;
+    }
+    return mir_verify_value_type(ir, value->right, value->element_type, "MIR verifier found invalid item contains needle", "item contains needle");
   }
   return true;
 }
@@ -1843,6 +1934,10 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
     case IR_VALUE_BYTE_COPY:
     case IR_VALUE_BYTE_FILL:
       return mir_verify_byte_mutation_value_contract(ir, fun, state, value);
+    case IR_VALUE_ITEM_COPY:
+    case IR_VALUE_ITEM_FILL:
+    case IR_VALUE_ITEM_CONTAINS:
+      return mir_verify_item_helper_value_contract(ir, fun, state, value);
     case IR_VALUE_CRC32_BYTES:
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_U32, "CRC32 result")) return false;
       return mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid CRC32 input", "CRC32 bytes");

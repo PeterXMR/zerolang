@@ -71,7 +71,7 @@ expose stable API shape.
 
 The V1 compile-time evaluator is deterministic and sandboxed.
 
-`zero check --json` and `zero graph --json` include a `compileTime` object with:
+`zero check --json` and `zero inspect --json` include a `compileTime` object with:
 
 - cache key inputs and limits
 - sandbox policy
@@ -794,7 +794,7 @@ Build resolution is declarative and does not execute dependency code. Unknown
 imports, direct import cycles, bad manifests, and duplicate public exports are
 reported before parsing the combined package source.
 
-`zero graph --json <package>` lists module names, source paths, import edges
+`zero inspect --json <package>` lists module names, source paths, import edges
 with source ranges, parsed `useImports` with source ranges, public/private
 symbol counts, target metadata, function effects, required capabilities, and
 whether the selected target provides hosted filesystem support.
@@ -830,7 +830,7 @@ zero check examples/hello.0
 zero build examples/hello.0 --out .zero/out/hello
 zero build --emit exe examples/add.0 --out .zero/out/add
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add-linux-musl
-zero graph --json examples/systems-package
+zero inspect --json examples/systems-package
 zero size --json examples/point.0
 zero targets
 ```

@@ -116,6 +116,7 @@ static bool coff_a64_runtime_helper_valid(ZAArch64DirectRuntimeHelper helper) {
 
 static const char *coff_a64_runtime_helper_symbol(ZAArch64DirectRuntimeHelper helper) {
   switch (helper) {
+    case A64_DIRECT_RUNTIME_JSON_PARSE_BYTES: return "zero_json_parse_bytes";
     case A64_DIRECT_RUNTIME_STR_BUFFER_OP: return "zero_str_buffer_op";
     case A64_DIRECT_RUNTIME_STR_CONCAT: return "zero_str_concat";
     case A64_DIRECT_RUNTIME_STR_REPEAT: return "zero_str_repeat";
@@ -137,6 +138,11 @@ static const char *coff_a64_runtime_helper_symbol(ZAArch64DirectRuntimeHelper he
     case A64_DIRECT_RUNTIME_TIME_OP: return "zero_time_op";
     case A64_DIRECT_RUNTIME_MATH_OP: return "zero_math_op";
     case A64_DIRECT_RUNTIME_MATH_USIZE_OP: return "zero_math_usize_op";
+    case A64_DIRECT_RUNTIME_SEARCH_OP: return "zero_search_op";
+    case A64_DIRECT_RUNTIME_SORT_OP: return "zero_sort_op";
+    case A64_DIRECT_RUNTIME_SORT_IS_SORTED_OP: return "zero_sort_is_sorted_op";
+    case A64_DIRECT_RUNTIME_HTTP_REQUEST_METHOD_NAME: return "zero_http_request_method_name";
+    case A64_DIRECT_RUNTIME_HTTP_REQUEST_PATH: return "zero_http_request_path";
     case A64_DIRECT_RUNTIME_HELPER_COUNT: break;
   }
   return "zero_runtime_helper";

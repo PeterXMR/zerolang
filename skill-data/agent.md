@@ -34,44 +34,44 @@ understand the package boundary.
 2. For a new agent-authored package, start from the graph:
 
 ```sh
-zero graph init <package>
+zero init <package>
 cd <package>
 zero patch --op 'addMain'
-zero graph query .
+zero query .
 zero check .
 ```
 
 3. Inspect the current program through the graph:
 
 ```sh
-zero graph query <file-or-package>
-zero graph query --fn main <file-or-package>
-zero graph query --find write <file-or-package>
-zero graph query --calls std <file-or-package>
-zero graph query --refs add <file-or-package>
-zero graph query --node '#expr_2cad38f9' <file-or-package>
-zero graph view <file-or-package>
+zero query <file-or-package>
+zero query --fn main <file-or-package>
+zero query --find write <file-or-package>
+zero query --calls std <file-or-package>
+zero query --refs add <file-or-package>
+zero query --node '#expr_2cad38f9' <file-or-package>
+zero view <file-or-package>
 zero check <file-or-package>
-zero graph status <file-or-package>
+zero status <file-or-package>
 ```
 
 4. Stay on normal graph output for agent inspection. Add `--json` only when an
 automation tool needs stable fields or a debugging session needs exact machine
-facts. Use `zero graph query --fn <name>` for function-local context and
-`zero graph query --calls <name>` for resolved calls, `zero graph query --refs
-<name>` for semantic references, and `zero graph query --find <text>` to search
+facts. Use `zero query --fn <name>` for function-local context and
+`zero query --calls <name>` for resolved calls, `zero query --refs <name>` for
+semantic references, and `zero query --find <text>` to search
 patchable node handles for `set`, `insert`, `insertEdge`, `replace`, `rename`,
-or `delete` operations. Use `zero graph query --node <id>` for one node's parent
+or `delete` operations. Use `zero query --node <id>` for one node's parent
 and child edges. Delete patches preserve valid sibling order for ordered graph
 groups. Use full dumps only when a tool needs the complete node/edge table:
 
 ```sh
-zero graph query <file-or-package>
-zero graph query --fn main <file-or-package>
-zero graph query --find parse <file-or-package>
-zero graph query --calls std <file-or-package>
-zero graph query --refs add <file-or-package>
-zero graph query --node '#fn_main' <file-or-package>
+zero query <file-or-package>
+zero query --fn main <file-or-package>
+zero query --find parse <file-or-package>
+zero query --calls std <file-or-package>
+zero query --refs add <file-or-package>
+zero query --node '#fn_main' <file-or-package>
 ```
 
 5. For graph-first packages, patch the package graph store and validate with
@@ -115,7 +115,7 @@ For branch-local changes, query block handles and replace only the selected
 block:
 
 ```sh
-zero graph query --find Block <file-or-package>
+zero query --find Block <file-or-package>
 ```
 
 ```text
@@ -147,15 +147,15 @@ operation is missing instead of silently switching to source text.
 6. When human review source is needed, write it explicitly:
 
 ```sh
-zero graph sync --from-graph <package>
-zero graph verify-sync <package>
+zero sync --from-graph <package>
+zero verify-sync <package>
 ```
 
 7. If a human edits `.0`, sync the reviewed projection back to the graph store:
 
 ```sh
-zero graph status <package>
-zero graph sync --from-source <package>
+zero status <package>
+zero sync --from-source <package>
 zero check <package>
 ```
 
@@ -163,12 +163,12 @@ zero check <package>
 artifact, validate it, and then apply the accepted change to the package graph
 store or source projection. Do not commit derived `.program-graph` files unless
 the user explicitly asks.
-9. If `zero graph status <input>` reports repository graph sync as enabled, use
-`zero graph verify-sync <input>` when graph/source drift must fail the workflow.
+9. If `zero status <input>` reports repository graph sync as enabled, use
+`zero verify-sync <input>` when graph/source drift must fail the workflow.
 When `zero.json` sets `repositoryGraph.compilerInput` to `true`, normal compiler
 commands validate and compile from `zero.graph`; they report projection state
 but do not rewrite projections. When combining repository graph stores, use
-`zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right
+`zero merge --base <base-zero.graph> --left <left-zero.graph> --right
 <right-zero.graph> <input>` and then refresh projections explicitly if the merge
 succeeds.
 10. Run a focused check:
@@ -207,10 +207,10 @@ zero fix --plan --json <file-or-package>
 
 ```sh
 zero check <input>
-zero graph <input>
-zero graph query <input>
-zero graph view <input>
-zero graph status <input>
+zero inspect <input>
+zero query <input>
+zero view <input>
+zero status <input>
 zero test <input>
 zero size <input>
 zero doctor

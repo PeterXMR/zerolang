@@ -16,11 +16,11 @@ packages, `.0` files are the human-readable source projection, and
   `zero.graph` after validation. Normal `zero check`, `zero run`, `zero test`,
   `zero build`, `zero size`, `zero ship`, and `zero mem` commands compile from
   `zero.graph` when `repositoryGraph.compilerInput` is true.
-- Use `zero graph sync --from-graph <package>` to materialize or refresh `.0`
+- Use `zero sync --from-graph <package>` to materialize or refresh `.0`
   projections for human review.
-- Use `zero graph sync --from-source <package>` after a human edits `.0` so the
+- Use `zero sync --from-source <package>` after a human edits `.0` so the
   reviewed source projection refreshes `zero.graph`.
-- Use `zero graph verify-sync <package>` when graph/source drift must fail
+- Use `zero verify-sync <package>` when graph/source drift must fail
   without writing files.
 - Use `.program-graph` artifacts only when another tool needs a standalone
   debug or interchange file.
@@ -30,13 +30,13 @@ packages, `.0` files are the human-readable source projection, and
 Create a graph-first package without writing `.0` source:
 
 ```sh
-zero graph init app
+zero init app
 cd app
 zero patch --op 'addMain'
-zero graph query .
+zero query .
 zero check .
 zero run .
-zero graph sync --from-graph .
+zero sync --from-graph .
 ```
 
 Build useful program shape through graph operations:
@@ -96,7 +96,7 @@ To replace only one branch or nested body, query block handles and patch the
 selected `Block` node instead of rewriting the whole function:
 
 ```sh
-zero graph query --find Block <file-or-package>
+zero query --find Block <file-or-package>
 ```
 
 ```text
@@ -119,38 +119,38 @@ zero patch --dry-run --json <package> /tmp/body.patch
 Inspect an existing package through the graph interface:
 
 ```sh
-zero graph query <file-or-package>
-zero graph query --fn main <file-or-package>
-zero graph query --find write <file-or-package>
-zero graph query --calls std <file-or-package>
-zero graph query --refs add <file-or-package>
-zero graph query --node '#expr_2cad38f9' <file-or-package>
-zero graph view <file-or-package>
+zero query <file-or-package>
+zero query --fn main <file-or-package>
+zero query --find write <file-or-package>
+zero query --calls std <file-or-package>
+zero query --refs add <file-or-package>
+zero query --node '#expr_2cad38f9' <file-or-package>
+zero view <file-or-package>
 zero check <file-or-package>
-zero graph status <file-or-package>
+zero status <file-or-package>
 ```
 
 Stay on normal graph output for agent inspection. Add `--json` only when an
 automation tool needs stable fields or a debugging session needs exact machine
-facts. Use `zero graph query --fn <name>` when you know the function you need,
-`zero graph query --calls <name>` to find resolved call targets,
-`zero graph query --refs <name>` to find semantic references, and
-`zero graph query --find <text>` to search names, IDs, types, values, paths, and
+facts. Use `zero query --fn <name>` when you know the function you need,
+`zero query --calls <name>` to find resolved call targets,
+`zero query --refs <name>` to find semantic references, and
+`zero query --find <text>` to search names, IDs, types, values, paths, and
 node kinds for patchable handles. Use those handles for checked edits such as
-`set`, `insert`, `insertEdge`, `replace`, `rename`, or `delete`; `zero graph
+`set`, `insert`, `insertEdge`, `replace`, `rename`, or `delete`; `zero
 query --node <id>` shows the selected node's parent and child edges without a
 full graph dump. Low-level delete compacts ordered graph groups so valid sibling
 order is preserved. Use full dumps only when a tool needs every node and edge:
 
 ```sh
-zero graph query <file-or-package>
-zero graph query --fn main <file-or-package>
-zero graph query --find parse <file-or-package>
-zero graph query --calls std <file-or-package>
-zero graph query --refs add <file-or-package>
-zero graph query --node '#fn_main' <file-or-package>
-zero graph source-map <file-or-package>
-zero graph inspect <file-or-package>
+zero query <file-or-package>
+zero query --fn main <file-or-package>
+zero query --find parse <file-or-package>
+zero query --calls std <file-or-package>
+zero query --refs add <file-or-package>
+zero query --node '#fn_main' <file-or-package>
+zero source-map <file-or-package>
+zero inspect <file-or-package>
 zero patch <package> --op 'addMain'
 ```
 
@@ -158,32 +158,32 @@ Create a derived graph artifact only when you need to carry a graph between
 tools:
 
 ```sh
-zero graph dump --out .zero/agent/app.program-graph <file-or-package>
+zero dump --out .zero/agent/app.program-graph <file-or-package>
 ```
 
 Inspect it with normal readable output:
 
 ```sh
-zero graph view .zero/agent/app.program-graph
+zero view .zero/agent/app.program-graph
 zero check .zero/agent/app.program-graph
-zero graph roundtrip .zero/agent/app.program-graph
+zero roundtrip .zero/agent/app.program-graph
 ```
 
 Use source maps when a tool needs to connect graph nodes back to source ranges:
 
 ```sh
-zero graph source-map <file-or-package>
+zero source-map <file-or-package>
 ```
 
 When a human has edited source after an agent captured a derived graph, reconcile
 the prior graph with the edited source before relying on old node IDs:
 
 ```sh
-zero graph dump --out .zero/agent/app.before.program-graph <file-or-package>
-zero graph reconcile .zero/agent/app.before.program-graph --source <file-or-package>
+zero dump --out .zero/agent/app.before.program-graph <file-or-package>
+zero reconcile .zero/agent/app.before.program-graph --source <file-or-package>
 ```
 
-`zero graph reconcile` reports unchanged, edited, inserted, deleted, ambiguous,
+`zero reconcile` reports unchanged, edited, inserted, deleted, ambiguous,
 and identity-changed nodes. Ambiguous identity matches fail instead of silently
 assigning a stale node handle.
 
@@ -282,15 +282,15 @@ zero test <package>
 When human-readable source projections are needed, sync explicitly:
 
 ```sh
-zero graph sync --from-graph <package>
-zero graph verify-sync <package>
+zero sync --from-graph <package>
+zero verify-sync <package>
 ```
 
 When a human edits `.0`, bring the graph store back in sync:
 
 ```sh
-zero graph status <package>
-zero graph sync --from-source <package>
+zero status <package>
+zero sync --from-source <package>
 zero check <package>
 ```
 
@@ -306,7 +306,7 @@ compiler commands validate and compile from the graph store, including target
 and package metadata, so source-free graph packages can still be checked, built,
 run, tested, sized, shipped, and inspected. Commands report whether the source
 projection is clean, missing, stale, conflicting, or unavailable, but do not
-rewrite `.0` files. Use `zero graph verify-sync` when graph/source drift must
+rewrite `.0` files. Use `zero verify-sync` when graph/source drift must
 fail the workflow. Without that marker, normal commands use checked-in `.0`
 source text.
 
@@ -321,9 +321,9 @@ For derived graph artifacts, validate the artifact before applying any accepted
 change to a package graph store or source projection:
 
 ```sh
-zero graph validate .zero/agent/app.patched.program-graph
+zero validate .zero/agent/app.patched.program-graph
 zero check .zero/agent/app.patched.program-graph
-zero graph view .zero/agent/app.patched.program-graph
+zero view .zero/agent/app.patched.program-graph
 ```
 
 Do not commit `.program-graph` files unless the user explicitly asks for derived
@@ -335,8 +335,8 @@ For packages, inspect and patch from the package root or manifest. Only write an
 artifact when another tool needs a file transfer:
 
 ```sh
-zero graph query <package-dir>
-zero graph view <package-dir>
+zero query <package-dir>
+zero view <package-dir>
 zero check <package-dir>
 zero patch <package-dir> --op 'addMain'
 ```
@@ -344,4 +344,4 @@ zero patch <package-dir> --op 'addMain'
 If `zero.json` sets `repositoryGraph.compilerInput` to `true`, those commands
 use the checked-in `zero.graph` store and report source projection state without
 rewriting `.0` files. Otherwise, normal build, run, test, and ship commands use
-checked-in `.0` source unless the command is explicitly `zero graph ...`.
+checked-in `.0` source unless the package opts into repository graph input.

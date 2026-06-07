@@ -140,7 +140,7 @@ bin/zero size --json --target linux-musl-x64 examples/zero-hash --out .zero/out/
 Inspect metadata:
 
 ```sh
-bin/zero graph --json examples/zero-hash
+bin/zero inspect --json examples/zero-hash
 ```
 
 The graph and size reports show the helper use behind `zero-hash`: args,

@@ -338,24 +338,24 @@ run_native_or_gap conformance/native/pass/static-method-namespace.0 .zero/native
 
 run_native_or_gap conformance/native/pass/match-fallback.0 .zero/native-test/match-fallback "match fallback ok"
 
-bin/zero graph --json conformance/check/pass/imports > .zero/native-test/imports-graph.json
+bin/zero inspect --json conformance/check/pass/imports > .zero/native-test/imports-graph.json
 grep -q '"imports": \["math", "types"\]' .zero/native-test/imports-graph.json
 grep -q '"targets":' .zero/native-test/imports-graph.json
-bin/zero graph --json examples/resource-cli > .zero/native-test/resource-cli-graph.json
+bin/zero inspect --json examples/resource-cli > .zero/native-test/resource-cli-graph.json
 grep -q '"importEdges":' .zero/native-test/resource-cli-graph.json
 grep -q '"requiresCapabilities": \["args", "env", "fs", "memory", "path", "world"\]' .zero/native-test/resource-cli-graph.json
-bin/zero graph --json conformance/native/pass/std-io-direct.0 > .zero/native-test/std-io-direct-graph.json
+bin/zero inspect --json conformance/native/pass/std-io-direct.0 > .zero/native-test/std-io-direct-graph.json
 grep -q '"requiresCapabilities": \["memory", "world"\]' .zero/native-test/std-io-direct-graph.json
 grep -q '"name":"std.io.bufferedReader"' .zero/native-test/std-io-direct-graph.json
 grep -q '"name":"std.io.bufferedWriter"' .zero/native-test/std-io-direct-graph.json
 grep -q '"name":"std.io.copy"' .zero/native-test/std-io-direct-graph.json
-bin/zero graph --json examples/static-method.0 > .zero/native-test/static-method-graph.json
+bin/zero inspect --json examples/static-method.0 > .zero/native-test/static-method-graph.json
 grep -q '"methods":' .zero/native-test/static-method-graph.json
 grep -q '"staticDispatch":true' .zero/native-test/static-method-graph.json
-bin/zero graph --json examples/type-alias.0 > .zero/native-test/type-alias-graph.json
+bin/zero inspect --json examples/type-alias.0 > .zero/native-test/type-alias-graph.json
 grep -q '"aliases":' .zero/native-test/type-alias-graph.json
 grep -q '"kind":"type-alias"' .zero/native-test/type-alias-graph.json
-bin/zero graph --json --target linux-musl-x64 examples/memory-package > .zero/native-test/memory-package-graph.json
+bin/zero inspect --json --target linux-musl-x64 examples/memory-package > .zero/native-test/memory-package-graph.json
 grep -q '"fsAvailable":true' .zero/native-test/memory-package-graph.json
 grep -q '"requiresCapabilities": \["memory", "world"\]' .zero/native-test/memory-package-graph.json
 bin/zero size --json conformance/native/pass/std-io-direct.0 > .zero/native-test/std-io-direct-size.json
@@ -378,7 +378,7 @@ grep -q '"name":"std.io.bufferedWriter"' .zero/native-test/std-io-direct-mem.jso
 grep -q '"name":"std.io.copy"' .zero/native-test/std-io-direct-mem.json
 grep -q '"hiddenHeapAllocation":false' .zero/native-test/std-io-direct-mem.json
 bin/zero check --target linux-musl-x64 conformance/native/pass/std-http-metadata-neutral.0 >/dev/null
-bin/zero graph --json --target linux-musl-x64 conformance/native/pass/std-http-metadata-neutral.0 > .zero/native-test/std-http-metadata-neutral-graph.json
+bin/zero inspect --json --target linux-musl-x64 conformance/native/pass/std-http-metadata-neutral.0 > .zero/native-test/std-http-metadata-neutral-graph.json
 grep -q '"requiresCapabilities": \["memory", "parse"\]' .zero/native-test/std-http-metadata-neutral-graph.json
 if bin/zero check --target linux-musl-x64 conformance/native/pass/std-http-fetch.0 >/dev/null 2>.zero/native-test/std-http-target-unsupported.err; then
   echo "expected hosted std.http to fail on target without net" >&2
@@ -805,13 +805,13 @@ bin/zero explain --json TYP009 > .zero/native-test/explain-typ009.json
 grep -q '"repair"' .zero/native-test/explain-typ009.json
 bin/zero fix --plan --json conformance/native/fail/mem-copy-immutable-dst.0 > .zero/native-test/fix-plan.json
 grep -q '"appliesEdits": false' .zero/native-test/fix-plan.json
-bin/zero graph --json examples/point.0 > .zero/native-test/point-graph.json
+bin/zero inspect --json examples/point.0 > .zero/native-test/point-graph.json
 grep -q '"shapes"' .zero/native-test/point-graph.json
-bin/zero graph --json examples/systems-package > .zero/native-test/systems-package-graph.json
+bin/zero inspect --json examples/systems-package > .zero/native-test/systems-package-graph.json
 grep -q '"choices"' .zero/native-test/systems-package-graph.json
 bin/zero size --json examples/point.0 > .zero/native-test/point-size.json
 grep -q '"generatedCBytes"' .zero/native-test/point-size.json
-bin/zero graph --json examples/memory-package > .zero/native-test/memory-package-graph-helpers.json
+bin/zero inspect --json examples/memory-package > .zero/native-test/memory-package-graph-helpers.json
 grep -q '"stdlibHelpers"' .zero/native-test/memory-package-graph-helpers.json
 bin/zero size --json examples/memory-package > .zero/native-test/memory-package-size.json
 grep -q '"stdlibHelpers"' .zero/native-test/memory-package-size.json

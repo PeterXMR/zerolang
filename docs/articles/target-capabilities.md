@@ -101,7 +101,7 @@ zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memor
 Use graph and size JSON to inspect target facts:
 
 ```sh
-zero graph --json --target linux-musl-x64 examples/memory-package
+zero inspect --json --target linux-musl-x64 examples/memory-package
 zero size --json --target linux-musl-x64 examples/memory-package
 ```
 

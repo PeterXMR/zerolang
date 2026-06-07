@@ -21,7 +21,7 @@ Most commands accept the same input forms:
 | `zero fmt <input>` | Print formatted source. Add `--check` in CI. |
 | `zero build <input>` | Emit an executable or object file. |
 | `zero ship <input>` | Produce a release preview with checksums and metadata. |
-| `zero graph <input>` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
+| `zero inspect <input>` | Inspect modules, symbols, capabilities, helper use, and ProgramGraph facts. |
 | `zero size <input>` | Explain artifact size, retained helpers, and profile budgets. |
 | `zero doc <input>` | Emit public API documentation facts. |
 | `zero fix --plan --json <input>` | Ask for a typed repair plan. |
@@ -34,37 +34,37 @@ zero check examples/hello.0
 zero run examples/add.0
 zero test conformance/native/pass/test-blocks.0
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
-zero graph init .zero/out/graph-hello
+zero init .zero/out/graph-hello
 zero patch .zero/out/graph-hello --op 'addMain' --op 'addCheckWrite fn="main" text="hello from graph\n"'
-zero graph query .zero/out/graph-hello
-zero graph query --fn main .zero/out/graph-hello
-zero graph query --find write .zero/out/graph-hello
-zero graph query --calls std .zero/out/graph-hello
-zero graph query --refs add .zero/out/graph-hello
-zero graph query --node '#expr_2cad38f9' .zero/out/graph-hello
+zero query .zero/out/graph-hello
+zero query --fn main .zero/out/graph-hello
+zero query --find write .zero/out/graph-hello
+zero query --calls std .zero/out/graph-hello
+zero query --refs add .zero/out/graph-hello
+zero query --node '#expr_2cad38f9' .zero/out/graph-hello
 zero run .zero/out/graph-hello
-zero graph sync --from-graph .zero/out/graph-hello
-zero graph examples/systems-package
-zero graph query examples/hello.0
-zero graph dump examples/hello.0
-zero graph dump --out .zero/out/hello.program-graph examples/hello.0
-zero graph import --out .zero/out/hello.program-graph examples/hello.0
-zero graph inspect examples/hello.0
-zero graph validate .zero/out/hello.program-graph
-zero graph view examples/hello.0
-zero graph view --out .zero/out/hello.view.0 .zero/out/hello.program-graph
-zero graph source-map examples/hello.0
-zero graph reconcile .zero/out/hello.program-graph --source examples/hello.0
-zero graph status .
+zero sync --from-graph .zero/out/graph-hello
+zero inspect examples/systems-package
+zero query examples/hello.0
+zero dump examples/hello.0
+zero dump --out .zero/out/hello.program-graph examples/hello.0
+zero import --out .zero/out/hello.program-graph examples/hello.0
+zero inspect examples/hello.0
+zero validate .zero/out/hello.program-graph
+zero view examples/hello.0
+zero view --out .zero/out/hello.view.0 .zero/out/hello.program-graph
+zero source-map examples/hello.0
+zero reconcile .zero/out/hello.program-graph --source examples/hello.0
+zero status .
 zero check .zero/out/hello.program-graph
-zero graph size .zero/out/hello.program-graph
-zero graph build --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph
-zero graph run .zero/out/hello.program-graph
-zero graph test .zero/out/hello.program-graph
+zero size .zero/out/hello.program-graph
+zero build --emit obj --target linux-musl-x64 --out .zero/out/hello.o .zero/out/hello.program-graph
+zero run .zero/out/hello.program-graph
+zero test .zero/out/hello.program-graph
 zero patch examples/hello.0 --expect-graph-hash graph:a7f7e6899a73f3b4 --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello patched\n"'
 zero patch --op help
-zero graph roundtrip examples/hello.0
-zero graph roundtrip .zero/out/hello.program-graph
+zero roundtrip examples/hello.0
+zero roundtrip .zero/out/hello.program-graph
 zero size examples/point.0
 zero ship --target linux-musl-x64 examples/hello.0 --out .zero/ship/hello
 zero doctor
@@ -80,7 +80,7 @@ Pass program arguments after `--`:
 
 ```sh
 zero run examples/cli-file.0 -- input.txt
-zero graph run .zero/out/cli-file.program-graph -- input.txt
+zero run .zero/out/cli-file.program-graph -- input.txt
 ```
 
 ## JSON Output
@@ -91,22 +91,22 @@ another tool needs stable fields.
 | Command | Useful JSON fields |
 | --- | --- |
 | `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, graph identity for source/package/artifact inputs, target readiness, direct graph lowering facts for ProgramGraph inputs, and safety facts for the selected target/emit kind. |
-| `zero graph --json` | Modules, public symbols, capabilities, static facts, safety facts, helper use, and nested `programGraph`. |
-| `zero graph init --json` | Create a graph-first package with `zero.json` and `zero.graph`, no materialized `.0` source projection, and next-step graph patch commands. |
-| `zero graph query --json` | Compact graph-first facts for tools: input kind, graph identity, selector metadata, module/function/body summaries, resolver-backed call/reference facts, matched node handles, selected-node neighborhoods, statement IDs, and common patch operations. |
-| `zero graph dump --json` | The bare deterministic ProgramGraph with `moduleIdentity`, `graphHash`, validation, counts, nodes, and edges. Use `--out <program-graph-artifact>` to also write a derived graph artifact. |
-| `zero graph import --json` | Source-to-ProgramGraph import with graph identity and validation. With `--out <program-graph-artifact>`, writes a derived graph artifact and reports `saved.path`. |
-| `zero graph validate --json` | A derived ProgramGraph artifact readback check with `moduleIdentity`, `graphHash`, counts, validation state, and optional normalized artifact output path. |
-| `zero graph view --json` | Canonical source text rendered from source or a ProgramGraph artifact with `moduleIdentity`, `graphHash`, and optional output path. |
-| `zero graph source-map --json` | Graph node IDs mapped to source ranges with node hashes, symbol/type/effect IDs, and file hash facts. |
-| `zero graph reconcile --json` | Identity decisions when edited source is compared with a prior graph, including ambiguous-match diagnostics and simple graph patch text when available. |
-| `zero graph status --json` | Repository graph sync facts, the expected `zero.graph` path, no-write status, store validity, and whether graph/source sync is enabled. |
-| `zero graph verify-sync --json` | A no-write graph/source sync check that compares a valid repository graph store with the current source graph and reports repair commands on drift. |
-| `zero graph merge --json` | Three-way repository graph store merge with base/left/right stores, durable-node conflict diagnostics, changed-path reporting, storage facts, and scale counts. |
-| `zero graph size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
-| `zero graph build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
+| `zero inspect --json` | Modules, public symbols, capabilities, static facts, safety facts, helper use, and nested `programGraph`. |
+| `zero init --json` | Create a graph-first package with `zero.json` and `zero.graph`, no materialized `.0` source projection, and next-step graph patch commands. |
+| `zero query --json` | Compact graph-first facts for tools: input kind, graph identity, selector metadata, module/function/body summaries, resolver-backed call/reference facts, matched node handles, selected-node neighborhoods, statement IDs, and common patch operations. |
+| `zero dump --json` | The bare deterministic ProgramGraph with `moduleIdentity`, `graphHash`, validation, counts, nodes, and edges. Use `--out <program-graph-artifact>` to also write a derived graph artifact. |
+| `zero import --json` | Source-to-ProgramGraph import with graph identity and validation. With `--out <program-graph-artifact>`, writes a derived graph artifact and reports `saved.path`. |
+| `zero validate --json` | A derived ProgramGraph artifact readback check with `moduleIdentity`, `graphHash`, counts, validation state, and optional normalized artifact output path. |
+| `zero view --json` | Canonical source text rendered from source or a ProgramGraph artifact with `moduleIdentity`, `graphHash`, and optional output path. |
+| `zero source-map --json` | Graph node IDs mapped to source ranges with node hashes, symbol/type/effect IDs, and file hash facts. |
+| `zero reconcile --json` | Identity decisions when edited source is compared with a prior graph, including ambiguous-match diagnostics and simple graph patch text when available. |
+| `zero status --json` | Repository graph sync facts, the expected `zero.graph` path, no-write status, store validity, and whether graph/source sync is enabled. |
+| `zero verify-sync --json` | A no-write graph/source sync check that compares a valid repository graph store with the current source graph and reports repair commands on drift. |
+| `zero merge --json` | Three-way repository graph store merge with base/left/right stores, durable-node conflict diagnostics, changed-path reporting, storage facts, and scale counts. |
+| `zero size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
+| `zero build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
 | `zero patch --json` | Checked graph edits with graph-hash preconditions, per-operation node/field results, the changed graph hash, and the saved source or artifact path. |
-| `zero graph roundtrip --json` | Source or ProgramGraph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
+| `zero roundtrip --json` | Source or ProgramGraph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
 | `zero dev --json` | A watch plan for changed source, manifest, package-lock, and generated-binding inputs. |
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
@@ -126,7 +126,7 @@ compile. Planning and introspection commands such as `zero dev`, `zero time`,
 Derived ProgramGraph artifact commands report the same identity fields for the
 artifact being inspected or built.
 
-`zero check --json` and `zero graph --json` also include `compileTime`.
+`zero check --json` and `zero inspect --json` also include `compileTime`.
 That object records bounded `meta` evaluation, sandbox denials, cache key
 inputs, typed reflection facts, and integer/Bool/enum static values.
 
@@ -151,34 +151,34 @@ that write derived graph artifacts must use a non-source output path, such as
 `.zero/out/app.program-graph`. ProgramGraph artifacts remain optional debug and
 interchange files.
 
-`zero graph status`, `zero graph verify-sync`, and `zero graph sync
+`zero status`, `zero verify-sync`, and `zero sync
 --from-source|--from-graph` define the repository graph sync surface.
-`zero graph init <project>` creates a graph-first package with
+`zero init <project>` creates a graph-first package with
 `repositoryGraph.compilerInput: true`, `zero.json`, and `zero.graph`; it does
 not materialize `.0` files. Agents can patch the package with
 `zero patch <project> --op ...`; from inside a graph-first package,
 `zero patch --op ...` defaults to the current directory. Then normal
 `zero check`, `zero run`, and `zero test` run against the graph store.
-`zero graph sync --from-source` writes a deterministic `zero.graph` repository
+`zero sync --from-source` writes a deterministic `zero.graph` repository
 store from current `.0` source, preserves existing graph node handles where the
 source edit is unambiguous, and stores exact checked-in source projection bytes
 for tracked local files. Ambiguous identity changes fail instead of guessing.
-`zero graph sync --from-graph` rewrites stale `.0` source projections from that
-store, and `zero graph verify-sync` checks the store against the current source
+`zero sync --from-graph` rewrites stale `.0` source projections from that
+store, and `zero verify-sync` checks the store against the current source
 graph and source projection without writing files. Packages can opt normal
 check, build, run, test, size, ship, and mem commands into the checked-in store
 with `repositoryGraph.compilerInput: true` in `zero.json`. Normal compiler
 commands validate and compile from the graph store, including target and package
 metadata, so source-free graph packages can still be checked, built, run,
 tested, sized, shipped, and inspected. Commands report source projection state
-and do not rewrite `.0` files; run `zero graph verify-sync` when graph and
+and do not rewrite `.0` files; run `zero verify-sync` when graph and
 source projection drift must fail the workflow. Packages without that marker
 still use checked-in `.0` source text as their compiler input.
-`zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right
+`zero merge --base <base-zero.graph> --left <left-zero.graph> --right
 <right-zero.graph> <input>` combines independent repository graph store edits by
 durable node ID and node hash, writes the target `zero.graph` on success, and
 reports conflicts by graph node, source projection, semantic object, and field.
-It does not rewrite `.0` projections; run `zero graph sync --from-graph` after a
+It does not rewrite `.0` projections; run `zero sync --from-graph` after a
 successful merge when the checked-in source projection should be refreshed.
 In this repository, `pnpm run repository-graph:check` verifies checked-in
 `zero.graph` stores for CI with the pinned `linux-musl-x64` graph target.
@@ -263,7 +263,7 @@ To replace only one branch or nested block, query a block handle and patch that
 block body:
 
 ```sh
-zero graph query --find Block .
+zero query --find Block .
 ```
 
 ```text
@@ -394,21 +394,20 @@ zero build [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--
 zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <input>
 zero test [--json] [--filter <name>] [--target <target>] [--cc <path>] [--out <file>] <input>
 zero fmt [--check] <input>
-zero graph [init|query|dump|import|inspect|validate|view|source-map|reconcile|status|verify-sync|sync|merge|size|build|run|test|roundtrip] [--json] [--target <target>] <input>
-zero graph init [--json] <project-path>
-zero graph query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>
-zero graph [dump|import|validate|roundtrip] [--json] --out <program-graph-artifact> <input>
-zero graph view [--json] [--out <file.0>] <program-graph-or-source>
-zero graph source-map [--json] <program-graph-or-source>
-zero graph reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>
-zero graph status|verify-sync [--json] <project|zero.json|file.0>
-zero graph sync (--from-source|--from-graph) [--json] <project|zero.json|file.0>
-zero graph merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.json|file.0>
-zero graph size [--json] [--target <target>] --out <artifact> <program-graph-or-package>
+zero init [--json] <project-path>
+zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <program-graph-or-source>
+zero dump|import|validate|roundtrip [--json] [--out <program-graph-artifact>] <input>
+zero view [--json] [--out <file.0>] <program-graph-or-source>
+zero source-map [--json] <program-graph-or-source>
+zero reconcile [--json] <base-program-graph-or-source> --source <edited-file.0|project|zero.json>
+zero status|verify-sync [--json] <project|zero.json|file.0>
+zero sync (--from-source|--from-graph) [--json] <project|zero.json|file.0>
+zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] <project|zero.json|file.0>
+zero size [--json] [--target <target>] --out <artifact> <program-graph-or-package>
 zero patch [--json] [--check-only|--dry-run] [--out <program-graph-artifact>] [<program-graph-or-source>] (<patch-file>|--op <operation>)
-zero graph build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package>
-zero graph run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]
-zero graph test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>
+zero build [--json] [--emit exe|obj|llvm-ir] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|project|zero.json|program-graph-artifact>
+zero run [--target <host-target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <program-graph-or-package> [-- args...]
+zero test [--json] [--filter <name>] [--target <target>] <program-graph-or-package>
 zero doc [--json] [--target <target>] <input>
 zero size [--json] [--backend direct|llvm|<direct-emitter>] [--target <target>] [--out <artifact>] <input>
 zero explain [--json] <diagnostic-code>

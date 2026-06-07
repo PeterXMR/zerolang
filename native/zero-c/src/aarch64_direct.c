@@ -755,6 +755,76 @@ static bool a64_emit_math_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, c
   return true;
 }
 
+static bool a64_emit_search_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value || !value->left || !value->right) return a64_diag(diag, "direct AArch64 std.search helper requires a span and needle", value ? value->line : 1, value ? value->column : 1, "invalid std.search input");
+  if (!a64_emit_byte_view_to_scratch(text, fun, value->left, scratch_slot, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_value_to_reg_at(text, fun, value->right, 8, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, value->right->type, scratch_slot + 2, value->right, diag)) return false;
+  if (!a64_emit_load_byte_view_from_scratch(text, value->left, 0, 1, scratch_slot, diag)) return false;
+  if (!a64_emit_load_scratch(text, 2, value->right->type, scratch_slot + 2, value->right, diag)) return false;
+  z_aarch64_emit_movz_w(text, 3, (uint32_t)value->int_value);
+  size_t patch = z_aarch64_emit_bl_placeholder(text);
+  if (!a64_record_runtime_patch(ctx, patch, A64_DIRECT_RUNTIME_SEARCH_OP, diag, value)) return false;
+  if (reg != 0) z_aarch64_emit_mov_x(text, reg, 0);
+  return true;
+}
+
+static bool a64_emit_sort_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value || !value->left) return a64_diag(diag, "direct AArch64 std.sort helper requires a span", value ? value->line : 1, value ? value->column : 1, "invalid std.sort input");
+  if (!a64_emit_byte_view_to_scratch(text, fun, value->left, scratch_slot, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_load_byte_view_from_scratch(text, value->left, 0, 1, scratch_slot, diag)) return false;
+  z_aarch64_emit_movz_w(text, 2, (uint32_t)value->int_value);
+  ZAArch64DirectRuntimeHelper helper = value->type == IR_TYPE_BOOL ? A64_DIRECT_RUNTIME_SORT_IS_SORTED_OP : A64_DIRECT_RUNTIME_SORT_OP;
+  size_t patch = z_aarch64_emit_bl_placeholder(text);
+  if (!a64_record_runtime_patch(ctx, patch, helper, diag, value)) return false;
+  if (value->type == IR_TYPE_BOOL && reg != 0) z_aarch64_emit_mov_w(text, reg, 0);
+  return true;
+}
+
+static bool a64_emit_json_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value || !value->left) return a64_diag(diag, "direct AArch64 JSON helper requires a byte view", value ? value->line : 1, value ? value->column : 1, "invalid JSON input");
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 0, 1, frame_size, scratch_slot, ctx, diag)) return false;
+  size_t patch = z_aarch64_emit_bl_placeholder(text);
+  if (!a64_record_runtime_patch(ctx, patch, A64_DIRECT_RUNTIME_JSON_PARSE_BYTES, diag, value)) return false;
+  if (value->kind == IR_VALUE_JSON_VALIDATE_BYTES) {
+    z_aarch64_emit_cmp_x(text, 0, 31);
+    z_aarch64_emit_movz_w(text, reg, 0);
+    size_t invalid = z_aarch64_emit_b_cond_placeholder(text, 11);
+    z_aarch64_emit_movz_w(text, reg, 1);
+    z_aarch64_patch_cond19(text, invalid, text->len);
+  } else if (value->kind == IR_VALUE_JSON_STREAM_TOKENS_BYTES) {
+    z_aarch64_emit_cmp_x(text, 0, 31);
+    size_t ok = z_aarch64_emit_b_cond_placeholder(text, 10);
+    if (reg != 0) z_aarch64_emit_mov_x(text, reg, 31); else z_aarch64_emit_mov_x(text, 0, 31);
+    size_t done = z_aarch64_emit_b_placeholder(text);
+    z_aarch64_patch_cond19(text, ok, text->len);
+    if (reg != 0) z_aarch64_emit_mov_x(text, reg, 0);
+    z_aarch64_patch_branch26(text, done, text->len);
+  } else if (reg != 0) {
+    z_aarch64_emit_mov_x(text, reg, 0);
+  }
+  return true;
+}
+
+static bool a64_emit_http_request_span_to_maybe_regs_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value || !value->left) return a64_diag(diag, "direct AArch64 HTTP request helper requires a request span", value ? value->line : 1, value ? value->column : 1, "invalid HTTP request input");
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 0, 1, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 0, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  ZAArch64DirectRuntimeHelper helper = value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME ? A64_DIRECT_RUNTIME_HTTP_REQUEST_METHOD_NAME : A64_DIRECT_RUNTIME_HTTP_REQUEST_PATH;
+  size_t patch = z_aarch64_emit_bl_placeholder(text);
+  if (!a64_record_runtime_patch(ctx, patch, helper, diag, value)) return false;
+  if (!a64_emit_store_scratch(text, 0, IR_TYPE_U64, scratch_slot + 1, value, diag)) return false;
+  if (!a64_emit_load_scratch(text, 1, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, IR_TYPE_U64, scratch_slot + 1, value, diag)) return false;
+  z_aarch64_emit_mov_w(text, 9, 8);
+  z_aarch64_emit_add_x_reg(text, 1, 1, 9);
+  z_aarch64_emit_lsr_x_imm(text, 2, 8, 32);
+  z_aarch64_emit_movz_w(text, 10, 0x7fffffffu);
+  z_aarch64_emit_and_w_reg(text, 2, 2, 10);
+  z_aarch64_emit_lsr_x_imm(text, 0, 8, 63);
+  return true;
+}
+
 static bool a64_emit_time_runtime_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
   if (!value || value->arg_len > 3) {
     return a64_diag(diag, "direct AArch64 std.time helper supports at most three scalar arguments", value ? value->line : 1, value ? value->column : 1, "invalid std.time arity");
@@ -877,6 +947,94 @@ static bool a64_emit_byte_fill_to_reg_at(ZBuf *text, const IrFunction *fun, cons
   if (!a64_emit_load_scratch(text, 8, IR_TYPE_U8, scratch_slot, value->left, diag)) return false;
   if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot + 1, value->right, diag)) return false;
   z_aarch64_emit_byte_fill_loop(text, reg);
+  return true;
+}
+
+static void a64_emit_item_copy_loop(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  z_aarch64_emit_mov_w(text, 14, 13);
+  z_aarch64_emit_cmp_w(text, 13, 10);
+  size_t keep_dst_len = z_aarch64_emit_b_cond_placeholder(text, 9);
+  z_aarch64_emit_mov_w(text, 14, 10);
+  z_aarch64_patch_cond19(text, keep_dst_len, text->len);
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 14);
+  size_t done = z_aarch64_emit_b_cond_placeholder(text, 2);
+  a64_emit_add_scaled_index(text, 15, 11, 9, element_type);
+  a64_emit_load_ptr_element(text, 15, 15, element_type);
+  a64_emit_add_scaled_index(text, 13, 12, 9, element_type);
+  a64_emit_store_ptr_element(text, 15, 13, element_type);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done, text->len);
+  z_aarch64_emit_mov_w(text, reg, 14);
+}
+
+static bool a64_emit_item_copy_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 item copy requires source and destination views", value->line, value->column, "missing item view");
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->right, 12, 13, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  a64_emit_item_copy_loop(text, reg, value->element_type == IR_TYPE_UNSUPPORTED ? a64_view_element_type(value->left) : value->element_type);
+  return true;
+}
+
+static void a64_emit_item_fill_loop(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 10);
+  size_t done = z_aarch64_emit_b_cond_placeholder(text, 2);
+  a64_emit_add_scaled_index(text, 12, 11, 9, element_type);
+  a64_emit_store_ptr_element(text, 8, 12, element_type);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done, text->len);
+  z_aarch64_emit_mov_w(text, reg, 10);
+}
+
+static bool a64_emit_item_fill_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 item fill requires a value and destination view", value->line, value->column, "missing item fill input");
+  IrTypeKind element_type = value->element_type == IR_TYPE_UNSUPPORTED ? value->left->type : value->element_type;
+  if (!a64_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 8, element_type, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->right, 11, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 8, element_type, scratch_slot, value->left, diag)) return false;
+  a64_emit_item_fill_loop(text, reg, value->element_type == IR_TYPE_UNSUPPORTED ? a64_view_element_type(value->right) : value->element_type);
+  return true;
+}
+
+static bool a64_emit_item_contains_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, ZAArch64DirectContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return a64_diag(diag, "direct AArch64 item contains requires an input view and needle", value->line, value->column, "missing item contains input");
+  IrTypeKind element_type = value->element_type == IR_TYPE_UNSUPPORTED ? a64_view_element_type(value->left) : value->element_type;
+  if (!a64_emit_byte_view_pair_at(text, fun, value->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!a64_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!a64_emit_value_to_reg_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!a64_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!a64_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 10);
+  size_t done_without_match = z_aarch64_emit_b_cond_placeholder(text, 2);
+  a64_emit_add_scaled_index(text, 13, 11, 9, element_type);
+  a64_emit_load_ptr_element(text, 15, 13, element_type);
+  if (a64_type_is_scalar64(element_type)) z_aarch64_emit_cmp_x(text, 15, 12);
+  else z_aarch64_emit_cmp_w(text, 15, 12);
+  size_t found = z_aarch64_emit_b_cond_placeholder(text, 0);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done_without_match, text->len);
+  z_aarch64_emit_movz_w(text, reg, 0);
+  size_t end = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_cond19(text, found, text->len);
+  z_aarch64_emit_movz_w(text, reg, 1);
+  z_aarch64_patch_branch26(text, end, text->len);
   return true;
 }
 
@@ -1047,6 +1205,16 @@ static bool a64_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const Ir
     case IR_VALUE_STR_RUNTIME: return a64_emit_str_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_TIME_RUNTIME: return a64_emit_time_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_MATH_RUNTIME: return a64_emit_math_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_SEARCH_RUNTIME: return a64_emit_search_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_SORT_RUNTIME: return a64_emit_sort_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_JSON_PARSE_BYTES:
+    case IR_VALUE_JSON_VALIDATE_BYTES:
+    case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+      return a64_emit_json_runtime_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_HTTP_REQUEST_METHOD_NAME:
+    case IR_VALUE_HTTP_REQUEST_PATH:
+      (void)reg;
+      return a64_emit_http_request_span_to_maybe_regs_at(text, fun, value, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_RAND_NEXT_U32:
       if (value->local_index >= fun->local_len) return a64_diag(diag, "direct AArch64 std.rand.nextU32 local is out of range", value->line, value->column, "invalid RandSource");
       a64_emit_load_local_w(text, fun, 8, value->local_index, 0, frame_size);
@@ -1074,6 +1242,9 @@ static bool a64_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const Ir
     case IR_VALUE_BYTE_VIEW_LEN: return a64_emit_byte_view_len_at(text, fun, value->left, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_COPY: return a64_emit_byte_copy_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_FILL: return a64_emit_byte_fill_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_COPY: return a64_emit_item_copy_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_FILL: return a64_emit_item_fill_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_CONTAINS: return a64_emit_item_contains_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_VIEW_EQ: return a64_emit_byte_view_eq_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_CRC32_BYTES: return a64_emit_crc32_bytes_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD: return a64_emit_byte_view_index_load_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
@@ -1148,7 +1319,9 @@ static bool a64_emit_local_set(ZBuf *text, const IrFunction *fun, const IrInstr 
          instr->value->kind == IR_VALUE_FMT_HEX_U32 ||
          instr->value->kind == IR_VALUE_FMT_I32 ||
          instr->value->kind == IR_VALUE_FMT_U32 ||
-         instr->value->kind == IR_VALUE_FMT_USIZE) && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
+         instr->value->kind == IR_VALUE_FMT_USIZE ||
+         instr->value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME ||
+         instr->value->kind == IR_VALUE_HTTP_REQUEST_PATH) && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
       if (!a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
       a64_emit_store_local_w(text, fun, 0, instr->local_index, 0, frame_size);
       a64_emit_store_local_x(text, fun, 1, instr->local_index, 8, frame_size);
@@ -1283,7 +1456,9 @@ static bool a64_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
            instr->value->kind == IR_VALUE_FMT_HEX_U32 ||
            instr->value->kind == IR_VALUE_FMT_I32 ||
            instr->value->kind == IR_VALUE_FMT_U32 ||
-           instr->value->kind == IR_VALUE_FMT_USIZE) && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
+           instr->value->kind == IR_VALUE_FMT_USIZE ||
+           instr->value->kind == IR_VALUE_HTTP_REQUEST_METHOD_NAME ||
+           instr->value->kind == IR_VALUE_HTTP_REQUEST_PATH) && instr->value->type == IR_TYPE_MAYBE_BYTE_VIEW) {
         if (!a64_emit_value_to_reg_at(text, fun, instr->value, 0, frame_size, 0, ctx, diag)) return false;
       } else if (instr->value->kind == IR_VALUE_MAYBE_BYTE_VIEW_LITERAL) {
         if (!instr->value->data_len) {

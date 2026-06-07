@@ -92,7 +92,7 @@ for (const store of stores) {
   const input = sourceInputForStore(store);
   const display = relative(repoRoot, input) || ".";
   console.log(`repository graph verify-sync: ${display}`);
-  const args = ["graph", "verify-sync"];
+  const args = ["verify-sync"];
   if (target) args.push("--target", target);
   args.push(input);
   try {
@@ -100,7 +100,7 @@ for (const store of stores) {
   } catch {
     failures++;
     const targetArgs = target ? ` --target ${target}` : "";
-    console.error(`repository graph verify-sync failed: bin/zero graph verify-sync${targetArgs} ${display}`);
+    console.error(`repository graph verify-sync failed: bin/zero verify-sync${targetArgs} ${display}`);
   }
 }
 

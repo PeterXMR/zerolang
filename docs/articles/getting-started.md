@@ -44,13 +44,13 @@ Agent:
   then sync the `.0` projection for review.
 
 Agent runs:
-  zero graph init hello
+  zero init hello
   cd hello
   zero patch --op 'addMain' --op 'addCheckWrite fn="main" text="hello from zero\n"'
   zero check .
   zero run .
-  zero graph sync --from-graph .
-  zero graph verify-sync .
+  zero sync --from-graph .
+  zero verify-sync .
 
 Agent reports:
   The package compiles from zero.graph, zero run . prints "hello from zero",
@@ -77,14 +77,14 @@ hello/
 
 `zero.graph` is the repository graph store and the normal compiler input for
 this package. Agents should usually inspect and patch that graph with
-`zero graph query` and `zero patch`.
+`zero query` and `zero patch`.
 
 `src/main.0` is the human-readable projection. It is deliberately readable and
 bidirectional: humans can review it, and humans may edit it directly when that
-is the right workflow. After a human edit, run `zero graph sync --from-source .`
+is the right workflow. After a human edit, run `zero sync --from-source .`
 to refresh `zero.graph`. Agents should not normally hand-write `.0` files.
 
-After `zero graph sync --from-graph .`, the projection should look like this:
+After `zero sync --from-graph .`, the projection should look like this:
 
 ```zero
 pub fn main(world: World) -> Void raises {
@@ -121,7 +121,7 @@ from the graph after checks pass.
 ```
 
 The agent should use `zero patch` operations, validate with `zero check .` and
-`zero test .`, then run `zero graph sync --from-graph .` only for the human
+`zero test .`, then run `zero sync --from-graph .` only for the human
 projection.
 
 ## Learn The Core Syntax
@@ -154,9 +154,9 @@ as the default write path.
 Use graph query to inspect a package in slices:
 
 ```sh
-zero graph query .
-zero graph query --fn main .
-zero graph query --find write .
+zero query .
+zero query --fn main .
+zero query --find write .
 ```
 
 The manifest records that the graph store is the compiler input:
@@ -174,5 +174,5 @@ The manifest records that the graph store is the compiler input:
 - Load `zero skills get agent`, `zero skills get graph`, and
   `zero skills get stdlib` before asking an agent for larger changes.
 - Use the examples index to pick the next concept by projection.
-- Use the CLI reference for `zero patch`, `zero graph query`, and sync commands.
+- Use the CLI reference for `zero patch`, `zero query`, and sync commands.
 - Use Building From Source when you want to validate a local checkout.

@@ -208,12 +208,12 @@ int z_repository_graph_verify_compiler_input(const char *input, const ZTargetInf
   if (out_store_path) *out_store_path = NULL;
   RepositoryGraphInputState state = input_state(input, target);
   if (!state.store_present) {
-    int rc = input_error(&state, json, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero graph sync --from-source to create the repository graph store", REPO_GRAPH_REPAIR_FROM_SOURCE);
+    int rc = input_error(&state, json, "RGP001", "repository graph store is missing", "checked-in zero.graph repository graph store", "missing zero.graph", "run zero sync --from-source to create the repository graph store", REPO_GRAPH_REPAIR_FROM_SOURCE);
     input_state_free(&state);
     return rc;
   }
   if (!state.store_valid) {
-    int rc = input_error(&state, json, "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", state.store_error ? state.store_error : "invalid zero.graph", "run zero graph sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
+    int rc = input_error(&state, json, "RGP003", "repository graph store is invalid", "valid zero.graph repository graph store", state.store_error ? state.store_error : "invalid zero.graph", "run zero sync --from-source after reviewing the source projection", REPO_GRAPH_REPAIR_FROM_SOURCE);
     input_state_free(&state);
     return rc;
   }

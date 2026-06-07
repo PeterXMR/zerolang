@@ -822,6 +822,95 @@ static bool macho_emit_byte_fill_to_reg_at(ZBuf *text, const IrFunction *fun, co
   return true;
 }
 
+static void macho_emit_item_copy_loop(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  // Inputs: x11=source ptr, w10=source len, x12=destination ptr, w13=destination len. Output: reg=copied item count.
+  z_aarch64_emit_mov_w(text, 14, 13);
+  z_aarch64_emit_cmp_w(text, 13, 10);
+  size_t keep_dst_len = z_aarch64_emit_b_cond_placeholder(text, 9);
+  z_aarch64_emit_mov_w(text, 14, 10);
+  z_aarch64_patch_cond19(text, keep_dst_len, text->len);
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 14);
+  size_t done = z_aarch64_emit_b_cond_placeholder(text, 2);
+  macho_emit_add_scaled_index(text, 15, 11, 9, element_type);
+  macho_emit_load_ptr_element(text, 15, 15, element_type);
+  macho_emit_add_scaled_index(text, 13, 12, 9, element_type);
+  macho_emit_store_ptr_element(text, 15, 13, element_type);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done, text->len);
+  z_aarch64_emit_mov_w(text, reg, 14);
+}
+
+static bool macho_emit_item_copy_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return macho_diag_at(diag, "direct AArch64 Mach-O item copy requires source and destination views", value->line, value->column, "missing item view");
+  if (!macho_emit_byte_view_pair_at(text, fun, value->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!macho_emit_byte_view_pair_at(text, fun, value->right, 12, 13, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!macho_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  macho_emit_item_copy_loop(text, reg, value->element_type == IR_TYPE_UNSUPPORTED ? macho_view_element_type(value->left) : value->element_type);
+  return true;
+}
+
+static void macho_emit_item_fill_loop(ZBuf *text, unsigned reg, IrTypeKind element_type) {
+  // Inputs: x11=destination ptr, w10=len, x8=item value. Output: reg=filled item count.
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 10);
+  size_t done = z_aarch64_emit_b_cond_placeholder(text, 2);
+  macho_emit_add_scaled_index(text, 12, 11, 9, element_type);
+  macho_emit_store_ptr_element(text, 8, 12, element_type);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done, text->len);
+  z_aarch64_emit_mov_w(text, reg, 10);
+}
+
+static bool macho_emit_item_fill_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return macho_diag_at(diag, "direct AArch64 Mach-O item fill requires a value and destination view", value->line, value->column, "missing item fill input");
+  if (!macho_emit_value_to_reg_at(text, fun, value->left, 8, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 8, value->element_type == IR_TYPE_UNSUPPORTED ? value->left->type : value->element_type, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_byte_view_pair_at(text, fun, value->right, 11, 10, frame_size, scratch_slot + 1, ctx, diag)) return false;
+  if (!macho_emit_load_scratch(text, 8, value->element_type == IR_TYPE_UNSUPPORTED ? value->left->type : value->element_type, scratch_slot, value->left, diag)) return false;
+  macho_emit_item_fill_loop(text, reg, value->element_type == IR_TYPE_UNSUPPORTED ? macho_view_element_type(value->right) : value->element_type);
+  return true;
+}
+
+static bool macho_emit_item_contains_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return macho_diag_at(diag, "direct AArch64 Mach-O item contains requires an input view and needle", value->line, value->column, "missing item contains input");
+  IrTypeKind element_type = value->element_type == IR_TYPE_UNSUPPORTED ? macho_view_element_type(value->left) : value->element_type;
+  if (!macho_emit_byte_view_pair_at(text, fun, value->left, 11, 10, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_store_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!macho_emit_value_to_reg_at(text, fun, value->right, 12, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!macho_emit_load_scratch(text, 11, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_load_scratch(text, 10, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  z_aarch64_emit_movz_w(text, 9, 0);
+  size_t loop = text->len;
+  z_aarch64_emit_cmp_w(text, 9, 10);
+  size_t done_without_match = z_aarch64_emit_b_cond_placeholder(text, 2);
+  macho_emit_add_scaled_index(text, 13, 11, 9, element_type);
+  macho_emit_load_ptr_element(text, 15, 13, element_type);
+  if (macho_type_is_scalar64(element_type)) z_aarch64_emit_cmp_x(text, 15, 12);
+  else z_aarch64_emit_cmp_w(text, 15, 12);
+  size_t found = z_aarch64_emit_b_cond_placeholder(text, 0);
+  z_aarch64_emit_add_w_imm(text, 9, 9, 1);
+  size_t back = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_branch26(text, back, loop);
+  z_aarch64_patch_cond19(text, done_without_match, text->len);
+  z_aarch64_emit_movz_w(text, reg, 0);
+  size_t end = z_aarch64_emit_b_placeholder(text);
+  z_aarch64_patch_cond19(text, found, text->len);
+  z_aarch64_emit_movz_w(text, reg, 1);
+  z_aarch64_patch_branch26(text, end, text->len);
+  return true;
+}
+
 static bool macho_emit_byte_view_eq_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   if (!value->left || !value->right) return macho_diag_at(diag, "direct AArch64 Mach-O byte-view equality requires two byte views", value->line, value->column, "missing byte view");
   if (!macho_emit_byte_view_pair_at(text, fun, value->left, 11, 8, frame_size, scratch_slot, ctx, diag)) return false;
@@ -1707,6 +1796,12 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
       return macho_emit_byte_copy_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_FILL:
       return macho_emit_byte_fill_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_COPY:
+      return macho_emit_item_copy_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_FILL:
+      return macho_emit_item_fill_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_ITEM_CONTAINS:
+      return macho_emit_item_contains_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_BYTE_VIEW_EQ:
       return macho_emit_byte_view_eq_to_reg_at(text, fun, value, reg, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_ARGS_EQ:

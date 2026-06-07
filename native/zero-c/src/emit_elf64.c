@@ -1974,6 +1974,10 @@ static bool elf_emit_args_eq_value(ZBuf *code, const IrFunction *fun, const IrVa
   return true;
 }
 
+static bool elf_emit_item_copy_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
+static bool elf_emit_item_fill_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
+static bool elf_emit_item_contains_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag);
+
 static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
     case IR_VALUE_CRC32_BYTES: {
@@ -2002,6 +2006,12 @@ static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const Ir
       z_x64_emit_byte_fill_loop(code);
       return true;
     }
+    case IR_VALUE_ITEM_COPY:
+      return elf_emit_item_copy_value(code, fun, value, ctx, diag);
+    case IR_VALUE_ITEM_FILL:
+      return elf_emit_item_fill_value(code, fun, value, ctx, diag);
+    case IR_VALUE_ITEM_CONTAINS:
+      return elf_emit_item_contains_value(code, fun, value, ctx, diag);
     case IR_VALUE_BYTE_VIEW_EQ: {
       if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 byte-view equality requires two byte views", value->line, value->column, "missing byte view");
       if (!elf_emit_byte_view_pair(code, fun, value->left, 8, 10, ctx, diag)) return false;
@@ -2070,6 +2080,105 @@ static bool elf_emit_byte_index_value(ZBuf *code, const IrFunction *fun, const I
     }
     default: return elf_diag(diag, "direct ELF64 byte-index value kind is invalid for this helper", value->line, value->column, "invalid byte-index value");
   }
+}
+
+static void elf_emit_item_copy_loop(ZBuf *code, IrTypeKind element_type) {
+  z_x64_emit_mov_reg_from_reg(code, 0, 2, true);
+  z_x64_emit_cmp_rax_rcx(code, true);
+  size_t keep_dst_len = z_x64_emit_jcc32_placeholder(code, 0x86);
+  z_x64_emit_mov_rax_from_rcx(code);
+  z_x64_patch_rel32(code, keep_dst_len, code->len);
+  z_x64_emit_mov_rdx_from_rax(code);
+  z_x64_emit_xor_r8d_r8d(code);
+  size_t loop = code->len;
+  z_x64_emit_cmp_reg_reg(code, 2, 8, true);
+  size_t done = z_x64_emit_jcc32_placeholder(code, 0x86);
+  z_x64_emit_mov_reg_from_reg(code, 0, 8, true);
+  elf_emit_scale_index_into_rax(code, element_type);
+  z_x64_emit_mov_reg_from_reg(code, 11, 6, true);
+  z_x64_emit_add_reg_reg(code, 11, 0, true);
+  elf_emit_load_ptr_element(code, 10, 11, element_type);
+  z_x64_emit_mov_reg_from_reg(code, 11, 7, true);
+  z_x64_emit_add_reg_reg(code, 11, 0, true);
+  elf_emit_store_ptr_element(code, 11, 10, element_type);
+  z_x64_emit_inc_r8(code);
+  size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+  z_x64_patch_rel32(code, back, loop);
+  z_x64_patch_rel32(code, done, code->len);
+  z_x64_emit_mov_rax_from_rdx(code);
+}
+
+static bool elf_emit_item_copy_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 item copy requires source and destination views", value->line, value->column, "missing item view");
+  if (!elf_emit_byte_view_pair(code, fun, value->left, 6, 1, ctx, diag)) return false;
+  z_x64_emit_push_reg64(code, 6);
+  z_x64_emit_push_reg64(code, 1);
+  if (!elf_emit_byte_view_pair(code, fun, value->right, 7, 2, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(code, 1);
+  z_x64_emit_pop_reg64(code, 6);
+  elf_emit_item_copy_loop(code, value->element_type == IR_TYPE_UNSUPPORTED ? elf_view_element_type(value->left) : value->element_type);
+  return true;
+}
+
+static void elf_emit_item_fill_loop(ZBuf *code, IrTypeKind element_type) {
+  z_x64_emit_xor_r8d_r8d(code);
+  size_t loop = code->len;
+  z_x64_emit_cmp_reg_reg(code, 2, 8, true);
+  size_t done = z_x64_emit_jcc32_placeholder(code, 0x86);
+  z_x64_emit_mov_reg_from_reg(code, 0, 8, true);
+  elf_emit_scale_index_into_rax(code, element_type);
+  z_x64_emit_mov_reg_from_reg(code, 11, 7, true);
+  z_x64_emit_add_reg_reg(code, 11, 0, true);
+  elf_emit_store_ptr_element(code, 11, 10, element_type);
+  z_x64_emit_inc_r8(code);
+  size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+  z_x64_patch_rel32(code, back, loop);
+  z_x64_patch_rel32(code, done, code->len);
+  z_x64_emit_mov_rax_from_rdx(code);
+}
+
+static bool elf_emit_item_fill_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 item fill requires a value and destination view", value->line, value->column, "missing item fill input");
+  if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+  z_x64_emit_mov_reg_from_reg(code, 10, 0, true);
+  z_x64_emit_push_reg64(code, 10);
+  if (!elf_emit_byte_view_pair(code, fun, value->right, 7, 2, ctx, diag)) return false;
+  z_x64_emit_pop_reg64(code, 10);
+  elf_emit_item_fill_loop(code, value->element_type == IR_TYPE_UNSUPPORTED ? elf_view_element_type(value->right) : value->element_type);
+  return true;
+}
+
+static bool elf_emit_item_contains_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!value->left || !value->right) return elf_diag(diag, "direct ELF64 item contains requires an input view and needle", value->line, value->column, "missing item contains input");
+  IrTypeKind element_type = value->element_type == IR_TYPE_UNSUPPORTED ? elf_view_element_type(value->left) : value->element_type;
+  if (!elf_emit_byte_view_pair(code, fun, value->left, 6, 2, ctx, diag)) return false;
+  z_x64_emit_push_reg64(code, 6);
+  z_x64_emit_push_reg64(code, 2);
+  if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
+  z_x64_emit_mov_reg_from_reg(code, 10, 0, true);
+  z_x64_emit_pop_reg64(code, 2);
+  z_x64_emit_pop_reg64(code, 6);
+  z_x64_emit_xor_r8d_r8d(code);
+  size_t loop = code->len;
+  z_x64_emit_cmp_reg_reg(code, 2, 8, true);
+  size_t done_without_match = z_x64_emit_jcc32_placeholder(code, 0x86);
+  z_x64_emit_mov_reg_from_reg(code, 0, 8, true);
+  elf_emit_scale_index_into_rax(code, element_type);
+  z_x64_emit_mov_reg_from_reg(code, 11, 6, true);
+  z_x64_emit_add_reg_reg(code, 11, 0, true);
+  elf_emit_load_ptr_element(code, 9, 11, element_type);
+  z_x64_emit_cmp_reg_reg(code, 9, 10, elf_type_is_i64(element_type));
+  size_t found = z_x64_emit_jcc32_placeholder(code, 0x84);
+  z_x64_emit_inc_r8(code);
+  size_t back = z_x64_emit_jmp32_placeholder(code, 0xe9);
+  z_x64_patch_rel32(code, back, loop);
+  z_x64_patch_rel32(code, done_without_match, code->len);
+  z_x64_emit_mov_reg_u32(code, 0, 0);
+  size_t end = z_x64_emit_jmp32_placeholder(code, 0xe9);
+  z_x64_patch_rel32(code, found, code->len);
+  z_x64_emit_mov_reg_u32(code, 0, 1);
+  z_x64_patch_rel32(code, end, code->len);
+  return true;
 }
 
 static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
@@ -2143,7 +2252,9 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       return elf_emit_stateful_value(code, fun, value, ctx, diag);
     case IR_VALUE_INDEX_LOAD: case IR_VALUE_FIELD_LOAD: case IR_VALUE_BYTE_VIEW_LEN: case IR_VALUE_BYTE_VIEW_REMAINING:
       return elf_emit_memory_access_value(code, fun, value, ctx, diag);
-    case IR_VALUE_CRC32_BYTES: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL: case IR_VALUE_BYTE_VIEW_EQ: case IR_VALUE_ARGS_EQ: case IR_VALUE_STR_CONTAINS:
+    case IR_VALUE_CRC32_BYTES: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_FILL:
+    case IR_VALUE_ITEM_COPY: case IR_VALUE_ITEM_FILL: case IR_VALUE_ITEM_CONTAINS:
+    case IR_VALUE_BYTE_VIEW_EQ: case IR_VALUE_ARGS_EQ: case IR_VALUE_STR_CONTAINS:
       return elf_emit_byte_bulk_value(code, fun, value, ctx, diag);
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD:
       return elf_emit_byte_index_value(code, fun, value, ctx, diag);

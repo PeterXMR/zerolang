@@ -43,7 +43,7 @@ function assertBudget(name: string, elapsedMs: number, maxMs: number) {
 const sourceBefore = readFileSync(`${root}/hello.0`, "utf8");
 const storeBefore = readFileSync(storePath, "utf8");
 
-const status = runJson(["graph", "status", "--json", "--target", target, root]);
+const status = runJson(["status", "--json", "--target", target, root]);
 assert.equal(status.body.ok, true);
 assert.equal(status.body.repositoryGraph.storePresent, true);
 assert.equal(status.body.repositoryGraph.storeValid, true);
@@ -58,13 +58,13 @@ assert.equal(check.body.graph.artifact, storePath);
 assert.equal(check.body.graph.canonicalSource, false);
 assert.equal(check.body.graph.moduleIdentity, "package:program-graph-fixture@0.1.0");
 
-const verify = runJson(["graph", "verify-sync", "--json", "--target", target, root]);
+const verify = runJson(["verify-sync", "--json", "--target", target, root]);
 assert.equal(verify.body.ok, true);
 assert.equal(verify.body.writes, false);
 assert.equal(verify.body.repositoryGraph.syncState, "clean");
 assertBudget("verify-sync", verify.elapsedMs, budgets.verifySyncMs);
 
-const fromSource = runJson(["graph", "sync", "--from-source", "--json", "--target", target, root]);
+const fromSource = runJson(["sync", "--from-source", "--json", "--target", target, root]);
 assert.equal(fromSource.body.ok, true);
 assert.equal(fromSource.body.repositoryGraph.syncState, "clean");
 assert.deepEqual(fromSource.body.changedPaths, [storePath]);
@@ -72,7 +72,7 @@ assert.equal(readFileSync(`${root}/hello.0`, "utf8"), sourceBefore);
 assert.equal(readFileSync(storePath, "utf8"), storeBefore);
 assertBudget("sync --from-source", fromSource.elapsedMs, budgets.syncFromSourceMs);
 
-const fromGraph = runJson(["graph", "sync", "--from-graph", "--json", "--target", target, root]);
+const fromGraph = runJson(["sync", "--from-graph", "--json", "--target", target, root]);
 assert.equal(fromGraph.body.ok, true);
 assert.equal(fromGraph.body.repositoryGraph.syncState, "clean");
 assert.deepEqual(fromGraph.body.changedPaths, []);

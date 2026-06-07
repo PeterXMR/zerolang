@@ -294,6 +294,7 @@ const requiredFunctions = [
   "call_resolution_param_type_text",
   "resolved_call_param_type_text",
   "apply_provenance_storage_effect",
+  "stdlib_install_item_write_provenance",
   "collect_effect_target_places",
   "collect_assignment_target_places",
   "expr_static_index_segment",
@@ -655,7 +656,7 @@ const lines = checker.split("\n");
 const currentFunction = currentFunctionByLine(checker);
 const mutationAllowlist = new Map([
   ["scope_set_value_provenance(", new Set(["scope_set_value_provenance", "register_borrow_binding", "seed_param_storage_value_provenance", "register_match_payload_binding_provenance"])],
-  ["scope_set_value_provenance_path_in_scope(", new Set(["scope_set_value_provenance_path_in_scope", "update_borrow_assignment", "assignment_provenance_snapshot_clear", "assignment_provenance_snapshot_restore", "apply_provenance_storage_effect"])],
+  ["scope_set_value_provenance_path_in_scope(", new Set(["scope_set_value_provenance_path_in_scope", "update_borrow_assignment", "assignment_provenance_snapshot_clear", "assignment_provenance_snapshot_restore", "apply_provenance_storage_effect", "stdlib_install_item_write_provenance"])],
   ["scope_borrow_counts_for_place(", new Set(["scope_borrow_counts_for_place", "check_borrow_conflict_at", "check_read_not_mutably_borrowed", "check_assignment_not_borrowed"])],
 ]);
 
