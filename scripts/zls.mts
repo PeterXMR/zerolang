@@ -149,9 +149,11 @@ async function compilerDiagnostics(uri, text) {
   const path = uriToPath(uri);
   try {
     await writeFile(path, text);
+    const sidecar = graphSidecarPath(path);
     const imported = await importProjectionSidecar(path);
     if (imported && imported.ok === false) return diagnosticsFromBody(imported);
-    const result = await execFileAsync(zero, ["check", "--json", path]).catch((error) => error);
+    const input = sidecar && imported ? sidecar : path;
+    const result = await execFileAsync(zero, ["check", "--json", input]).catch((error) => error);
     if (!result.stdout) return simpleDiagnostics(uri, text);
     const body = JSON.parse(result.stdout);
     return diagnosticsFromBody(body);
@@ -161,12 +163,14 @@ async function compilerDiagnostics(uri, text) {
 }
 
 async function compilerFacts(path) {
-  await importProjectionSidecar(path);
+  const sidecar = graphSidecarPath(path);
+  const imported = await importProjectionSidecar(path);
+  const input = sidecar && imported ? sidecar : path;
   const [graphResult, sizeResult, memResult, docResult] = await Promise.all([
-    execFileAsync(zero, ["inspect", "--json", path]).catch((error) => error),
-    execFileAsync(zero, ["size", "--json", path]).catch((error) => error),
-    execFileAsync(zero, ["mem", "--json", path]).catch((error) => error),
-    execFileAsync(zero, ["doc", "--json", path]).catch((error) => error),
+    execFileAsync(zero, ["inspect", "--json", input]).catch((error) => error),
+    execFileAsync(zero, ["size", "--json", input]).catch((error) => error),
+    execFileAsync(zero, ["mem", "--json", input]).catch((error) => error),
+    execFileAsync(zero, ["doc", "--json", input]).catch((error) => error),
   ]);
   const parseBody = (result) => {
     if (!result.stdout) return null;

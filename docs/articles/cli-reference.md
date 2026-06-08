@@ -7,7 +7,7 @@ Most commands accept the same input forms:
 | Input | Meaning |
 | --- | --- |
 | `file.graph` | A binary or text graph store/artifact used directly by compiler commands. |
-| `file.0` | Human-readable Zero projection text for review, formatting, and human import/export workflows. A sibling `.graph` sidecar is the compiler input for graph-backed standalone files. |
+| `file.0` | Human-readable Zero projection text for review, formatting, and human import/export workflows. It is not a compiler input; pass the package or `.graph` store instead. |
 | `project/` | A package directory containing `zero.toml` or `zero.json`; graph-first packages compile from `zero.graph`. |
 | `zero.toml` | A TOML package manifest. Takes precedence for directory inputs when both manifests exist. |
 | `zero.json` | A JSON package manifest. |
@@ -121,13 +121,12 @@ another tool needs stable fields.
 Graph-backed compiler commands for `zero check`, `zero build`, `zero size`,
 `zero ship`, `zero mem`, and `zero test` report a top-level `graph` object
 with `artifact`, `canonicalSource`, `moduleIdentity`, `graphHash`, and
-`lowering`. For standalone projection paths, the artifact is the sibling
-`.graph` sidecar when one exists. Their compiler cache and incremental
-invalidation facts use `sourceKind: "program-graph"` and include the graph
-input that keyed the compile. Planning and introspection commands such as
-`zero dev`, `zero time`, `zero doc`, and `zero abi` report graph cache facts
-for graph-backed inputs. Derived ProgramGraph artifact commands report the
-same identity fields for the artifact being inspected or built.
+`lowering`. Their compiler cache and incremental invalidation facts use
+`sourceKind: "program-graph"` and include the graph input that keyed the
+compile. Planning and introspection commands such as `zero dev`, `zero time`,
+`zero doc`, and `zero abi` report graph cache facts for graph-backed inputs.
+Derived ProgramGraph artifact commands report the same identity fields for the
+artifact being inspected or built.
 
 Repository graph build/run/test/size/ship/mem commands and standalone
 `.program-graph` build/run/size commands can also report

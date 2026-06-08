@@ -4572,9 +4572,9 @@ static void set_graph_input_required_diag(const char *input_path, const char *gr
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "compiler command requires graph input");
-  snprintf(diag->expected, sizeof(diag->expected), "repository zero.graph store or .graph sidecar for the .0 projection");
+  snprintf(diag->expected, sizeof(diag->expected), "package zero.graph store, .graph store, or ProgramGraph artifact");
   snprintf(diag->actual, sizeof(diag->actual), "%s", input_path ? input_path : "");
-  snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "run zero import to refresh the graph store or pass the .graph artifact directly" : "run zero import/export through the graph workflow before compiling");
+  snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "run zero import after a human edits the .0 projection, then pass the package or .graph store" : "run zero import through the graph workflow before compiling");
 }
 
 static void set_graph_patch_projection_input_diag(const char *input_path, const char *graph_path, ZDiag *diag) {
@@ -4585,26 +4585,9 @@ static void set_graph_patch_projection_input_diag(const char *input_path, const 
   diag->column = 1;
   diag->length = 1;
   snprintf(diag->message, sizeof(diag->message), "graph patch requires graph input");
-  snprintf(diag->expected, sizeof(diag->expected), "package graph store, .graph sidecar, or ProgramGraph artifact");
+  snprintf(diag->expected, sizeof(diag->expected), "package zero.graph store, .graph store, or ProgramGraph artifact");
   snprintf(diag->actual, sizeof(diag->actual), "%s", input_path ? input_path : "");
-  snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "patch the .graph sidecar directly, or run zero import after a human edits the .0 projection" : "run zero import to create a graph store before patching");
-}
-
-static bool resolve_direct_source_sidecar_graph_input(Command *command, ZDiag *diag) {
-  if (!command || !z_program_graph_manifest_command_can_use_compiler_input(command->command) || !is_zero_source_path(command->input)) return true;
-  char *sidecar = source_sidecar_graph_path(command->input);
-  if (!sidecar) {
-    set_graph_input_required_diag(command->input, NULL, diag);
-    return false;
-  }
-  if (!path_has_program_graph_storage_header(sidecar)) {
-    set_graph_input_required_diag(command->input, sidecar, diag);
-    free(sidecar);
-    return false;
-  }
-  command->repository_graph_source_input = command->input;
-  command->input = sidecar;
-  return true;
+  snprintf(diag->help, sizeof(diag->help), "%s", graph_path && graph_path[0] ? "patch the package or .graph store directly, or run zero import after a human edits the .0 projection" : "run zero import to create a graph store before patching");
 }
 
 static bool path_has_program_graph_patch_header(const char *path) {
@@ -14114,11 +14097,6 @@ int main(int argc, char **argv) {
   }
 
   const char *direct_graph_manifest_input = command.input;
-  if (!resolve_direct_source_sidecar_graph_input(&command, &diag)) {
-    if (command.json) print_command_diag_json(&command, diag.path ? diag.path : command.input, &diag);
-    else print_diag(diag.path ? diag.path : command.input, &diag);
-    return 1;
-  }
   bool direct_graph_manifest_command = false;
   int repository_graph_check_rc = run_repository_graph_check_command(&command, target, &direct_graph_manifest_command);
   if (repository_graph_check_rc != 0 || direct_graph_manifest_command) return repository_graph_check_rc;

@@ -11,7 +11,6 @@ Use this when an agent needs to run, build, cross-build, inspect artifacts, or e
 
 Most build commands accept one of these graph-backed inputs:
 
-- a single `.0` projection with a sibling `.graph` sidecar
 - a direct `.graph` or `.program-graph` artifact
 - a package directory containing `zero.toml` or `zero.json`
 - a direct path to `zero.toml` or `zero.json`
@@ -24,8 +23,8 @@ compile from the checked-in `zero.graph` store. Source projections may be
 clean, missing, stale, or in conflict; commands report that state and do not
 rewrite `.0` files. Use `zero verify-projection` when CI or review needs
 projection drift to fail, and `zero export` to regenerate projections from the
-store. A bare `.0` file without a graph sidecar is a projection/import input,
-not a compiler input.
+store. `.0` files are projection/import inputs, not compiler inputs; pass the
+package, manifest, `.graph` store, or `.program-graph` artifact instead.
 
 ## Run
 

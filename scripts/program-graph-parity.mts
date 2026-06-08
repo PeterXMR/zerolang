@@ -115,20 +115,20 @@ function buildSummary(result) {
   };
 }
 
-function assertSourceGraphRoute(result, fixture, lowering = "typed-program-graph-mir") {
+function assertGraphCompilerRoute(result, fixture, lowering = "typed-program-graph-mir") {
   const graph = result.graph ?? {
     artifact: result.artifact,
     canonicalSource: result.canonicalSource,
     graphHash: result.graphHash,
     lowering: result.check?.lowering,
   };
-  assert(graph.artifact, `${fixture}: projection input should report graph compiler input`);
+  assert(graph.artifact, `${fixture}: graph input should report graph compiler input`);
   const sidecar = fixture.endsWith(".0") ? `${fixture.slice(0, -2)}.graph` : fixture;
   const expectedArtifact = existsSync(sidecar) ? sidecar : fixture;
-  assert.equal(graph.artifact, expectedArtifact, `${fixture}: projection graph artifact should be the active graph input`);
-  assert.equal(graph.canonicalSource, expectedArtifact === fixture, `${fixture}: projection graph should report the active graph input kind`);
-  assert.match(graph.graphHash, /^graph:[0-9a-f]{16}$/, `${fixture}: projection graph hash`);
-  if (result.graph?.lowering) assert.equal(graph.lowering, lowering, `${fixture}: projection graph lowering`);
+  assert.equal(graph.artifact, expectedArtifact, `${fixture}: graph artifact should be the active graph input`);
+  assert.equal(graph.canonicalSource, false, `${fixture}: graph compiler input should not be canonical source`);
+  assert.match(graph.graphHash, /^graph:[0-9a-f]{16}$/, `${fixture}: graph hash`);
+  if (result.graph?.lowering) assert.equal(graph.lowering, lowering, `${fixture}: graph lowering`);
 }
 
 function compilerCacheKey(result, name) {
@@ -1049,52 +1049,52 @@ async function assertTestParity(fixture, name) {
   assert.equal(graph.graph.artifact, artifact, `${fixture}: graph test artifact`);
   assert.equal(graph.graph.canonicalSource, false, `${fixture}: graph test should use artifact input`);
   assert.equal(graph.graph.lowering, "direct-program-graph", `${fixture}: graph test lowering`);
-  assertSourceGraphRoute(source, fixture, "direct-program-graph");
+  assertGraphCompilerRoute(source, compilerInputPath(fixture), "direct-program-graph");
   assert.equal(source.testBackend, "direct-program-graph", `${fixture}: source test backend`);
   assert.equal(graph.testBackend, "direct-program-graph", `${fixture}: graph test backend`);
   assert.deepEqual(testSummary(graph), testSummary(source), `${fixture}: source and graph test summaries should agree`);
 }
 
-async function assertSourceCommandGraphCompilerPath() {
-  const helloCheck = await zeroJson(["check", "--json", "examples/hello.0"]);
-  assertSourceGraphRoute(helloCheck, "examples/hello.0");
-  if (helloCheck.compilerCaches) assert.equal(helloCheck.compilerCaches[0].sourceKind, "program-graph", "source check should use graph cache identity");
+async function assertGraphCommandCompilerPath() {
+  const helloCheck = await zeroJson(["check", "--json", "examples/hello.graph"]);
+  assertGraphCompilerRoute(helloCheck, "examples/hello.graph");
+  if (helloCheck.compilerCaches) assert.equal(helloCheck.compilerCaches[0].sourceKind, "program-graph", "graph check should use graph cache identity");
   assert.deepEqual(targetReadinessSummary(helloCheck.targetReadiness), {
     languageOk: true,
     buildable: true,
     stage: "ready",
     code: null,
-  }, "source check target readiness");
+  }, "graph check target readiness");
 
-  const stdPathCheck = await zeroJson(["check", "--json", "std/path.0"]);
-  assertSourceGraphRoute(stdPathCheck, "std/path.0", "typed-program-graph-mir");
-  assert.equal(stdPathCheck.ok, true, "stdlib source check should preserve library entrypoint rules");
-  if (stdPathCheck.compilerCaches) assert.equal(stdPathCheck.compilerCaches[0].sourceKind, "program-graph", "stdlib source check should use graph cache identity");
+  const stdPathCheck = await zeroJson(["check", "--json", "std/path.graph"]);
+  assertGraphCompilerRoute(stdPathCheck, "std/path.graph", "typed-program-graph-mir");
+  assert.equal(stdPathCheck.ok, true, "stdlib graph check should preserve library entrypoint rules");
+  if (stdPathCheck.compilerCaches) assert.equal(stdPathCheck.compilerCaches[0].sourceKind, "program-graph", "stdlib graph check should use graph cache identity");
 
-  const helloBuildOut = `${outDir}/source-command-graph-build`;
-  const helloBuild = await zeroJson(["build", "--json", "--target", "linux-musl-x64", "--out", helloBuildOut, "examples/hello.0"]);
-  assertSourceGraphRoute(helloBuild, "examples/hello.0", "mapped-final-mir");
-  assert.equal(helloBuild.generatedCBytes, 0, "source build should stay on direct backend");
-  assert.equal(helloBuild.compilerCaches[0].sourceKind, "program-graph", "source build should use graph cache identity");
-  assert.equal(helloBuild.incrementalInvalidation.sourceKind, "program-graph", "source build invalidation source kind");
-  assert.equal(helloBuild.incrementalInvalidation.graphInput.artifact, "examples/hello.graph", "source build graph input");
-  assert(helloBuild.artifactBytes > 0, "source build should write an artifact");
+  const helloBuildOut = `${outDir}/graph-command-build`;
+  const helloBuild = await zeroJson(["build", "--json", "--target", "linux-musl-x64", "--out", helloBuildOut, "examples/hello.graph"]);
+  assertGraphCompilerRoute(helloBuild, "examples/hello.graph", "mapped-final-mir");
+  assert.equal(helloBuild.generatedCBytes, 0, "graph build should stay on direct backend");
+  assert.equal(helloBuild.compilerCaches[0].sourceKind, "program-graph", "graph build should use graph cache identity");
+  assert.equal(helloBuild.incrementalInvalidation.sourceKind, "program-graph", "graph build invalidation source kind");
+  assert.equal(helloBuild.incrementalInvalidation.graphInput.artifact, "examples/hello.graph", "graph build graph input");
+  assert(helloBuild.artifactBytes > 0, "graph build should write an artifact");
 
-  const helloSize = await zeroJson(["size", "--json", "--target", "linux-musl-x64", "examples/hello.0"]);
-  assertSourceGraphRoute(helloSize, "examples/hello.0", "mapped-final-mir");
-  assert.equal(helloSize.generatedCBytes, 0, "source size should stay on direct backend");
-  assert.equal(helloSize.cBridgeFallback, false, "source size should not use C bridge fallback");
-  assert.equal(helloSize.compilerCaches[0].sourceKind, "program-graph", "projection size should use graph cache identity");
+  const helloSize = await zeroJson(["size", "--json", "--target", "linux-musl-x64", "examples/hello.graph"]);
+  assertGraphCompilerRoute(helloSize, "examples/hello.graph", "mapped-final-mir");
+  assert.equal(helloSize.generatedCBytes, 0, "graph size should stay on direct backend");
+  assert.equal(helloSize.cBridgeFallback, false, "graph size should not use C bridge fallback");
+  assert.equal(helloSize.compilerCaches[0].sourceKind, "program-graph", "graph size should use graph cache identity");
 
   const helloArtifact = await dumpGraphArtifact("examples/hello.0", "source-command-cache-key");
   const helloGraphSize = await zeroJson(["size", "--json", "--target", "linux-musl-x64", helloArtifact]);
-  assert.equal(compilerCacheKey(helloSize, "parseTree"), compilerCacheKey(helloGraphSize, "parseTree"), "projection size and graph artifact size should share graph parse cache key");
-  assert.equal(compilerCacheKey(helloSize, "checkedBody"), compilerCacheKey(helloGraphSize, "checkedBody"), "projection size and graph artifact size should share graph check cache key");
+  assert.equal(compilerCacheKey(helloSize, "parseTree"), compilerCacheKey(helloGraphSize, "parseTree"), "graph size and graph artifact size should share graph parse cache key");
+  assert.equal(compilerCacheKey(helloSize, "checkedBody"), compilerCacheKey(helloGraphSize, "checkedBody"), "graph size and graph artifact size should share graph check cache key");
 
-  const helloMem = await zeroJson(["mem", "--json", "examples/hello.0"]);
-  assertSourceGraphRoute(helloMem, "examples/hello.0", "mapped-final-mir");
-  assert.equal(helloMem.compilerCaches[0].sourceKind, "program-graph", "projection mem should use graph cache identity");
-  assert.equal(helloMem.incrementalInvalidation.sourceKind, "program-graph", "projection mem invalidation source kind");
+  const helloMem = await zeroJson(["mem", "--json", "examples/hello.graph"]);
+  assertGraphCompilerRoute(helloMem, "examples/hello.graph", "mapped-final-mir");
+  assert.equal(helloMem.compilerCaches[0].sourceKind, "program-graph", "graph mem should use graph cache identity");
+  assert.equal(helloMem.incrementalInvalidation.sourceKind, "program-graph", "graph mem invalidation source kind");
 
   const packageCheck = await zeroJson(["check", "--json", "conformance/packages/test-app"]);
   assert(packageCheck.graph, "package command should report graph compiler input");
@@ -1537,7 +1537,7 @@ try {
   await assertStdGraphDependencyMerge();
   await assertSemanticFacts();
   await assertUnconstrainedGenericTypeParams();
-  await assertSourceCommandGraphCompilerPath();
+  await assertGraphCommandCompilerPath();
   await assertPatchRecomputesNestedSymbolOwners();
   await assertBuildParity("examples/hello.0", "hello");
   await assertRunParity("examples/hello.0", "hello");

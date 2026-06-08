@@ -62,5 +62,5 @@ bin/zero check conformance/native/pass/std-fs-fallible-resources.graph
 
 ```sh
 bin/zero explain TAR002
-bin/zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.0
+bin/zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```

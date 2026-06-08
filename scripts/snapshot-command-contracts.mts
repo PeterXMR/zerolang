@@ -66,8 +66,27 @@ function zero(args, options: { allowFailure?: boolean; env?: Record<string, stri
   }
 }
 
+function zeroRaw(args, options: { allowFailure?: boolean; env?: Record<string, string> } = {}) {
+  try {
+    const stdout = execFileSync(zeroBin, args, { encoding: "utf8", maxBuffer: execMaxBuffer, stdio: ["ignore", "pipe", "pipe"], env: options.env ? { ...process.env, ...options.env } : process.env });
+    return { code: 0, stdout };
+  } catch (error) {
+    if (!options.allowFailure) throw error;
+    return {
+      code: error.status ?? 1,
+      stdout: error.stdout?.toString() ?? "",
+      stderr: error.stderr?.toString() ?? "",
+    };
+  }
+}
+
 function json(args, options = {}) {
   const result = zero(args, options);
+  return { ...result, body: JSON.parse(result.stdout) };
+}
+
+function jsonRaw(args, options = {}) {
+  const result = zeroRaw(args, options);
   return { ...result, body: JSON.parse(result.stdout) };
 }
 
@@ -3548,7 +3567,7 @@ const graphSourceProjectionPatchRejected = json(["patch", "--json", graphSourceP
 assert.notEqual(graphSourceProjectionPatchRejected.code, 0);
 assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].code, "BLD002");
 assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].message, "graph patch requires graph input");
-assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].expected, "package graph store, .graph sidecar, or ProgramGraph artifact");
+assert.equal(graphSourceProjectionPatchRejected.body.diagnostics[0].expected, "package zero.graph store, .graph store, or ProgramGraph artifact");
 const graphSourcePackageDir = join(outDir, "graph-source-package");
 const graphSourcePackageMain = join(graphSourcePackageDir, "src", "main.0");
 const graphSourcePackageHelper = join(graphSourcePackageDir, "src", "helper.0");
@@ -4548,8 +4567,16 @@ for (const args of [
   assert.notEqual(rejected.code, 0);
   assert.equal(rejected.body.diagnostics[0].code, "BLD002");
   assert.equal(rejected.body.diagnostics[0].message, "compiler command requires graph input");
-  assert.equal(rejected.body.diagnostics[0].expected, "repository zero.graph store or .graph sidecar for the .0 projection");
+  assert.equal(rejected.body.diagnostics[0].expected, "package zero.graph store, .graph store, or ProgramGraph artifact");
 }
+const rawProjectionWithGraph = join(outDir, "raw-projection-with-graph.0");
+writeProjectionFile(rawProjectionWithGraph, "pub fn main() -> Void { }\n");
+importProjectionSidecar(rawProjectionWithGraph);
+const rawProjectionWithGraphRejected = jsonRaw(["check", "--json", rawProjectionWithGraph], { allowFailure: true });
+assert.notEqual(rawProjectionWithGraphRejected.code, 0);
+assert.equal(rawProjectionWithGraphRejected.body.diagnostics[0].code, "BLD002");
+assert.equal(rawProjectionWithGraphRejected.body.diagnostics[0].message, "compiler command requires graph input");
+assert.equal(rawProjectionWithGraphRejected.body.diagnostics[0].expected, "package zero.graph store, .graph store, or ProgramGraph artifact");
 const rawProjectionNoGraph = join(outDir, "raw-projection-no-graph.0");
 rmSync(rawProjectionNoGraph, { force: true });
 writeFileSync(rawProjectionNoGraph, "pub fn main() -> Void { }\n");
@@ -4567,12 +4594,12 @@ for (const args of [
   assert.notEqual(rejected.code, 0);
   assert.equal(rejected.body.diagnostics[0].code, "BLD002");
   assert.equal(rejected.body.diagnostics[0].message, "compiler command requires graph input");
-  assert.equal(rejected.body.diagnostics[0].expected, "repository zero.graph store or .graph sidecar for the .0 projection");
+  assert.equal(rejected.body.diagnostics[0].expected, "package zero.graph store, .graph store, or ProgramGraph artifact");
 }
 const rawProjectionRunRejected = zero(["run", rawProjectionNoGraph], { allowFailure: true });
 assert.notEqual(rawProjectionRunRejected.code, 0);
 assert.match(rawProjectionRunRejected.stderr, /compiler command requires graph input/);
-assert.match(rawProjectionRunRejected.stderr, /repository zero\.graph store or \.graph sidecar for the \.0 projection/);
+assert.match(rawProjectionRunRejected.stderr, /package zero\.graph store, \.graph store, or ProgramGraph artifact/);
 for (const args of [
   ["tokens", "--json", unsupportedSourceFixture],
   ["parse", "--json", unsupportedSourceFixture],
