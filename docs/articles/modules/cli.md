@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.cli
+
+Use `std.cli` for hosted command-line flag and option helpers that sit one
+level above raw `std.args` access.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

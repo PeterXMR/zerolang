@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.args
+
+Use `std.args` for hosted command-line programs that need positional
+arguments, option lookup, or simple numeric argument parsing.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

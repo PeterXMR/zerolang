@@ -1,7 +1,7 @@
-// Rewrites ```json-render fenced code blocks into a custom `agentchat` element
-// carrying the (base64-encoded) JSON, so the docs can embed an agent-chat
-// transcript without switching the pipeline to MDX. Runs before
-// rehype-pretty-code so the block is never treated as a normal code fence.
+// Rewrites ```json-render fenced code blocks into custom elements carrying
+// base64-encoded JSON, so the docs can embed structured React components
+// without switching the pipeline to MDX. Runs before rehype-pretty-code so the
+// block is never treated as a normal code fence.
 
 type HastNode = {
   type?: string;
@@ -49,7 +49,12 @@ export function rehypeJsonRender(): (tree: HastNode) => void {
       if (!code || getCodeLanguage(code) !== "json-render") return;
 
       const raw = getNodeText(code).replace(/\n$/, "");
-      node.tagName = "agentchat";
+      let tagName = "agentchat";
+      try {
+        const parsed = JSON.parse(raw) as { type?: string };
+        if (parsed.type === "flow") tagName = "flowchart";
+      } catch {}
+      node.tagName = tagName;
       node.properties = { value: Buffer.from(raw, "utf8").toString("base64") };
       node.children = [];
     });

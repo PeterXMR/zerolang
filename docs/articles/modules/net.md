@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.net
+
+Use `std.net` for network capability metadata, local address construction,
+timeouts, and bootstrap client/listener handles.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.url
+
+Use `std.url` for lexical URL splitting, percent encoding, query lookup, and
+query appending.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

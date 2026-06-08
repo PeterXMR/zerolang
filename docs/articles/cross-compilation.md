@@ -1,8 +1,8 @@
-## Cross-Compilation Guide
+## Targets Are Explicit
 
-Zero target names are explicit, and target facts are visible before codegen.
-Run checks against graph inputs or graph-first packages so agents can inspect
-capability denial without touching projections.
+Zero cross-compilation starts from graph facts, target facts, and direct
+emitters. Unsupported target or feature combinations should fail with
+diagnostics rather than fallback silently.
 
 ```sh
 zero targets
@@ -10,61 +10,66 @@ zero check --target linux-musl-x64 examples/memory-package
 zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package
 ```
 
-The compiler separates graph checking from executable linking. Target-neutral
-graph inputs can check for non-host targets, while hosted APIs such as `std.fs`
-are rejected when the selected target or direct backend cannot provide that
-capability.
+## Build Without Guessing
 
-For dependency target compatibility, use `check --json --target <target>` on the
-graph-first package being reviewed; diagnostics report incompatible dependency
-target constraints when a package cannot be used for the selected target.
-
-For agent planning, `check --json` can also report whether a selected direct
-artifact is expected to build without emitting it:
+Use `check --json` before writing artifacts when an agent needs readiness data:
 
 ```sh
-zero check --json --emit obj --target linux-musl-x64 conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.graph
+zero check --json --emit obj --target linux-musl-x64 examples/direct-call-add.graph
 ```
 
-The top-level result stays about language validity. The nested
-`targetReadiness` object reports target buildability and carries structured
-backend blockers such as `target`, `objectFormat`, `backend`, `stage`, and
-`unsupportedFeature`.
+Target readiness can include `target`, `objectFormat`, `backend`, `stage`, and
+unsupported feature facts.
 
 ## Direct Artifacts
-
-Supported executable builds use Zero's direct target emitters. Unsupported
-targets or language features report diagnostics rather than silently choosing an
-external backend.
 
 ```sh
 zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.graph --out .zero/out/direct-exe-return
 zero build --emit obj --target darwin-arm64 examples/direct-call-add.graph --out .zero/out/direct-call-add.o
 ```
 
-Use JSON modes to inspect target support, required capabilities, selected
-emitters, and artifact facts:
-
-```sh
-zero build --json --emit exe --target linux-musl-x64 examples/direct-exe-return.graph
-zero inspect --json --target darwin-arm64 examples/memory-package
-zero size --json --target linux-musl-x64 examples/direct-exe-return.graph
-```
+Use `zero size --json --target <target>` when the question is about retained
+helpers, section sizes, or artifact facts rather than producing a new file.
 
 ## Sysroots And C Boundaries
 
-Zero reports sysroot and C ABI facts in JSON so cross-target builds do not
-silently reuse host SDK paths. When a target requires an explicit SDK/sysroot,
-use the environment variable named by `zero targets --json`.
+Cross-target C interop must use explicit package metadata, vendored inputs, or
+target sysroots. The compiler should not silently reuse host headers and
+libraries for a foreign target.
 
-C interop is still early. Keep C-facing graph surfaces small, inspect
-`zero abi --json` where applicable, and prefer examples that make target
-assumptions explicit.
+Use:
 
-## Current Boundary
+```sh
+zero inspect --json --target linux-musl-x64 <package>
+zero abi dump --json --target linux-musl-x64 <graph-input>
+```
 
-The public target set is focused on native executables and object files. Use
-`zero targets --json`, `zero check --json --emit <kind>`, and
-`zero size --json` to inspect whether a requested target is supported before
-writing artifacts. Unsupported target/backend combinations should fail with a
-structured diagnostic instead of silently falling back to a different backend.
+## Human Prompt Example
+
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "build this for linux musl and tell me if anything blocks it"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll check the target facts first, then build if it is ready."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero check --json --target linux-musl-x64",
+          "output": "{\"ok\":true,\"targetReadiness\":{\"ok\":true}}"
+        },
+        {
+          "command": "zero build --target linux-musl-x64 --out .zero/out/app",
+          "output": ""
+        }
+      ]
+    }
+  ]
+}
+```

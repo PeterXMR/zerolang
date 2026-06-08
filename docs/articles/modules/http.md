@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.http
+
+Use `std.http` for HTTP request parsing, response envelope writing, hosted
+fetch, local listen support, and web API helpers.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.search
+
+Use `std.search` for scalar span lookup and binary-search helpers over sorted
+caller-owned data.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

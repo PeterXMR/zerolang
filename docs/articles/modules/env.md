@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.env
+
+Use `std.env` for hosted environment variable lookup and simple typed
+configuration values.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

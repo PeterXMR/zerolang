@@ -6,16 +6,16 @@ import { MDXRemote } from "next-mdx-remote/rsc";
 import rehypePrettyCode from "rehype-pretty-code";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
-import { docs, getAdjacentDocs, groupBySection } from "@/lib/docs";
+import { docs, getAdjacentDocs } from "@/lib/docs";
 import { extractHeadings, readArticleByPath } from "@/lib/articles";
 import { pageMetadata } from "@/lib/page-metadata";
-import { DocsSidebarShell } from "@/components/docs-sidebar";
 import { DocsToc } from "@/components/docs-toc";
 import { CopyCodeButton } from "@/components/copy-button";
 import { HeadingAnchor } from "@/components/heading-anchor";
 import { rehypeZeroHighlight } from "@/lib/rehype-zero-highlight";
 import { rehypeJsonRender } from "@/lib/rehype-json-render";
 import { AgentChat } from "@/components/agent-chat";
+import { FlowChart } from "@/components/flow-chart";
 
 type DocsPageParams = { slug?: string[] };
 type DocsPageProps = { params: Promise<DocsPageParams> };
@@ -71,6 +71,15 @@ const mdxComponents = {
       return null;
     }
   },
+  flowchart: ({ value }: { value?: string }) => {
+    if (!value) return null;
+    try {
+      const spec = JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+      return <FlowChart spec={spec} />;
+    } catch {
+      return null;
+    }
+  },
 };
 
 export default async function DocsPage({ params }: DocsPageProps) {
@@ -82,12 +91,9 @@ export default async function DocsPage({ params }: DocsPageProps) {
   const { doc, source } = result;
   const headings = extractHeadings(source);
   const { prev, next } = getAdjacentDocs(doc.slug);
-  const groups = groupBySection(docs);
 
   return (
-    <div className="grid min-h-screen grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[15rem_minmax(0,1fr)_14rem]">
-      <DocsSidebarShell groups={groups} activeSlug={doc.slug} currentTitle={doc.title} />
-
+    <>
       <main className="mx-auto w-full max-w-[54rem] px-4 pb-[50vh] pt-6 md:px-12">
         <header className="mb-8 border-b border-border pb-6">
           <p className="mb-2 text-[0.8125rem] font-medium tracking-wide text-muted">
@@ -144,6 +150,6 @@ export default async function DocsPage({ params }: DocsPageProps) {
       </main>
 
       <DocsToc headings={headings} />
-    </div>
+    </>
   );
 }

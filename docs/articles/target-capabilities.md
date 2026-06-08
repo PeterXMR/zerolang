@@ -1,24 +1,31 @@
-## What Targets Mean Today
+## Capabilities Are Target Facts
 
-The current compiler has a small explicit target table. Agents should inspect
-target facts before patching capability-sensitive graph programs:
+Zero does not assume every target can do filesystem, network, process, time, or
+random operations. Those are explicit target facts.
+
+Ask an agent for target-sensitive work in normal language:
+
+```text
+make this cli work on linux musl too
+```
+
+The agent should inspect target capability facts before patching APIs that
+depend on hosted runtime support.
+
+## Inspect Targets
 
 ```sh
 zero targets
+zero targets --json
+zero check --json --target linux-musl-x64 examples/memory-package
 ```
 
-The JSON includes:
+Target JSON includes host identity, aliases, object formats, C target mapping,
+capabilities, HTTP runtime metadata, and `targetToolchains`.
 
-- `schemaVersion`
-- current `host`
-- each target's `hosted` flag
-- aliases
-- mapped C target
-- capabilities
+## Hosted Capabilities
 
-## Host Capabilities
-
-Only the current host target exposes the full hosted capability set:
+The current hosted capability set includes:
 
 - `args`
 - `env`
@@ -30,95 +37,52 @@ Only the current host target exposes the full hosted capability set:
 - `stdio`
 - `time`
 
-Non-host targets expose only the capabilities listed for that target in
-`zero targets --json`. Several non-host targets include filesystem,
-arguments, environment, time, or random support, but no non-host target
-currently exposes `net`.
+Non-host targets expose only the capabilities listed for that target. Network
+support is intentionally target-gated. HTTP helpers that only parse or write
+request/response envelopes are target-neutral; hosted fetch and listen require
+network-capable host support.
 
-The `net` capability is a target gate for current `std.net` metadata and
-outbound `std.http.fetch(...)`. `std.http.parseMethod(...)` remains a
-metadata-only helper that does not require `net`. Outbound HTTP is available on
-direct Darwin arm64 and Linux x64 host executable paths.
+## Capability Failure Is A Feature
 
-`zero targets --json` includes an `httpRuntime` object for each target. On a
-supported host target it reports the curl provider, the platform-or-C-library
-TLS boundary, TLS verification state, the curl system library, and the
-`ZERO_HTTP_TEST_CA_BUNDLE` custom CA override.
-
-The smallest common target-neutral subset remains:
-
-- `memory`
-- `stdio`
-
-This means hosted `std.fs` examples are valid on targets that declare `fs`.
-Memory-only graph-first packages can still build for target-neutral outputs.
-
-## Hosted File I/O
-
-This succeeds on the host target:
-
-```sh
-zero check examples/resource-cli
-```
-
-The same hosted filesystem surface fails clearly on a non-host target:
+If a graph input uses `std.fs` on a target that cannot provide filesystem
+support, `zero check --target ...` should report a diagnostic instead of
+silently changing behavior.
 
 ```sh
 zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
 ```
 
-The diagnostic is `TAR002` with repair id `choose-target-with-required-capability`.
+The diagnostic is `TAR002` and the repair id points at choosing a target with
+the required capability.
 
-## Network Metadata
+## Agent Flow
 
-This succeeds on the host target:
-
-```sh
-zero check conformance/native/pass/std-net-http-breadth.graph
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "can this run on linux musl?"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll check the target facts and call out any capability blockers."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero check --json --target linux-musl-x64",
+          "output": "{\"ok\":false,\"diagnostics\":[{\"code\":\"TAR002\",\"message\":\"target does not provide required capability\"}]}"
+        }
+      ]
+    }
+  ]
+}
 ```
 
-The check exercises `std.net` and `std.http` metadata. It expects
-`std.net.connect(...)` and `std.net.listen(...)` to return absent handles.
-`std.http.fetch(...)` performs outbound HTTP on supported host executable
-paths, writing response metadata, headers, and body into caller-owned storage.
-`std.http.headerValue(...)` can locate a named response header value inside
-that buffer. There is no socket read/write API, structured header collection,
-or streaming body API in the current public surface.
+## What To Remember
 
-The same network surface fails clearly on a target without `net`:
-
-```sh
-zero check --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
-```
-
-## Target-Neutral Memory
-
-`std.mem.copy` and `std.mem.fill` do not require hosted filesystem support:
-
-```sh
-zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package
-```
-
-Use graph and size JSON to inspect target facts:
-
-```sh
-zero inspect --json --target linux-musl-x64 examples/memory-package
-zero size --json --target linux-musl-x64 examples/memory-package
-```
-
-Both outputs include `requiresCapabilities`, `targetSupport`, and `stdlibHelpers`.
-
-## Repair Commands
-
-Use `zero explain` for human and JSON explanations:
-
-```sh
-zero explain TAR002
-zero explain --json TAR002
-```
-
-Use fix-plan mode to inspect the canonical repair without editing files:
-
-```sh
-zero fix --plan --json --target linux-musl-x64 conformance/common/fail/unsupported-target-feature.graph
-```
+Capabilities are part of the graph contract. Standard library pages document
+effects and target support so an agent can choose the right helper before it
+patches the program.

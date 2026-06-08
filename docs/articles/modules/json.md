@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.json
+
+Use `std.json` for validation, shallow field lookup, explicit-allocator parsing,
+and caller-buffer JSON writing.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

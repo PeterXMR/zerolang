@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.path
+
+Use `std.path` for lexical path operations that write into caller-owned buffers
+and stay explicit about target limits.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

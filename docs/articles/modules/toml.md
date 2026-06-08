@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.toml
+
+Use `std.toml` for TOML validation, shallow field lookup, and typed scalar
+decode helpers.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

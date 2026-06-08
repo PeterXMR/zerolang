@@ -1,4 +1,6 @@
-## Graph Surface
+## When To Use std.text
+
+Use `std.text` for ASCII and UTF-8 byte-backed validation.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

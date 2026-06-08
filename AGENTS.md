@@ -46,7 +46,7 @@ where they will run.
 ## Useful Checks
 
 ```sh
-pnpm run docs:test
+pnpm run docs:build
 pnpm run conformance
 pnpm run native:test
 pnpm run command-contracts
@@ -113,7 +113,7 @@ make -C native/zero-c
 bin/zero --version --json
 pnpm run test:zero
 pnpm run command-contracts:local
-pnpm run docs:test
+pnpm run docs:build
 ```
 
 The release workflow reads the version from `package.json`, builds release

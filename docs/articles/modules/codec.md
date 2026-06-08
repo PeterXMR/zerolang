@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.codec
+
+Use `std.codec` for byte encodings: endian integer reads/writes, varints,
+base64, hex, and checksums over caller-owned storage.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

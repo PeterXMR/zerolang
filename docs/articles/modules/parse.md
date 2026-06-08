@@ -1,4 +1,6 @@
-## Graph Surface
+## When To Use std.parse
+
+Use `std.parse` for allocation-free byte scanners and scalar parsers.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.crypto
+
+Use `std.crypto` for small hash, keyed hash, constant-time equality, and target
+entropy helpers with explicit capability boundaries.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

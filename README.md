@@ -25,7 +25,7 @@ Design goals:
 >
 > Security vulnerabilities should be expected. zerolang is not ready for production systems, sensitive data, or trusted infrastructure. Run and develop it in isolated, disposable environments.
 
-## Why Graph
+## Graph Architecture
 
 Agents can edit source text, but source text is a lossy interface for program understanding. A text patch has to guess which references are related, whether a range is stale, whether a call resolves to the intended function, and whether an edit preserved ownership, fallibility, effects, imports, and target constraints.
 
@@ -244,7 +244,7 @@ zero doctor --json
 ## Validation
 
 ```bash
-pnpm run docs:test
+pnpm run docs:build
 pnpm run conformance
 pnpm run native:test
 pnpm run command-contracts

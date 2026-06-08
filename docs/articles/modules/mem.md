@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.mem
+
+Use `std.mem` for spans, copy/fill, fixed-buffer allocators, explicit byte
+buffers, and memory-budget-visible collection foundations.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

@@ -1,9 +1,9 @@
-## C Interop Guide
+## The C Boundary
 
-Zero supports a small, explicit C ABI export surface in graph inputs. Exported
-C functions are graph declarations that may render as the projection snippet
-below; agents should inspect ABI facts with `zero abi`, `zero inspect`, and
-diagnostics before patching the graph.
+Zero supports a small explicit C ABI surface from graph inputs. C-facing code
+should stay narrow, inspectable, and target-aware.
+
+Projection example:
 
 ```zero
 export c fn add(a: i32, b: i32) -> i32 {
@@ -11,70 +11,66 @@ export c fn add(a: i32, b: i32) -> i32 {
 }
 ```
 
-Check the ABI surface:
+Graph checks:
 
 ```sh
 zero check conformance/native/pass/c-abi-export.graph
 zero abi dump --json conformance/native/pass/c-abi-export.graph
 ```
 
-The ABI dump reports exported C symbols and a small generated header text block.
-For `conformance/native/pass/c-abi-export.graph`, `generatedHeader.available` is
-`true` and the header contains the `zero_add` declaration.
+`zero abi dump --json` reports exported symbols and generated header facts such
+as `generatedHeader.available`.
 
-Invalid export surfaces fail before C emission; use the diagnostic explanation
-when you need the current repair contract:
+## Import Metadata
 
-```sh
-zero explain ABI001
-```
-
-Header imports expose typed metadata and scalar C functions are callable through
-the declared import alias:
+Header imports expose typed metadata:
 
 ```sh
 zero inspect --json --target linux-musl-x64 conformance/check/pass/c-header-import.graph
 ```
 
-The graph JSON exposes `cImports[].typedModel` with imported functions,
-constants, structs, enums, and typedefs.
-
-```zero
-extern c "/tmp/zero_ext.h" as c
-
-export c fn main() -> i32 {
-    return c.zero_ext_add(20, 22)
-}
-```
+The JSON includes `cImports[].typedModel` with imported functions, constants,
+structs, enums, and typedefs.
 
 Callable imports are limited to direct scalar ABI types today: `Void`, `Bool`,
 `u8`, `u16`, `usize`, `i32`, `u32`, `i64`, and `u64`. Pointer, array, struct,
-and unsupported-width parameters should be wrapped behind a small C shim.
+and unsupported-width parameters should be wrapped by a small C shim.
 
-It also includes a cache object keyed by:
+## Link Plans
 
-- header hash
-- target
-- ABI
-- flags hash
-- sysroot fingerprint
+Executable builds with direct extern C calls require package link metadata in
+`zero.toml`. Imported headers must appear in `c.libs.*.headers`, and the
+library must provide `lib` or `link` inputs.
 
-External C calls require target library audit facts. `zero inspect --json` reports
-each `cLibraries[].linkPlan` with include paths, library paths, sysroot status,
-target ABI, and host discovery status.
+`zero inspect --json` reports each `cLibraries[].linkPlan` with include paths,
+library paths, sysroot status, target ABI, host discovery status, and header
+hash data.
 
-Executable builds with direct extern C calls require matching package link
-metadata in `zero.toml`: the imported header must appear in
-`c.libs.*.headers`, and that library must provide `lib` or `link` inputs.
-Missing link inputs or unsafe system library names in `link` report `CIMP005`
-before the linker runs.
+Unsafe foreign-target discovery fails with `CIMP003`. Missing or unsafe link
+inputs fail with `CIMP005`.
 
-Cross builds must use package-relative vendored headers/libraries or an
-explicit target sysroot. They cannot silently reuse host include or library
-paths.
+## Agent Flow
 
-Unsafe foreign-target discovery fails with `CIMP003` before code generation:
-
-```sh
-zero build --json --target linux-musl-x64 conformance/c/host-leak-package --out .zero/out/host-leak-package
+```json-render
+{
+  "messages": [
+    {
+      "role": "user",
+      "text": "can this call my tiny c helper on linux musl?"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll check the target link plan and tell you what blocks the call."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero inspect --json --target linux-musl-x64",
+          "output": "{\"cLibraries\":[{\"linkPlan\":{\"sysrootStatus\":\"configured\"}}]}"
+        }
+      ]
+    }
+  ]
+}
 ```

@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.time
+
+Use `std.time` for duration math and target-gated monotonic or wall-clock
+helpers.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

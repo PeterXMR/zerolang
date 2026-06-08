@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.math
+
+Use `std.math` for pure fixed-width integer helpers, checked/saturating
+arithmetic, and small number-theory routines.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

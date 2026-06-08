@@ -1,4 +1,6 @@
-## Graph Surface
+## When To Use std.log
+
+Use `std.log` for explicit-buffer structured log record formatting.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

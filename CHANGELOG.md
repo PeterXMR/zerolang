@@ -27,7 +27,7 @@
 - Expands direct backend coverage with darwin-x64 Mach-O executable support, shared AArch64 ELF/COFF emission, target-readiness reporting, byte-view ABI fixes, and stronger cross-target buildability checks.
 - Adds source-backed `std.path`, `std.str`, and `std.math` modules with docs, examples, Rosetta coverage, and direct target validation.
 - Exposes resolved call-resolution and stdlib helper facts in graph JSON, tightening generic return typing, member call facts, std helper validation, and package cache metadata.
-- Grows Rosetta and compiler smoke coverage, graph command contracts, metrics budgets, CLI docs, skills, and docs tests around the current agent edit loop.
+- Grows Rosetta and compiler smoke coverage, graph command contracts, metrics budgets, CLI docs, and skills around the current agent edit loop.
 
 ### Contributors
 

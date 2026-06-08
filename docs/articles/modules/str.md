@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.str
+
+Use `std.str` for allocation-free byte-string helpers over spans and
+caller-owned storage.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

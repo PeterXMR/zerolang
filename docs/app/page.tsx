@@ -143,8 +143,7 @@ build hello world in zerolang
         </div>
 
         <div className="max-w-[92%] text-[0.875rem] leading-[1.65] text-fg">
-          I&apos;ll set up a graph-first package, patch the graph, and run it. There are
-          no source files to hand-write.
+          I&apos;ll set up the package, patch the graph, and run it.
         </div>
 
         <ChatToolRuns />
@@ -206,7 +205,7 @@ export default function HomePage() {
         <Section>
           <SectionHeader
             title="You just ask."
-            description="Humans use chat. Nobody hand-writes Zerolang. You describe what you want, and the agent initializes a package, patches the graph, and runs it."
+            description="Humans use chat first. Agents author the graph. Projections stay available for review and rare manual edits."
           />
           <VisualGlow className="mx-auto max-w-[40rem]">
             <ChatMockup />
@@ -217,7 +216,7 @@ export default function HomePage() {
         <Section>
           <SectionHeader
             title="The graph is the program."
-            description="Source text is a weak interface for understanding code. Zerolang keeps a typed program graph as the real artifact. Readable source is just a projection of it."
+            description="Readable text is useful for review, but the compiler-owned graph is the program database agents edit and the compiler consumes."
           />
           <VisualGlow className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <CodeWindow title="zero query · graph" html={highlight(GRAPH_EXAMPLE, "zero-graph")} />

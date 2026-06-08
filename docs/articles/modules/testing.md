@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.testing
+
+Use `std.testing` inside test blocks for output checks and small boolean
+assertion helpers.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

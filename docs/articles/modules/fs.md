@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.fs
+
+Use `std.fs` for hosted file reads, writes, existence checks, copies, renames,
+and explicit file-resource cleanup.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.sort
+
+Use `std.sort` for in-place sorting and sortedness checks over caller-owned
+scalar storage.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

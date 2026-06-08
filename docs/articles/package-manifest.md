@@ -1,21 +1,24 @@
-## Package And Manifest Reference
+## Packages Are Graph-Backed
 
-Zero packages normally use `zero.toml` as the package manifest plus a checked-in
-`zero.graph` repository graph store as compiler input. `zero.json` is accepted
-only as a compatibility manifest format; examples and fixtures use TOML. Use
-one manifest per package in normal projects. If both files exist, `zero.toml`
-takes precedence for directory inputs; an explicit `zero.json` path still checks
-that compatibility manifest directly.
+A Zero package has a manifest, a graph store, and review projections:
 
-The current compiler supports local packages and executable targets.
+```text
+zero.toml
+zero.graph
+src/main.0
+```
 
-TOML is the preferred graph-first manifest format. The target still names a
-projection path so humans have stable spans and review files, but agents should
-create and evolve the package with `zero init`, `zero query`, and `zero patch`:
+The manifest tells Zero where the human-readable target projection lives. The
+graph store is the normal compiler input. The projection is for spans, review,
+and rare manual edits.
+
+## Preferred Manifest
+
+Use `zero.toml` for new projects:
 
 ```toml
 [package]
-name = "hello"
+name = "crm-api"
 version = "0.1.0"
 license = "MIT"
 
@@ -28,75 +31,93 @@ path = "../local-tools"
 version = "0.1.0"
 ```
 
-The `main` path names the human-readable projection associated with the target.
-It is still useful for source maps, export/import, and human review, but normal
-package commands compile from the checked-in `zero.graph` store.
+`zero.json` is still accepted as a compatibility manifest format. Use one
+manifest in normal projects. If both exist for a directory input, `zero.toml`
+takes precedence.
 
-The equivalent JSON shape is accepted for compatibility, but new agent-authored
-packages should not start from it:
+## What `main` Means
 
-```json
+The `main` path names the human-readable projection associated with a target.
+It does not make the projection the normal package compile input.
+
+Normal package commands compile from the checked-in `zero.graph` store:
+
+```sh
+zero check
+zero test
+zero run -- help
+zero build --out .zero/out/app
+zero size --json
+```
+
+These commands report projection state, but they do not rewrite `.0` files.
+
+## Agent Package Flow
+
+```json-render
 {
-  "package": { "name": "hello", "version": "0.1.0", "license": "MIT" },
-  "targets": { "cli": { "kind": "exe", "main": "src/main.0" } },
-  "dependencies": {
-    "local-tools": { "path": "../local-tools", "version": "0.1.0" },
-    "registry-tools": "1.2.3"
-  },
-  "profiles": {
-    "dev": { "inherits": "dev" },
-    "release": { "inherits": "release" }
-  }
+  "messages": [
+    {
+      "role": "user",
+      "text": "start a small crm api package here"
+    },
+    {
+      "role": "assistant",
+      "text": "I’ll start the package with zero.toml and add the first API route."
+    },
+    {
+      "role": "tools",
+      "calls": [
+        {
+          "command": "zero init --template package --manifest toml --format binary",
+          "output": "graph project init ok\nwrote: ./zero.toml\nwrote: ./zero.graph"
+        },
+        {
+          "command": "zero patch /tmp/crm-routes.patch",
+          "output": "program graph patch ok"
+        },
+        {
+          "command": "zero run -- $'GET /health\\n\\n'",
+          "output": "HTTP/1.1 200 OK\ncontent-type: application/json"
+        }
+      ]
+    }
+  ]
 }
 ```
 
-Package-local imports resolve from `src/`:
+## Projection Import And Export
+
+Use projection commands only when humans need them:
+
+```sh
+zero export
+zero verify-projection
+zero import
+```
+
+`zero export` refreshes `.0` files from the graph. `zero import` rebuilds the
+graph from projection text after a human edit. `zero verify-projection` is the
+no-write drift gate.
+
+## Dependencies
+
+Package-local imports resolve from `src/` projection paths for stable human
+review:
 
 - `src/foo.0` defines module `foo`
 - `src/foo/mod.0` defines directory module `foo`
 
-Import cycles and duplicate public exports are diagnosed before build output.
+Local path dependencies are accepted. Exact versioned registry references are
+recorded as metadata without remote fetches in the current compiler slice.
 
-Local path dependencies are accepted by the resolver. Exact versioned registry
-references are recorded as metadata without remote fetches.
+Package inspection and docs JSON may include `dependencies`, `package.lockfile`,
+`packageCache.cacheKeyInputs`, and `publicationGate` facts. Diagnostics such as
+`PKG001` and `PKG004` explain invalid manifests, dependency shape issues, and
+package resolution failures.
 
-Packages use a checked-in `zero.graph` store as the compiler input for normal
-check, build, run, test, size, and mem commands. Those commands read and
-validate the graph store directly, report whether source projections are clean,
-missing, stale, conflicting, or unavailable, and do not rewrite `.0` files. A
-graph-first package can be created with:
+## Profiles
 
-```sh
-zero init
-zero patch --op 'addMain'
-```
-
-Use `zero export` only when a human needs to materialize or refresh `.0`
-projections for review. Use `zero import` after humans edit `.0` so the graph
-store reflects the reviewed source projection. Use `zero verify-projection`
-when CI or review needs the no-write projection drift gate. A package without
-`zero.graph` is missing its compiler input; run `zero import` after reviewing
-the projection or create it with `zero init`.
-
-`zero inspect --json [package]` reports:
-
-- `package.dependencies`
-- `package.lockfile`
-- `package.resolver`
-- `packageCache.cacheKeyInputs`
-
-The resolver writes a deterministic dependency fingerprint file under
-`.zero/package-locks/*.lock.json`. Cache keys include the compiler version,
-target, package version, manifest hash, dependency graph hash, and lockfile hash.
-
-Package graph failures use stable diagnostics:
-
-- `PKG001`: a local dependency path does not contain `zero.toml` or a
-  compatibility `zero.json`
-- `PKG002`: package dependencies form a cycle
-- `PKG003`: the graph resolves one package name to conflicting versions
-- `PKG004`: the selected target is not listed in a dependency's target metadata
-
-`zero doc --json [package]` exposes registry-oriented publication metadata.
-Public package APIs should carry docs/examples metadata before publication. The
-current compiler reports this as `publicationGate`.
+Profiles are declared in the manifest and reported by build/size JSON. Use
+`zero build --json` and `zero size --json` to inspect `profileSemantics`,
+`profileBudget`, retained helpers, and target readiness.

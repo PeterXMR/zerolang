@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.io
+
+Use `std.io` for buffered reader/writer helpers over caller-owned storage and
+line-oriented byte processing.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may

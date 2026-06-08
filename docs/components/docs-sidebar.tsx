@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, HamburgerIcon } from "@/components/icons";
 import { Sheet, SheetTrigger, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -17,7 +18,7 @@ type SidebarNavProps = {
 function SidebarNav({ groups, activeSlug, onNavigate }: SidebarNavProps) {
   const initialCollapsed = new Set(
     groups
-      .filter((g) => g.section !== "Learn" && !g.items.some((i) => i.slug === activeSlug))
+      .filter((g) => g.section !== "Start Here" && !g.items.some((i) => i.slug === activeSlug))
       .map((g) => g.section),
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(initialCollapsed);
@@ -96,11 +97,18 @@ function SidebarNav({ groups, activeSlug, onNavigate }: SidebarNavProps) {
 
 type DocsSidebarShellProps = {
   groups: DocsGroup[];
-  activeSlug: string;
-  currentTitle?: string;
 };
 
-export function DocsSidebarShell({ groups, activeSlug, currentTitle }: DocsSidebarShellProps) {
+function activeDocForPath(groups: DocsGroup[], pathname: string) {
+  const normalized = pathname.replace(/\/$/, "") || "/";
+  return groups.flatMap((group) => group.items).find((item) => item.path === normalized);
+}
+
+export function DocsSidebarShell({ groups }: DocsSidebarShellProps) {
+  const pathname = usePathname();
+  const activeDoc = activeDocForPath(groups, pathname);
+  const activeSlug = activeDoc?.slug ?? "";
+  const currentTitle = activeDoc?.title;
   const [open, setOpen] = useState(false);
 
   return (

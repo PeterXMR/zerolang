@@ -1,4 +1,7 @@
-## Graph Surface
+## When To Use std.ascii
+
+Use `std.ascii` when a program needs byte-level ASCII predicates, case
+conversion, or digit values without Unicode normalization.
 
 This module is graph-backed. The compiler uses its standard-library graph store,
 while the Zero snippets below show the human-readable projection that agents may
