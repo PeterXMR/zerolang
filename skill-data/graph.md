@@ -137,7 +137,7 @@ To replace only one branch or nested body, query block handles and patch the
 selected `Block` node instead of rewriting the whole function:
 
 ```sh
-zero query --find Block <file-or-package>
+zero query --find Block <graph-input>
 ```
 
 ```text
@@ -160,15 +160,15 @@ zero patch --dry-run --json <package> /tmp/body.patch
 Inspect an existing package through the graph interface:
 
 ```sh
-zero query <file-or-package>
-zero query --fn main <file-or-package>
-zero query --find write <file-or-package>
-zero query --calls std <file-or-package>
-zero query --refs add <file-or-package>
-zero query --node '#expr_2cad38f9' <file-or-package>
-zero view <file-or-package>
-zero check <file-or-package>
-zero status <file-or-package>
+zero query <graph-input>
+zero query --fn main <graph-input>
+zero query --find write <graph-input>
+zero query --calls std <graph-input>
+zero query --refs add <graph-input>
+zero query --node '#expr_2cad38f9' <graph-input>
+zero view <graph-input>
+zero check <graph-input>
+zero status <graph-input>
 ```
 
 Stay on normal graph output for agent inspection. Add `--json` only when an
@@ -184,14 +184,14 @@ full graph dump. Low-level delete compacts ordered graph groups so valid sibling
 order is preserved. Use full dumps only when a tool needs every node and edge:
 
 ```sh
-zero query <file-or-package>
-zero query --fn main <file-or-package>
-zero query --find parse <file-or-package>
-zero query --calls std <file-or-package>
-zero query --refs add <file-or-package>
-zero query --node '#fn_main' <file-or-package>
-zero source-map <file-or-package>
-zero inspect <file-or-package>
+zero query <graph-input>
+zero query --fn main <graph-input>
+zero query --find parse <graph-input>
+zero query --calls std <graph-input>
+zero query --refs add <graph-input>
+zero query --node '#fn_main' <graph-input>
+zero source-map <graph-input>
+zero inspect <graph-input>
 zero patch <package> --op 'addMain'
 ```
 
@@ -199,7 +199,7 @@ Create a derived graph artifact only when you need to carry a graph between
 tools:
 
 ```sh
-zero dump --out .zero/agent/app.program-graph <file-or-package>
+zero dump --out .zero/agent/app.program-graph <graph-input>
 ```
 
 Inspect it with normal readable output:
@@ -213,15 +213,15 @@ zero roundtrip .zero/agent/app.program-graph
 Use source maps when a tool needs to connect graph nodes back to source ranges:
 
 ```sh
-zero source-map <file-or-package>
+zero source-map <graph-input>
 ```
 
 When a human has edited source after an agent captured a derived graph, reconcile
 the prior graph with the edited source before relying on old node IDs:
 
 ```sh
-zero dump --out .zero/agent/app.before.program-graph <file-or-package>
-zero reconcile .zero/agent/app.before.program-graph --source <file-or-package>
+zero dump --out .zero/agent/app.before.program-graph <graph-input>
+zero reconcile .zero/agent/app.before.program-graph --source <projection-or-package>
 ```
 
 `zero reconcile` reports unchanged, edited, inserted, deleted, ambiguous,

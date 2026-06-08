@@ -4431,7 +4431,15 @@ const zeroSkill = json(["skills", "get", "zero", "--full", "--json"]).body;
 assert.equal(zeroSkill.success, true);
 assert.match(zeroSkill.data[0].content, /# Zero/);
 assert.match(zeroSkill.data[0].content, /zero skills get zero --full/);
+assert.match(zeroSkill.data[0].content, /zero check <graph-input>/);
+assert.doesNotMatch(zeroSkill.data[0].content, /<file-or-package>/);
 assert.equal(zeroSkill.data[0].files, undefined);
+
+const agentSkill = json(["skills", "get", "agent", "--json"]).body;
+assert.equal(agentSkill.success, true);
+assert.match(agentSkill.data[0].content, /zero query <graph-input>/);
+assert.match(agentSkill.data[0].content, /Use JSON only when another tool must parse stable fields/);
+assert.doesNotMatch(agentSkill.data[0].content, /<file-or-package>/);
 
 const languageSkill = json(["skills", "get", "language", "--json"]).body;
 assert.equal(languageSkill.success, true);
@@ -4457,6 +4465,9 @@ const graphSkill = json(["skills", "get", "graph", "--json"]).body;
 assert.equal(graphSkill.success, true);
 assert.match(graphSkill.data[0].content, /# Zero Graph Authoring/);
 assert.match(graphSkill.data[0].content, /primary agent authoring surface/);
+assert.match(graphSkill.data[0].content, /zero query --find Block <graph-input>/);
+assert.match(graphSkill.data[0].content, /zero dump --out \.zero\/agent\/app\.program-graph <graph-input>/);
+assert.doesNotMatch(graphSkill.data[0].content, /<file-or-package>/);
 for (const op of graphPatchHelpJson.operations) {
   assert(graphSkill.data[0].content.includes(op), `graph skill should include patch operation ${op}`);
 }

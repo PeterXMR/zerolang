@@ -48,15 +48,15 @@ metadata.
 3. Inspect the current program through the graph:
 
 ```sh
-zero query <file-or-package>
-zero query --fn main <file-or-package>
-zero query --find write <file-or-package>
-zero query --calls std <file-or-package>
-zero query --refs add <file-or-package>
-zero query --node '#expr_2cad38f9' <file-or-package>
-zero view <file-or-package>
-zero check <file-or-package>
-zero status <file-or-package>
+zero query <graph-input>
+zero query --fn main <graph-input>
+zero query --find write <graph-input>
+zero query --calls std <graph-input>
+zero query --refs add <graph-input>
+zero query --node '#expr_2cad38f9' <graph-input>
+zero view <graph-input>
+zero check <graph-input>
+zero status <graph-input>
 ```
 
 4. Stay on normal graph output for agent inspection. Add `--json` only when an
@@ -70,12 +70,12 @@ and child edges. Delete patches preserve valid sibling order for ordered graph
 groups. Use full dumps only when a tool needs the complete node/edge table:
 
 ```sh
-zero query <file-or-package>
-zero query --fn main <file-or-package>
-zero query --find parse <file-or-package>
-zero query --calls std <file-or-package>
-zero query --refs add <file-or-package>
-zero query --node '#fn_main' <file-or-package>
+zero query <graph-input>
+zero query --fn main <graph-input>
+zero query --find parse <graph-input>
+zero query --calls std <graph-input>
+zero query --refs add <graph-input>
+zero query --node '#fn_main' <graph-input>
 ```
 
 5. For graph-first packages, patch the package graph store and validate with
@@ -119,7 +119,7 @@ For branch-local changes, query block handles and replace only the selected
 block:
 
 ```sh
-zero query --find Block <file-or-package>
+zero query --find Block <graph-input>
 ```
 
 ```text
@@ -184,7 +184,7 @@ projections, not the stdlib compiler source.
 10. Run a focused check:
 
 ```sh
-zero check <file-or-package>
+zero check <graph-input>
 ```
 
 11. When the compiler reports a diagnostic, explain the code first. If an
@@ -192,8 +192,8 @@ automation tool needs stable fields or a repair plan, rerun with JSON:
 
 ```sh
 zero explain <diagnostic-code>
-zero check --json <file-or-package>
-zero fix --plan --json <graph-backed-file-or-package>
+zero check --json <graph-input>
+zero fix --plan --json <graph-input>
 ```
 
 12. If behavior changes, add or update a `test` block or conformance fixture.
@@ -216,13 +216,13 @@ zero fix --plan --json <graph-backed-file-or-package>
 ## Useful Focused Commands
 
 ```sh
-zero check <input>
-zero inspect <input>
-zero query <input>
-zero view <input>
-zero status <input>
-zero test <input>
-zero size <input>
+zero check <graph-input>
+zero inspect <graph-input>
+zero query <graph-input>
+zero view <graph-input>
+zero status <graph-input>
+zero test <graph-input>
+zero size <graph-input>
 zero doctor
 ```
 

@@ -51,7 +51,7 @@ zero check examples/hello.graph
 
 ## JSON For Tools
 
-JSON is explicit. Use `--json` for agents, CI, editors, deep dives, and tools that need stable structured data.
+JSON is explicit. Use `--json` for CI, editors, deep dives, and tools that need stable structured data. Agents should start with normal command output and switch to JSON only when exact fields are needed.
 
 ```sh
 zero check --json examples/hello.graph
@@ -110,7 +110,7 @@ The native compiler keeps stable codes for implemented control-flow and type rul
 - `PKG002`: package dependencies form a cycle
 - `PKG003`: one package name resolves to conflicting versions
 - `PKG004`: a package dependency does not support the selected target
-- `BLD002`: bad project manifest or unsupported manifest target shape
+- `BLD002`: bad build input, including direct `.0` projection input to a graph-only compiler command, invalid graph target metadata, or unsupported manifest target shape
 - `ERR002`: a caller's explicit error set is missing an error raised by a callee
 - `ERR003`: a fallible call was used without `check` or `rescue`
 - `ABI001`: unsupported C ABI export or extern layout surface

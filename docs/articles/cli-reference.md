@@ -92,14 +92,14 @@ another tool needs stable fields.
 
 | Command | Useful JSON fields |
 | --- | --- |
-| `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, graph identity for source/package/artifact inputs, target readiness, direct graph lowering facts for ProgramGraph inputs, and safety facts for the selected target/emit kind. |
+| `zero check --json` | Diagnostics with code, span, expected/actual details, help, repair metadata, graph identity for package and graph artifact inputs, target readiness, direct graph lowering facts, and safety facts for the selected target/emit kind. |
 | `zero inspect --json` | Modules, public symbols, capabilities, static facts, safety facts, helper use, and nested `programGraph`. |
 | `zero init --json` | Create a graph-first package with a manifest and `zero.graph`, no materialized `.0` source projection, and next-step graph patch commands. |
 | `zero query --json` | Compact graph-first facts for tools: input kind, graph identity, selector metadata, module/function/body summaries, resolver-backed call/reference facts, matched node handles, selected-node neighborhoods, statement IDs, and common patch operations. |
 | `zero dump --json` | The bare deterministic ProgramGraph with `moduleIdentity`, `graphHash`, validation, counts, nodes, and edges. Use `--out <program-graph-artifact>` to also write a derived graph artifact. |
-| `zero import --json` | Source-to-ProgramGraph import with graph identity and validation. With `--out <program-graph-artifact>`, writes a derived graph artifact and reports `saved.path`. |
+| `zero import --json` | Human projection to graph import with graph identity and validation. With `--out <program-graph-artifact>`, writes a derived graph artifact and reports `saved.path`. |
 | `zero validate --json` | A derived ProgramGraph artifact readback check with `moduleIdentity`, `graphHash`, counts, validation state, and optional normalized artifact output path. |
-| `zero view --json` | Canonical source text rendered from source or a ProgramGraph artifact with `moduleIdentity`, `graphHash`, and optional output path. |
+| `zero view --json` | Canonical source projection rendered from a graph input with `moduleIdentity`, `graphHash`, and optional output path. |
 | `zero source-map --json` | Graph node IDs mapped to source ranges with node hashes, symbol/type/effect IDs, and file hash facts. |
 | `zero reconcile --json` | Identity decisions when edited source is compared with a prior graph, including ambiguous-match diagnostics and simple graph patch text when available. |
 | `zero status --json` | Repository graph projection facts, the expected `zero.graph` path, no-write status, store validity, and whether checked-in projections are current. |
@@ -108,14 +108,14 @@ another tool needs stable fields.
 | `zero size --json` | Size, helper, runtime, profile, safety, and backend facts for a ProgramGraph artifact lowered through typed graph MIR, with graph identity. |
 | `zero build --json` | Build a ProgramGraph artifact through typed graph MIR when supported, including graph identity, selected `emit` kind, target, artifact path and size, safety facts, compiler cache facts, and graph-aware incremental invalidation. |
 | `zero patch --json` | Checked graph edits with graph-hash preconditions, per-operation node/field results, the changed graph hash, and the saved source or artifact path. |
-| `zero roundtrip --json` | Source or ProgramGraph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
+| `zero roundtrip --json` | Graph artifact stability through direct graph lowering with `semanticStable`, lowering mode, original and roundtripped graph hashes, raw counts, normalized semantic counts, and optional ProgramGraph output. |
 | `zero dev --json` | A watch plan for changed source, manifest, package-lock, and generated-binding inputs. |
 | `zero dev --json --trace` | Adds phase timing, cache hit/miss facts, diagnostics passthrough, and `interfaceFingerprints`. |
 | `zero time --json` | Compiler phase timing plus `interfaceFingerprints` and incremental invalidation facts. |
 | `zero build --json` | Artifact path, size, selected `toolchain`, target triple, linker flavor, sysroot status, `graph` identity, `safetyFacts`, and runtime provider facts when a helper such as hosted HTTP is linked. |
 | `zero size --json` | `graph` identity, `profileSemantics`, `profileCatalog`, `profileBudget`, `safetyFacts`, `backendProfile`, `backendComparison`, `sizeBreakdown`, `retentionReasons`, and `optimizationHints`. |
 | `zero ship --json` | A release preview with artifact names, hashes, graph identity, safety facts, a checksum file, debug-symbol metadata, size report, and SBOM placeholder. |
-| `zero test --json` | Graph identity for canonical source, test discovery mode, selected fixtures, result counts, output, and per-test locations/failures. |
+| `zero test --json` | Graph identity, test discovery mode, selected fixtures, result counts, output, and per-test locations/failures. |
 | `zero doctor --json` | Host checks plus `targetToolchains`, the per-target readiness matrix. |
 
 Graph-backed compiler commands for `zero check`, `zero build`, `zero size`,

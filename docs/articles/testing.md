@@ -27,7 +27,7 @@ Expected-fail tests are named with `xfail:`, `expected fail:`, or `[xfail]`.
 
 ## JSON Contract
 
-`zero test --json` is intended for CI, editors, and repair agents. The stable fields include:
+`zero test --json` is intended for CI, editors, and tools that need stable fields. The stable fields include:
 
 ```text
 ok

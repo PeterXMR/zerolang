@@ -111,6 +111,9 @@ describe("docs registry", () => {
     }
     const diagnostics = await readDoc("diagnostics");
     assert.match(diagnostics, /JSON For Tools/);
+    assert.match(diagnostics, /Agents should start with normal command output/);
+    assert.doesNotMatch(diagnostics, /Use `--json` for agents/);
+    assert.match(diagnostics, /direct `\.0` projection input to a graph-only compiler command/);
     assert.match(diagnostics, /CIMP003/);
     assert.match(diagnostics, /configure-target-c-dependency/);
     assert.match(await readDoc("standard-library"), /zero inspect --json/);
@@ -137,6 +140,9 @@ describe("docs registry", () => {
     assert.match(await readDoc("cli-reference"), /checksum file/);
     assert.match(await readDoc("cli-reference"), /SBOM placeholder/);
     assert.match(await readDoc("cli-reference"), /zero test --json/);
+    assert.match(await readDoc("cli-reference"), /Human projection to graph import/);
+    assert.doesNotMatch(await readDoc("cli-reference"), /Source-to-ProgramGraph import/);
+    assert.doesNotMatch(await readDoc("cli-reference"), /source\/package\/artifact inputs/);
     assert.match(await readDoc("cli-reference"), /expectedFailures/);
     assert.match(await readDoc("cli-reference"), /snapshotKey/);
     assert.match(await readDoc("cli-reference"), /BLD003/);
@@ -144,6 +150,7 @@ describe("docs registry", () => {
     for (const testingTerm of ["zero test --json", "expectedFailures", "fixtures", "snapshotKey", "reliability:smoke", "native:sanitize", "fuzz", "crasher"]) {
       assert.match(testing, new RegExp(testingTerm));
     }
+    assert.doesNotMatch(testing, /repair agents/);
     const optimization = await readDoc("optimization");
     for (const optimizationTerm of ["profileSemantics", "profileBudget", "sizeBreakdown", "retentionReasons", "optimizationHints", "memoryBudgets", "allocatorFacts", "allocationInstrumentation", "collectionFacts", "trend summary", "ZERO_BENCH_RUNS=1 pnpm run bench", "debug", "fast", "small", "tiny"]) {
       assert.match(optimization, new RegExp(optimizationTerm));

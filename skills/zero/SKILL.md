@@ -41,11 +41,11 @@ Use `zero skills list` to discover additional skills bundled with that Zero vers
 ## Common Entry Points
 
 ```sh
-zero check <file-or-package>
-zero query <file-or-package>
-zero view <file-or-package>
-zero patch <file-or-package>
-zero size <file-or-package>
+zero check <graph-input>
+zero query <graph-input>
+zero view <graph-input>
+zero patch <graph-input>
+zero size <graph-input>
 zero explain <diagnostic-code>
 ```
 
