@@ -936,6 +936,12 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       programGraph,
     });
   }
+  if (!programGraph.repositoryStoreCommandPolicyCentralized) {
+    violations.push({
+      kind: "program-graph-repository-store-command-policy",
+      programGraph,
+    });
+  }
   if (!programGraph.repositoryStoreCompilerTables ||
       !programGraph.repositoryStoreMetadataSerialized ||
       !programGraph.repositoryStoreMetadataValidated ||
@@ -1300,12 +1306,15 @@ const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program
 const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ?? "";
 const programGraphBuildRaw = texts.get("native/zero-c/src/program_graph_build.c") ?? "";
 const programGraphBuildHeaderRaw = texts.get("native/zero-c/src/program_graph_build.h") ?? "";
+const programGraphCommandRaw = texts.get("native/zero-c/src/program_graph_command.c") ?? "";
+const programGraphCommandHeaderRaw = texts.get("native/zero-c/src/program_graph_command.h") ?? "";
 const programGraphStoreRaw = texts.get("native/zero-c/src/program_graph_store.c") ?? "";
 const programGraphStoreTablesRaw = texts.get("native/zero-c/src/program_graph_store_tables.c") ?? "";
 const programGraphRepositoryRaw = texts.get("native/zero-c/src/program_graph_repository.c") ?? "";
 const programGraphRepositoryInputRaw = texts.get("native/zero-c/src/program_graph_repository_input.c") ?? "";
 const programGraphProjectionValidateRaw = texts.get("native/zero-c/src/program_graph_projection_validate.c") ?? "";
 const programGraphTestRaw = texts.get("native/zero-c/src/program_graph_test.c") ?? "";
+const programGraphCommandSource = cCodeText(programGraphCommandRaw);
 const programGraphTestSource = cCodeText(programGraphTestRaw);
 const programGraphStoreSource = cCodeText(programGraphStoreRaw);
 const programGraphStoreTablesSource = cCodeText(programGraphStoreTablesRaw);
@@ -1718,6 +1727,11 @@ const programGraph = {
     !/\*\s*program\s*=\s*graph_program\s*;/.test(programGraphCompileSource),
   optedInRepositoryGraphClaimRemoved: !/ready-for-opted-in-repository-graph-input/.test(cCodeText(main)) &&
     !/ready-for-opted-in-repository-graph-input/.test(programGraphRepositoryRaw),
+  repositoryStoreCommandPolicyCentralized: /repository_store_input/.test(programGraphCommandSource) &&
+    /z_program_graph_command_can_use_repository_store\s*\(/.test(programGraphCommandSource) &&
+    /z_program_graph_command_can_use_repository_store\s*\(/.test(programGraphCommandHeaderRaw) &&
+    /z_program_graph_command_can_use_repository_store\s*\(\s*command->kind\s*\)/.test(cCodeText(main)) &&
+    !/static\s+bool\s+graph_command_can_use_repository_store\s*\(/.test(cCodeText(main)),
   repositoryStoreCompilerTables: /z_program_graph_store_table_counts_for_graph\s*\(/.test(programGraphStoreTablesSource) &&
     /ZProgramGraphStoreTableCounts/.test(programGraphStoreTablesSource),
   repositoryStoreMetadataSerialized: /compilerStore schemaVersion:1/.test(programGraphStoreTablesRaw) &&

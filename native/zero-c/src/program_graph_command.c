@@ -6,29 +6,32 @@
 typedef struct {
   const char *name;
   ZProgramGraphInputMode input_mode;
+  bool repository_store_input;
+  bool graph_subcommand;
   bool supports_out;
   ZProgramGraphOutputContract out_contract;
 } ZProgramGraphCommandKind;
 
-#define GRAPH_OUT(name, input_mode) \
-  {name, input_mode, true, {true, NULL, NULL, NULL, NULL}}
-#define GRAPH_NO_OUT(name, input_mode, message, expected, actual, help) \
-  {name, input_mode, false, {false, message, expected, actual, help}}
+#define GRAPH_OUT(name, input_mode, repo) {name, input_mode, repo, true, true, {true, NULL, NULL, NULL, NULL}}
+#define GRAPH_NO_OUT(name, input_mode, repo, message, expected, actual, help) {name, input_mode, repo, true, false, {false, message, expected, actual, help}}
 
 static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   GRAPH_NO_OUT(
     "init",
     Z_PROGRAM_GRAPH_INPUT_PATH,
+    false,
     "init writes repository files and does not support --out",
     "zero init [--json] [--format text|binary] <project-path>",
     "zero init --out",
     "init writes zero.toml or zero.json plus zero.graph at the selected project path; remove --out"
   ),
-  GRAPH_OUT("dump", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
-  GRAPH_OUT("import", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
+  GRAPH_OUT("dump", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
+  GRAPH_OUT("import", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, false),
+  {"check", Z_PROGRAM_GRAPH_INPUT_ARTIFACT, true, false, false, {false, "zero check does not support --out", "zero view --out <file.0> <graph-input>", "zero check --out", "run zero view to render canonical source, or run zero check without --out to typecheck the ProgramGraph input"}},
   GRAPH_NO_OUT(
     "query",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
+    true,
     "query does not support --out",
     "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] <graph-input>",
     "zero query --out",
@@ -37,16 +40,18 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   GRAPH_NO_OUT(
     "inspect",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
+    true,
     "inspect does not support --out",
     "zero inspect [--json] <graph-input>",
     "zero inspect --out",
     "use zero dump or zero import with --out when you need a derived ProgramGraph artifact"
   ),
-  GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
-  GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
+  GRAPH_OUT("validate", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
+  GRAPH_OUT("view", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
   GRAPH_NO_OUT(
     "source-map",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
+    true,
     "source-map does not support --out",
     "zero source-map [--json] <graph-input>",
     "zero source-map --out",
@@ -55,28 +60,30 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
   GRAPH_NO_OUT(
     "reconcile",
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
+    true,
     "reconcile does not support --out",
     "zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>",
     "zero reconcile --out",
     "reconciliation reports identity decisions on stdout; remove --out"
   ),
-  GRAPH_NO_OUT("status", Z_PROGRAM_GRAPH_INPUT_SOURCE, "status does not support --out", "zero status [--json] <project|zero.toml|zero.json|file.0>", "zero status --out", "status is reported on stdout; remove --out"),
-  GRAPH_NO_OUT("verify-projection", Z_PROGRAM_GRAPH_INPUT_SOURCE, "verify-projection does not support --out", "zero verify-projection [--json] <project|zero.toml|zero.json|file.0>", "zero verify-projection --out", "verify-projection is a no-write check; remove --out"),
-  GRAPH_NO_OUT("export", Z_PROGRAM_GRAPH_INPUT_SOURCE, "export writes fixed source projection paths and does not support --out", "zero export [--json] <project|zero.toml|zero.json|file.0>", "zero export --out", "export writes repository source projections from zero.graph; remove --out"),
-  GRAPH_NO_OUT("merge", Z_PROGRAM_GRAPH_INPUT_SOURCE, "merge writes the target zero.graph and does not support --out", "zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--format text|binary] <project|zero.toml|zero.json|file.0>", "zero merge --out", "merge writes the repository graph store selected by the input path; remove --out"),
-  GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
-  GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
-  GRAPH_OUT("run", Z_PROGRAM_GRAPH_INPUT_ARTIFACT),
-  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
+  GRAPH_NO_OUT("status", Z_PROGRAM_GRAPH_INPUT_SOURCE, false, "status does not support --out", "zero status [--json] <project|zero.toml|zero.json|file.0>", "zero status --out", "status is reported on stdout; remove --out"),
+  GRAPH_NO_OUT("verify-projection", Z_PROGRAM_GRAPH_INPUT_SOURCE, false, "verify-projection does not support --out", "zero verify-projection [--json] <project|zero.toml|zero.json|file.0>", "zero verify-projection --out", "verify-projection is a no-write check; remove --out"),
+  GRAPH_NO_OUT("export", Z_PROGRAM_GRAPH_INPUT_SOURCE, false, "export writes fixed source projection paths and does not support --out", "zero export [--json] <project|zero.toml|zero.json|file.0>", "zero export --out", "export writes repository source projections from zero.graph; remove --out"),
+  GRAPH_NO_OUT("merge", Z_PROGRAM_GRAPH_INPUT_SOURCE, false, "merge writes the target zero.graph and does not support --out", "zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--format text|binary] <project|zero.toml|zero.json|file.0>", "zero merge --out", "merge writes the repository graph store selected by the input path; remove --out"),
+  GRAPH_OUT("size", Z_PROGRAM_GRAPH_INPUT_ARTIFACT, true),
+  GRAPH_OUT("build", Z_PROGRAM_GRAPH_INPUT_ARTIFACT, true),
+  GRAPH_OUT("run", Z_PROGRAM_GRAPH_INPUT_ARTIFACT, true),
+  GRAPH_OUT("patch", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
   GRAPH_NO_OUT(
     "test",
     Z_PROGRAM_GRAPH_INPUT_ARTIFACT,
+    true,
     "zero test does not support --out",
     "zero test [--json] [--filter <name>] [--target <target>] <graph-input>",
     "zero test --out",
     "test results are reported on stdout; remove --out"
   ),
-  GRAPH_OUT("roundtrip", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT),
+  GRAPH_OUT("roundtrip", Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT, true),
 };
 
 #undef GRAPH_OUT
@@ -89,28 +96,15 @@ static const ZProgramGraphCommandKind *graph_kind(const char *kind) {
   return NULL;
 }
 
-bool z_program_graph_command_kind_is_known(const char *kind) {
-  return graph_kind(kind) != NULL;
-}
+bool z_program_graph_command_kind_is_known(const char *kind) { const ZProgramGraphCommandKind *item = graph_kind(kind); return item && item->graph_subcommand; }
 
-ZProgramGraphInputMode z_program_graph_command_input_mode(const char *kind) {
-  const ZProgramGraphCommandKind *item = graph_kind(kind);
-  return item ? item->input_mode : Z_PROGRAM_GRAPH_INPUT_UNKNOWN;
-}
+ZProgramGraphInputMode z_program_graph_command_input_mode(const char *kind) { const ZProgramGraphCommandKind *item = graph_kind(kind); return item ? item->input_mode : Z_PROGRAM_GRAPH_INPUT_UNKNOWN; }
 
-bool z_program_graph_command_kind_supports_out(const char *kind) {
-  const ZProgramGraphCommandKind *item = graph_kind(kind);
-  return item && item->supports_out;
-}
+bool z_program_graph_command_can_use_repository_store(const char *kind) { const ZProgramGraphCommandKind *item = graph_kind(kind); return item && item->repository_store_input; }
+
+bool z_program_graph_command_kind_supports_out(const char *kind) { const ZProgramGraphCommandKind *item = graph_kind(kind); return item && item->supports_out; }
 
 ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *kind) {
-  static const ZProgramGraphOutputContract check_contract = {
-    false,
-    "zero check does not support --out",
-    "zero view --out <file.0> <graph-input>",
-    "zero check --out",
-    "run zero view to render canonical source, or run zero check without --out to typecheck the ProgramGraph input",
-  };
   static const ZProgramGraphOutputContract fallback = {
     false,
     "output requires an output-capable graph command",
@@ -118,7 +112,6 @@ ZProgramGraphOutputContract z_program_graph_command_output_contract(const char *
     "zero --out",
     "use zero view --out <file.0> for canonical source, or choose a graph subcommand with command-specific output",
   };
-  if (strcmp(kind ? kind : "", "check") == 0) return check_contract;
   const ZProgramGraphCommandKind *item = graph_kind(kind);
   return item ? item->out_contract : fallback;
 }

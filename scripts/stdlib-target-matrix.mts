@@ -9,8 +9,8 @@ const execFileAsync = promisify(execFile);
 const zero = "bin/zero";
 const outDir = ".zero/stdlib-target-matrix";
 const fixtures = [
-  "conformance/native/pass/stdlib-target-neutral.0",
-  "conformance/native/pass/direct-checksum-helpers.0",
+  "conformance/native/pass/stdlib-target-neutral.graph",
+  "conformance/native/pass/direct-checksum-helpers.graph",
 ];
 const artifactBudgetBytes = 120_000;
 const targets = [
@@ -60,7 +60,7 @@ async function json(args: string[]) {
 
 const rows: MatrixRow[] = [];
 for (const fixture of fixtures) {
-  const stem = fixture.split("/").pop()?.replace(/\.0$/, "") ?? "fixture";
+  const stem = fixture.split("/").pop()?.replace(/\.(?:0|graph)$/, "") ?? "fixture";
   for (const target of targets) {
     const ext = target.includes("win32") ? ".obj" : ".o";
     const artifactPath = join(outDir, `${stem}-${target}${ext}`);

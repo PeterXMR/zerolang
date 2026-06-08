@@ -12509,31 +12509,23 @@ static int run_graph_validate_command(const Command *command, const ZTargetInfo 
   Program program = {0};
   ZProgramGraph graph = {0};
   GraphInputKind input_kind = GRAPH_INPUT_ARTIFACT;
+  int rc = 1;
   if (!load_graph_input_for_read(command, target, &input, &program, &graph, &input_kind, diag)) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
-    return 1;
+    goto cleanup;
   }
   if (command->out) {
     if (reject_graph_source_text_out(command, "zero validate --out <program-graph-artifact> <graph-input>", diag)) {
-      z_free_program(&program);
-      z_free_source(&input);
-      z_program_graph_free(&graph);
-      return 1;
+      goto cleanup;
     }
     ZProgramGraphStoreFormat store_format = Z_PROGRAM_GRAPH_STORE_FORMAT_TEXT;
     if (!command_repository_store_format(command, Z_PROGRAM_GRAPH_STORE_FORMAT_TEXT, &store_format, diag)) {
       print_command_diag(command, diag->path ? diag->path : command->out, diag);
-      z_free_program(&program);
-      z_free_source(&input);
-      z_program_graph_free(&graph);
-      return 1;
+      goto cleanup;
     }
     if (!z_program_graph_save_format(command->out, &graph, store_format, diag)) {
       print_command_diag(command, diag->path ? diag->path : command->out, diag);
-      z_free_program(&program);
-      z_free_source(&input);
-      z_program_graph_free(&graph);
-      return 1;
+      goto cleanup;
     }
   }
   ZProgramGraphValidation validation = {0};
@@ -12547,11 +12539,13 @@ static int run_graph_validate_command(const Command *command, const ZTargetInfo 
   } else {
     printf("program graph ok\n");
   }
+  rc = 0;
+cleanup:
   z_free_program(&program);
   z_free_source(&input);
   z_program_graph_free(&graph);
   (void)input_kind;
-  return 0;
+  return rc;
 }
 
 static int run_graph_dump_input_command(const Command *command, const ZTargetInfo *target, ZDiag *diag, bool graph_import) {
@@ -13215,26 +13209,8 @@ static int run_graph_artifact_roundtrip_command(const Command *command, ZDiag *d
   return ok ? 0 : 1;
 }
 
-static bool graph_command_can_use_repository_store(const char *kind) {
-  return kind &&
-         (strcmp(kind, "view") == 0 ||
-          strcmp(kind, "query") == 0 ||
-          strcmp(kind, "inspect") == 0 ||
-          strcmp(kind, "dump") == 0 ||
-          strcmp(kind, "validate") == 0 ||
-          strcmp(kind, "source-map") == 0 ||
-          strcmp(kind, "reconcile") == 0 ||
-          strcmp(kind, "check") == 0 ||
-          strcmp(kind, "size") == 0 ||
-          strcmp(kind, "build") == 0 ||
-          strcmp(kind, "run") == 0 ||
-          strcmp(kind, "test") == 0 ||
-          strcmp(kind, "patch") == 0 ||
-          strcmp(kind, "roundtrip") == 0);
-}
-
 static bool resolve_graph_repository_store_input(Command *command, bool *artifact_input, ZDiag *diag) {
-  if (!command || !command->input || !graph_command_can_use_repository_store(command->kind)) return true;
+  if (!command || !command->input || !z_program_graph_command_can_use_repository_store(command->kind)) return true;
   char *source_root = NULL;
   const char *manifest_input = command->input;
   if (is_zero_source_path(command->input)) {
