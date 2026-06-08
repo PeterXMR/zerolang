@@ -10,7 +10,9 @@ Use this when an agent needs common library calls, memory helpers, hosted I/O, o
 Stdlib modules are graph-backed. The checked-in `std/*.graph` files are binary
 graph stores used by the compiler path; sibling `std/*.0` files are
 human-readable projections for review and repair. Do not treat the projections
-as the stdlib compile source.
+as the stdlib compile source, and do not browse or edit them as the first step
+when an agent needs a helper. Load this skill, inspect the target package graph
+with `zero query` or `zero inspect`, then patch the user's graph-backed program.
 
 ## Import
 

@@ -1,9 +1,9 @@
 ## Getting Started
 
-Zero is the programming language for agents. The normal first workflow is not
-"write a `.0` file"; it is "ask an agent to create a graph-first package, let
-the compiler own the graph, and materialize `.0` only as the human-readable
-projection."
+Zero is the programming language for agents. The normal user workflow is an
+agent conversation over a graph-first package, not hand-writing source text.
+Ask the agent to inspect and patch `zero.graph`; export `.0` only when humans
+need a readable projection for review, audit, or an occasional manual edit.
 
 ## Install The Compiler
 
@@ -18,8 +18,9 @@ writes it to `$HOME/.zero/bin/zero`.
 
 ## Ask An Agent For Hello World
 
-Start by telling the agent to use Zero's bundled skills and to write through the
-graph:
+Start by telling the agent to use Zero's bundled skills and to write through
+the graph. The agent should learn the local compiler surface from `zero skills`
+before it edits anything:
 
 ```text
 Check out the agent, graph, and language skills for Zero:
@@ -98,7 +99,8 @@ pub fn main(world: World) -> Void raises {
 ```
 
 That file is useful for human trust. The graph remains the normal agent
-read/write surface.
+read/write surface, and most users should interact with it by asking an agent
+to make a checked graph edit.
 
 ## Check, Run, And Build
 
@@ -130,7 +132,8 @@ projection.
 
 ## Learn The Core Syntax
 
-The examples are still useful for humans learning how Zero reads:
+The examples are still useful for humans learning how Zero projections read.
+Run the graph sidecars, not the `.0` files:
 
 ```sh
 zero check examples/hello.graph

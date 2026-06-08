@@ -117,8 +117,19 @@ describe("docs registry", () => {
     assert.match(diagnostics, /CIMP003/);
     assert.match(diagnostics, /configure-target-c-dependency/);
     assert.match(await readDoc("standard-library"), /zero inspect --json/);
+    assert.match(await readDoc("standard-library"), /Graph-Backed Modules/);
+    assert.match(await readDoc("standard-library"), /binary `std\/\*\.graph` stores/);
+    assert.match(await readDoc("standard-library"), /reviewable\s+projections of graph-authored programs/);
     assert.match(await readDoc("standard-library"), /usedStdlibHelpers/);
     assert.match(await readDoc("standard-library"), /ownershipNotes/);
+    const moduleDocs = docs.filter((doc) => doc.section === "Modules");
+    for (const moduleDocInfo of moduleDocs) {
+      const moduleDoc = await readFile(join(docsSiteRoot, moduleDocInfo.sourcePath.slice(1)), "utf8");
+      assert.match(moduleDoc, /## Graph Surface/, `${moduleDocInfo.sourcePath} should explain its graph surface`);
+      assert.match(moduleDoc, /This module is graph-backed/, `${moduleDocInfo.sourcePath} should be graph-first`);
+      assert.match(moduleDoc, /human-readable projection/, `${moduleDocInfo.sourcePath} should explain .0 projection snippets`);
+      assert.match(moduleDoc, /zero query <graph-input>/, `${moduleDocInfo.sourcePath} should point agents at graph inspection`);
+    }
     for (const moduleSlug of ["module-io", "module-rand", "module-proc", "module-crypto", "module-net", "module-http"]) {
       const moduleDoc = await readDoc(moduleSlug);
       for (const label of ["effects", "allocation behavior", "target support", "error behavior", "ownership notes", "example"]) {

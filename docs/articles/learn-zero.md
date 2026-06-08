@@ -1,5 +1,9 @@
 ## A Program Starts With `main`
 
+This tour shows the readable projection syntax for graph examples. Use the
+`.graph` inputs in commands and ask agents to patch graph stores; the snippets
+explain what humans will see after export.
+
 The smallest example is `examples/hello.graph`:
 
 ```zero

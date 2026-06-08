@@ -1,9 +1,23 @@
 ## Standard Library Reference
 
-Zero's standard library is pay-as-used and capability-aware. Importing memory
-helpers does not pull in hosted filesystem helpers.
+Zero's standard library is pay-as-used, capability-aware, and graph-backed.
+Importing memory helpers does not pull in hosted filesystem helpers.
 
 Hosted APIs report their target requirements in `zero inspect` and `zero size`.
+
+## Graph-Backed Modules
+
+The standard library compile path uses binary `std/*.graph` stores. Sibling
+`std/*.0` files are human-readable projections so people can review what the
+graph contains, but they are not the compiler source of truth. Agents should
+learn the callable surface from `zero skills get stdlib`, inspect package use
+with `zero query` or `zero inspect`, and patch user programs through the graph.
+
+Module pages include Zero snippets because `.0` projections are still the most
+compact way for humans to read examples. Treat those snippets as reviewable
+projections of graph-authored programs. When a human rarely edits a projection,
+run `zero import <package>` before checking or building so the graph store is
+current again.
 
 Runnable modules:
 
@@ -38,10 +52,14 @@ Runnable modules:
 Each module page documents target support, allocation behavior, error behavior,
 ownership notes, and runnable examples.
 
-Use the CLI to inspect what a program actually retains:
+Use the CLI to inspect what a graph-backed program actually retains. Start with
+readable output for agent context; add `--json` when automation needs stable
+fields:
 
 | Command | Shows |
 | --- | --- |
+| `zero query <graph-input>` | Module, function, call, reference, and node handles for graph edits. |
+| `zero inspect <graph-input>` | Required capabilities and imported helpers in readable form. |
 | `zero inspect --json <graph-input>` | Required capabilities and imported helpers. |
 | `zero size --json <graph-input>` | Helper metadata and retained helper cost. |
 | `zero mem --json <graph-input>` | `memoryBudgets`, `allocatorFacts`, `allocationInstrumentation`, and `collectionFacts`. |

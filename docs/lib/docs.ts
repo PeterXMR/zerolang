@@ -4,7 +4,7 @@ export const docs: Doc[] = [
   {
     slug: "getting-started",
     title: "Getting Started",
-    description: "Install Zero, check a file, and run your first program.",
+    description: "Install Zero and ask an agent to create a graph-first program.",
     path: "/getting-started",
     sourcePath: "/articles/getting-started.md",
     section: "Learn",
@@ -36,7 +36,7 @@ export const docs: Doc[] = [
   {
     slug: "standard-library",
     title: "Standard Library Reference",
-    description: "Runnable modules, allocation behavior, capabilities, and helper metadata.",
+    description: "Graph-backed modules, allocation behavior, capabilities, and helper metadata.",
     path: "/standard-library",
     sourcePath: "/articles/standard-library.md",
     section: "Reference",
