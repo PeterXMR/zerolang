@@ -6420,7 +6420,7 @@ static void record_stdlib_arg_fact(ZCallResolution *resolution, size_t index, co
 static bool check_stdlib_allocator_arg(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, size_t index, const char *display_name, const char *alloc_help, const char *mut_help) {
   if (!check_expr(ctx, program, expr->args.items[index], scope, diag)) return false;
   const char *alloc_type = expr_type(ctx, program, expr->args.items[index], scope);
-  record_stdlib_arg_fact(resolution, index, expr->args.items[index], NULL, alloc_type);
+  record_stdlib_arg_fact(resolution, index, expr->args.items[index], "Alloc", alloc_type);
   if (!is_allocator_type(alloc_type)) {
     char message[256];
     snprintf(message, sizeof(message), "%s expects an allocator primitive", display_name);
@@ -6452,11 +6452,11 @@ static bool check_stdlib_mem_len_call_expected(CheckContext *ctx, const Program 
 static bool check_stdlib_mem_get_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
   if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) return false;
   const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
-  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], NULL, actual);
   char element_type[128];
   if (!index_element_type(actual, element_type, sizeof(element_type))) {
     return set_diag_detail(diag, 3012, "std.mem.get expects an indexable value", expr->args.items[0]->line, expr->args.items[0]->column, "[N]T, Span<T>, MutSpan<T>, or String", actual, "pass an indexable value and handle the Maybe<T> result");
   }
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], "Span<T>", actual);
   if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) return false;
   const char *index_type = expr_type(ctx, program, expr->args.items[1], scope);
   if (!is_int_type(index_type)) {
@@ -6474,13 +6474,13 @@ static bool check_stdlib_mem_eql_bytes_call_expected(CheckContext *ctx, const Pr
   if (!check_expr(ctx, program, expr->args.items[0], scope, diag) || !check_expr(ctx, program, expr->args.items[1], scope, diag)) return false;
   const char *left_type = expr_type(ctx, program, expr->args.items[0], scope);
   const char *right_type = expr_type(ctx, program, expr->args.items[1], scope);
-  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], NULL, left_type);
-  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], NULL, right_type);
   char left_element[128];
   char right_element[128];
   if (!span_element_text(left_type, left_element, sizeof(left_element)) || !span_element_text(right_type, right_element, sizeof(right_element))) {
     return set_diag_detail(diag, 3012, "std.mem.eqlBytes expects Span<T> arguments", expr->line, expr->column, "two Span<T> values", "non-span argument", "pass spans with matching element types");
   }
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], "Span<T>", left_type);
+  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "Span<T>", right_type);
   if (!types_compatible_in_scope(program, scope, left_element, right_element)) {
     return set_diag_detail(diag, 3012, "std.mem.eqlBytes span element types must match", expr->line, expr->column, left_element, right_element, "compare spans with the same element type");
   }

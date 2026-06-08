@@ -216,23 +216,7 @@ const knownLargeFunctionLimits = new Map([
 
 const knownReturnTypeDivergences = new Map();
 
-const allowedHelpersWithSpecialArgTypeChecks = [
-  "std.collections.append",
-  "std.collections.contains",
-  "std.collections.count",
-  "std.collections.moveToFront",
-  "std.collections.push",
-  "std.collections.removeSwap",
-  "std.collections.view",
-  "std.mem.contains",
-  "std.mem.copyItems",
-  "std.mem.eqlBytes",
-  "std.mem.fillItems",
-  "std.mem.isEmpty",
-  "std.mem.len",
-  "std.search.indexOf",
-  "std.search.lastIndexOf",
-];
+const allowedHelpersWithSpecialArgTypeChecks = [];
 
 const expectedStdHelperKinds = new Map([
   ["std.collections.append", "Z_STD_HELPER_KIND_COLLECTIONS_APPEND"],
@@ -721,6 +705,17 @@ function helperArgTypeArityMismatches(helpers, checkerArgTypes) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function helperArgTypeNullGaps(helpers, checkerArgTypes) {
+  return helpers
+    .filter((helper) => checkerArgTypes.has(helper.name))
+    .flatMap((helper) => checkerArgTypes.get(helper.name)
+      .slice(0, helper.argCount)
+      .map((type, index) => ({ name: helper.name, index, type }))
+      .filter((entry) => entry.type === null)
+      .map((entry) => ({ name: entry.name, index: entry.index })))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.index - b.index);
+}
+
 function knownReturnTypeDivergenceMatches(mismatch) {
   const known = knownReturnTypeDivergences.get(mismatch.name);
   return known &&
@@ -867,6 +862,12 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
     violations.push({
       kind: "stdlib-helper-arg-type-arity-mismatch",
       mismatches: stdlib.argTypeArityMismatches,
+    });
+  }
+  if (stdlib.argTypeNullGaps.length > 0) {
+    violations.push({
+      kind: "stdlib-helper-arg-type-null-gap",
+      gaps: stdlib.argTypeNullGaps,
     });
   }
   const unexpectedArgTypeGaps = missingFrom(
@@ -1262,6 +1263,7 @@ const stdlib = {
   argCountMismatches: helperArgCountMismatches(stdHelpers, checkerArgCounts),
   checkerArgTypesMissingFromMainHelpers: missingFrom(checkerArgTypeNames, mainHelperNames),
   argTypeArityMismatches: helperArgTypeArityMismatches(stdHelpers, checkerArgTypeInfo.map),
+  argTypeNullGaps: helperArgTypeNullGaps(stdHelpers, checkerArgTypeInfo.map),
   nonzeroArgHelpersMissingFromCheckerArgTypes: missingFrom(nonzeroArgHelperNames, checkerArgTypeNames),
   fallibleHelperCount: new Set(fallibleHelperNames).size,
   orRaiseHelpersMissingFallibleErrors: missingFrom(orRaiseHelperNames, fallibleHelperNames),

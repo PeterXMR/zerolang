@@ -29,6 +29,11 @@ type StdSourceCall = {
   module: string;
 };
 
+type StdSkillSignature = {
+  returnType: string;
+  argTypes: string[];
+};
+
 const targetSupportValues = new Set(["target-neutral", "host", "host-runtime"]);
 const helperKindPattern = /^Z_STD_HELPER_KIND_[A-Z_]+$/;
 const helperNamePattern = /^std\.[a-z][A-Za-z0-9]*\.[A-Za-z][A-Za-z0-9]*$/;
@@ -111,6 +116,34 @@ function parseStdHelpers(text: string): StdHelper[] {
   return helpers.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function parseSkillSignatures(text: string): Map<string, StdSkillSignature> {
+  const start = text.indexOf("## Function Signatures");
+  if (start < 0) return new Map();
+  const end = text.indexOf("## Maybe Pattern", start);
+  const catalog = text.slice(start, end < 0 ? undefined : end);
+  const signatures = new Map<string, StdSkillSignature>();
+  const modulePattern = /### (std\.[A-Za-z0-9]+)\s+```text\n([\s\S]*?)\n```/g;
+  for (const moduleMatch of catalog.matchAll(modulePattern)) {
+    const module = moduleMatch[1];
+    for (const rawLine of moduleMatch[2].split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (line.length === 0) continue;
+      const signatureMatch = line.match(/^([A-Za-z][A-Za-z0-9]*)\((.*)\) -> (.+)$/);
+      if (!signatureMatch) continue;
+      const argText = signatureMatch[2].trim();
+      const argTypes = argText.length === 0
+        ? []
+        : argText.split(/\s*,\s*/).map((arg) => {
+            const colon = arg.indexOf(":");
+            return (colon >= 0 ? arg.slice(colon + 1) : arg).trim();
+          });
+      const returnType = signatureMatch[3].replace(/\s+raises\s+\[[^\]]*\]\s*$/, "").trim();
+      signatures.set(`${module}.${signatureMatch[1]}`, { returnType, argTypes });
+    }
+  }
+  return signatures;
+}
+
 function parseStdSourceModules(text: string): StdSourceModule[] {
   const block = cBlock(text, "static const ZStdSourceModule std_source_modules[] =");
   return [...block.matchAll(/\{\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*zero_embedded_stdlib_graph_[A-Za-z0-9_]+_bytes\s*,\s*sizeof\s*\(\s*zero_embedded_stdlib_graph_[A-Za-z0-9_]+_bytes\s*\)\s*\}/g)]
@@ -163,6 +196,7 @@ const stdGraphFiles = stdEntries
   .map((entry) => `std/${entry.name}`)
   .sort((a, b) => a.localeCompare(b));
 const helpers = parseStdHelpers(stdSig);
+const skillSignatures = parseSkillSignatures(skill);
 const modules = [...new Set(helpers.map((helper) => helper.module))].sort((a, b) => a.localeCompare(b));
 const sourceModules = parseStdSourceModules(stdSource);
 const sourceCalls = parseStdSourceCalls(stdSource);
@@ -209,6 +243,9 @@ for (const helper of helpers) {
   pushIf(helper.returnType.length === 0, failures, `${helper.name}: return type is empty`);
   pushIf(helper.argCount < 0 || helper.argCount > 4, failures, `${helper.name}: arg count ${helper.argCount} exceeds contract bounds`);
   pushIf(helper.argTypes.length > 4, failures, `${helper.name}: arg type list exceeds contract bounds`);
+  for (let index = 0; index < helper.argCount; index++) {
+    pushIf(helper.argTypes[index] === null || helper.argTypes[index] === undefined, failures, `${helper.name}: arg ${index + 1} is missing from std_sig.c`);
+  }
   pushIf(helper.errorNames.length > 4, failures, `${helper.name}: error list exceeds contract bounds`);
   pushIf(!targetSupportValues.has(helper.targetSupport), failures, `${helper.name}: unknown target support '${helper.targetSupport}'`);
   pushIf(helper.capability.length === 0, failures, `${helper.name}: capability is empty`);
@@ -223,11 +260,26 @@ for (const module of modules) {
 }
 
 for (const helper of helpers) {
+  const signature = skillSignatures.get(helper.name);
+  pushIf(!signature, failures, `${helper.name}: skill-data/stdlib.md is missing a Function Signatures row`);
+  if (signature) {
+    pushIf(signature.returnType !== helper.returnType, failures, `${helper.name}: skill return type ${signature.returnType} does not match std_sig.c ${helper.returnType}`);
+    pushIf(signature.argTypes.length !== helper.argCount, failures, `${helper.name}: skill arg count ${signature.argTypes.length} does not match std_sig.c ${helper.argCount}`);
+    for (let index = 0; index < helper.argCount && index < signature.argTypes.length; index++) {
+      const expected = helper.argTypes[index];
+      if (expected !== null && expected !== undefined) {
+        pushIf(signature.argTypes[index] !== expected, failures, `${helper.name}: skill arg ${index + 1} type ${signature.argTypes[index]} does not match std_sig.c ${expected}`);
+      }
+    }
+  }
   const docs = docsByModule.get(helper.module);
   if (docs) {
     pushIf(!docs.includes(helper.name), failures, `${helper.name}: public module docs do not mention helper`);
   }
   pushIf(!fixtureTexts.some((fixture) => fixture.text.includes(helper.name)), failures, `${helper.name}: no example, conformance fixture, or Rosetta task exercises helper`);
+}
+for (const name of [...skillSignatures.keys()].sort((a, b) => a.localeCompare(b))) {
+  pushIf(!helpersByName.has(name), failures, `${name}: skill-data/stdlib.md Function Signatures row has no std_sig.c helper`);
 }
 
 for (const projectionPath of stdProjectionFiles) {

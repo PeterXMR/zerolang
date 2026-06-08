@@ -566,7 +566,7 @@ prefix(items: Span<T>, len: usize) -> Span<T>
 dropPrefix(items: Span<T>, len: usize) -> Span<T>
 len(items: Span<T>) -> usize
 get(items: Span<T>, index: usize) -> Maybe<T>
-eqlBytes(left: Span<u8>, right: Span<u8>) -> Bool
+eqlBytes(left: Span<T>, right: Span<T>) -> Bool
 nullAlloc() -> NullAlloc
 fixedBufAlloc(arg0: MutSpan<u8>) -> FixedBufAlloc
 arena(arg0: MutSpan<u8>) -> FixedBufAlloc
