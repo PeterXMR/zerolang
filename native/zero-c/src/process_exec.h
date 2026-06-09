@@ -15,5 +15,7 @@ bool z_process_argv_append_flag_text(Z_INOUT ZProcessArgv *argv, Z_IN const char
 void z_process_argv_free(Z_INOUT ZProcessArgv *argv);
 bool z_process_ensure_dir(Z_IN const char *path);
 bool z_process_run_argv(Z_IN const ZProcessArgv *argv, bool suppress_stdout, bool suppress_stderr, bool uses_zig_env);
+bool z_process_command_available(Z_IN const char *name);
+Z_RET_OWNED char *z_process_first_stdout_line(Z_IN const char *const *argv, bool suppress_stderr);
 
 #endif

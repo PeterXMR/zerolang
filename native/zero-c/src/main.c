@@ -37,6 +37,7 @@
 #include "program_graph_store_tables.h"
 #include "program_graph_test.h"
 #include "program_graph_view.h"
+#include "process_exec.h"
 #include "safety_contract.h"
 #include "std_sig.h"
 #include "std_source.h"
@@ -628,9 +629,7 @@ static const char *zero_commit(void) {
 }
 
 static bool command_available(const char *name) {
-  char command[128];
-  snprintf(command, sizeof(command), "command -v %s >/dev/null 2>&1", name);
-  return system(command) == 0;
+  return z_process_command_available(name);
 }
 
 typedef struct {
@@ -983,17 +982,6 @@ static bool link_direct_object_executable(const char *object_file, const char *r
     snprintf(diag->help, sizeof(diag->help), http_object_file && http_object_file[0] ? "install libcurl or inspect the direct object, runtime objects, and host C linker diagnostics" : "inspect the direct object, optional runtime object, extern C link inputs, and host C linker diagnostics");
   }
   return ok;
-}
-
-static char *command_first_line(const char *command) {
-  FILE *pipe = popen(command, "r");
-  if (!pipe) return z_strdup("");
-  char line[256];
-  if (!fgets(line, sizeof(line), pipe)) line[0] = 0;
-  pclose(pipe);
-  size_t len = strlen(line);
-  while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = 0;
-  return z_strdup(line);
 }
 
 static bool path_exists(const char *path) {
@@ -7042,7 +7030,8 @@ static int print_version_command(bool json) {
   bool target_cc_override = zero_cc && zero_cc[0];
   bool bundled_target_cc_available = command_available("zig");
   bool target_cc_available = target_cc_override || bundled_target_cc_available;
-  char *target_cc_version = target_cc_override ? z_strdup("configured via ZERO_CC") : (bundled_target_cc_available ? command_first_line("zig version 2>/dev/null") : z_strdup(""));
+  const char *const zig_version_argv[] = {"zig", "version", NULL};
+  char *target_cc_version = target_cc_override ? z_strdup("configured via ZERO_CC") : (bundled_target_cc_available ? z_process_first_stdout_line(zig_version_argv, true) : z_strdup(""));
 
   ZBuf buf;
   zbuf_init(&buf);
@@ -7543,8 +7532,10 @@ static int doctor_command(bool json) {
   overall = worse_status(overall, (zero_dir_ok && write_ok) ? "ok" : "error");
   overall = worse_status(overall, docs_ok ? "ok" : "warning");
 
-  char *cc_message = cc_ok ? command_first_line("cc --version 2>/dev/null") : z_strdup("no native C compiler found on PATH");
-  char *target_cc_message = target_cc_override ? z_strdup("configured via ZERO_CC") : (bundled_target_cc_ok ? command_first_line("zig version 2>/dev/null") : z_strdup("target-capable C compiler not found; cross-target executable builds may be unavailable"));
+  const char *const cc_version_argv[] = {"cc", "--version", NULL};
+  const char *const zig_version_argv[] = {"zig", "version", NULL};
+  char *cc_message = cc_ok ? z_process_first_stdout_line(cc_version_argv, true) : z_strdup("no native C compiler found on PATH");
+  char *target_cc_message = target_cc_override ? z_strdup("configured via ZERO_CC") : (bundled_target_cc_ok ? z_process_first_stdout_line(zig_version_argv, true) : z_strdup("target-capable C compiler not found; cross-target executable builds may be unavailable"));
 
   if (json) {
     ZBuf buf;
