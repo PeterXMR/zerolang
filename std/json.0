@@ -1109,16 +1109,65 @@ fn __zero_std_json_write_object_close(buffer: MutSpan<u8>, cursor: usize) -> May
     return buffer[..cursor + 1]
 }
 
+fn __zero_std_json_write_span(buffer: MutSpan<u8>, cursor: usize, bytes: Span<u8>) -> Maybe<usize> {
+    if cursor > std.mem.len(buffer) || std.mem.len(bytes) > std.mem.len(buffer) - cursor {
+        return null
+    }
+    var index: usize = 0
+    while index < std.mem.len(bytes) {
+        buffer[cursor + index] = bytes[index]
+        index = index + 1
+    }
+    return cursor + std.mem.len(bytes)
+}
+
+fn __zero_std_json_write_value_string(buffer: MutSpan<u8>, cursor: usize, value: Span<u8>) -> Maybe<usize> {
+    let written: Maybe<Span<u8>> = __zero_std_json_write_string_bytes(buffer[cursor..], value)
+    if !written.has {
+        return null
+    }
+    return cursor + std.mem.len(written.value)
+}
+
+fn __zero_std_json_write_value_u32(buffer: MutSpan<u8>, cursor: usize, value: u32) -> Maybe<usize> {
+    let written: Maybe<Span<u8>> = std.fmt.u32(buffer[cursor..], value)
+    if !written.has {
+        return null
+    }
+    return cursor + std.mem.len(written.value)
+}
+
+fn __zero_std_json_write_value_bool(buffer: MutSpan<u8>, cursor: usize, value: Bool) -> Maybe<usize> {
+    let written: Maybe<Span<u8>> = std.fmt.bool(buffer[cursor..], value)
+    if !written.has {
+        return null
+    }
+    return cursor + std.mem.len(written.value)
+}
+
+fn __zero_std_json_write_field_key(buffer: MutSpan<u8>, key: Span<u8>) -> Maybe<usize> {
+    let written_key: Maybe<Span<u8>> = __zero_std_json_write_string_bytes(buffer, key)
+    if !written_key.has {
+        return null
+    }
+    let cursor: usize = std.mem.len(written_key.value)
+    if cursor >= std.mem.len(buffer) {
+        return null
+    }
+    buffer[cursor] = 58_u8
+    return cursor + 1
+}
+
 fn __zero_std_json_write_object1_string(buffer: MutSpan<u8>, key: Span<u8>, value: Span<u8>) -> Maybe<Span<u8>> {
     let cursor: Maybe<usize> = __zero_std_json_write_object_key(buffer, key)
     if !cursor.has {
         return null
     }
-    let written_value: Maybe<Span<u8>> = __zero_std_json_write_string_bytes(buffer[cursor.value..], value)
-    if !written_value.has {
+    let end: Maybe<usize> = __zero_std_json_write_value_string(buffer, cursor.value, value)
+    if !end.has {
         return null
     }
-    return __zero_std_json_write_object_close(buffer, cursor.value + std.mem.len(written_value.value))
+    return __zero_std_json_write_object_close(buffer, end.value)
 }
 
 fn __zero_std_json_write_object1_u32(buffer: MutSpan<u8>, key: Span<u8>, value: u32) -> Maybe<Span<u8>> {
@@ -1126,11 +1175,11 @@ fn __zero_std_json_write_object1_u32(buffer: MutSpan<u8>, key: Span<u8>, value: 
     if !cursor.has {
         return null
     }
-    let written_value: Maybe<Span<u8>> = std.fmt.u32(buffer[cursor.value..], value)
-    if !written_value.has {
+    let end: Maybe<usize> = __zero_std_json_write_value_u32(buffer, cursor.value, value)
+    if !end.has {
         return null
     }
-    return __zero_std_json_write_object_close(buffer, cursor.value + std.mem.len(written_value.value))
+    return __zero_std_json_write_object_close(buffer, end.value)
 }
 
 fn __zero_std_json_write_object1_bool(buffer: MutSpan<u8>, key: Span<u8>, value: Bool) -> Maybe<Span<u8>> {
@@ -1138,9 +1187,84 @@ fn __zero_std_json_write_object1_bool(buffer: MutSpan<u8>, key: Span<u8>, value:
     if !cursor.has {
         return null
     }
-    let written_value: Maybe<Span<u8>> = std.fmt.bool(buffer[cursor.value..], value)
-    if !written_value.has {
+    let end: Maybe<usize> = __zero_std_json_write_value_bool(buffer, cursor.value, value)
+    if !end.has {
         return null
     }
-    return __zero_std_json_write_object_close(buffer, cursor.value + std.mem.len(written_value.value))
+    return __zero_std_json_write_object_close(buffer, end.value)
+}
+
+fn __zero_std_json_write_field_raw(buffer: MutSpan<u8>, key: Span<u8>, value: Span<u8>) -> Maybe<Span<u8>> {
+    if __zero_std_json_validate_error(value) != __zero_std_json_error_none() {
+        return null
+    }
+    let cursor: Maybe<usize> = __zero_std_json_write_field_key(buffer, key)
+    if !cursor.has {
+        return null
+    }
+    let end: Maybe<usize> = __zero_std_json_write_span(buffer, cursor.value, value)
+    if !end.has {
+        return null
+    }
+    return buffer[..end.value]
+}
+
+fn __zero_std_json_write_field_string(buffer: MutSpan<u8>, key: Span<u8>, value: Span<u8>) -> Maybe<Span<u8>> {
+    let cursor: Maybe<usize> = __zero_std_json_write_field_key(buffer, key)
+    if !cursor.has {
+        return null
+    }
+    let end: Maybe<usize> = __zero_std_json_write_value_string(buffer, cursor.value, value)
+    if !end.has {
+        return null
+    }
+    return buffer[..end.value]
+}
+
+fn __zero_std_json_write_field_u32(buffer: MutSpan<u8>, key: Span<u8>, value: u32) -> Maybe<Span<u8>> {
+    let cursor: Maybe<usize> = __zero_std_json_write_field_key(buffer, key)
+    if !cursor.has {
+        return null
+    }
+    let end: Maybe<usize> = __zero_std_json_write_value_u32(buffer, cursor.value, value)
+    if !end.has {
+        return null
+    }
+    return buffer[..end.value]
+}
+
+fn __zero_std_json_write_field_bool(buffer: MutSpan<u8>, key: Span<u8>, value: Bool) -> Maybe<Span<u8>> {
+    let cursor: Maybe<usize> = __zero_std_json_write_field_key(buffer, key)
+    if !cursor.has {
+        return null
+    }
+    let end: Maybe<usize> = __zero_std_json_write_value_bool(buffer, cursor.value, value)
+    if !end.has {
+        return null
+    }
+    return buffer[..end.value]
+}
+
+fn __zero_std_json_write_object2_fields(buffer: MutSpan<u8>, field0: Span<u8>, field1: Span<u8>) -> Maybe<Span<u8>> {
+    if std.mem.len(buffer) == 0 {
+        return null
+    }
+    buffer[0] = 123_u8
+    let cursor0: Maybe<usize> = __zero_std_json_write_span(buffer, 1, field0)
+    if !cursor0.has || cursor0.value >= std.mem.len(buffer) {
+        return null
+    }
+    buffer[cursor0.value] = 44_u8
+    let cursor1: Maybe<usize> = __zero_std_json_write_span(buffer, cursor0.value + 1, field1)
+    if !cursor1.has {
+        return null
+    }
+    let written: Maybe<Span<u8>> = __zero_std_json_write_object_close(buffer, cursor1.value)
+    if !written.has {
+        return null
+    }
+    if __zero_std_json_validate_error(written.value) != __zero_std_json_error_none() {
+        return null
+    }
+    return written.value
 }

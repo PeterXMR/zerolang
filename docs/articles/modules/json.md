@@ -35,6 +35,11 @@ Runnable today:
 | `std.json.writeObject1String(buffer, key, value)` | `Maybe<Span<u8>>` | Writes a one-field object with a string value. |
 | `std.json.writeObject1U32(buffer, key, value)` | `Maybe<Span<u8>>` | Writes a one-field object with a `u32` value. |
 | `std.json.writeObject1Bool(buffer, key, value)` | `Maybe<Span<u8>>` | Writes a one-field object with a bool value. |
+| `std.json.writeFieldRaw(buffer, key, value)` | `Maybe<Span<u8>>` | Writes one object field from a key and validated raw JSON value. |
+| `std.json.writeFieldString(buffer, key, value)` | `Maybe<Span<u8>>` | Writes one object field with an escaped string value. |
+| `std.json.writeFieldU32(buffer, key, value)` | `Maybe<Span<u8>>` | Writes one object field with a `u32` value. |
+| `std.json.writeFieldBool(buffer, key, value)` | `Maybe<Span<u8>>` | Writes one object field with a bool value. |
+| `std.json.writeObject2Fields(buffer, field0, field1)` | `Maybe<Span<u8>>` | Writes a two-field object from field fragments and validates the final object. |
 
 Metadata labels:
 
@@ -84,8 +89,15 @@ pub fn main(world: World) -> Void raises {
     var name_buf: [8]u8 = [0_u8; 8]
     let name: Maybe<Span<u8>> = std.json.string(name_buf, input, "name")
     let count: Maybe<u32> = std.json.u32(input, "count")
-    var out: [24]u8 = [0_u8; 24]
-    let written: Maybe<Span<u8>> = std.json.writeObject1U32(out, "count", 42_u32)
+    var name_field_buf: [24]u8 = [0_u8; 24]
+    let name_field: Maybe<Span<u8>> = std.json.writeFieldString(name_field_buf, "name", "zero")
+    var count_field_buf: [24]u8 = [0_u8; 24]
+    let count_field: Maybe<Span<u8>> = std.json.writeFieldU32(count_field_buf, "count", 42_u32)
+    var out: [48]u8 = [0_u8; 48]
+    var written: Maybe<Span<u8>> = null
+    if name_field.has && count_field.has {
+        written = std.json.writeObject2Fields(out, name_field.value, count_field.value)
+    }
     if name.has && count.has && written.has && std.json.validateError(written.value) == std.json.errorNone() {
         check world.out.write("json lookup ok\n")
     }
