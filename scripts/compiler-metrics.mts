@@ -88,7 +88,7 @@ const fileBudgets = {
   "native/zero-c/src/emit_llvm_ir.c": { maxLines: 944, maxStrcmpCalls: 9 },
   "native/zero-c/src/emit_coff.c": { maxLines: 1974, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 490, maxStrcmpCalls: 0 },
-  "native/zero-c/src/fs.c": { maxLines: 1440, maxStrcmpCalls: 36, maxShellCalls: 0 },
+  "native/zero-c/src/fs.c": { maxLines: 1525, maxStrcmpCalls: 36, maxShellCalls: 0 },
   "native/zero-c/src/process_exec.c": { maxLines: 225, maxStrcmpCalls: 1, maxShellCalls: 0 },
   "native/zero-c/src/process_exec.h": { maxLines: 25, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/process_path.c": { maxLines: 110, maxStrcmpCalls: 0, maxShellCalls: 0 },
@@ -1100,6 +1100,10 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.readShortReadChecked ||
       !backendFormats.fileIo.optionalReadChecked ||
       !backendFormats.fileIo.inputProbeReadChecked ||
+      !backendFormats.fileIo.atomicWriteHelperUsed ||
+      !backendFormats.fileIo.atomicWriteTempFile ||
+      !backendFormats.fileIo.atomicWriteRenameChecked ||
+      !backendFormats.fileIo.atomicWriteCleanup ||
       !backendFormats.fileIo.textWriteChecked ||
       !backendFormats.fileIo.binaryWriteChecked ||
       !backendFormats.fileIo.closeChecked ||
@@ -1533,6 +1537,9 @@ const processExecHardening = {
 };
 const processExecChildSetupChecked = Object.values(processExecHardening).every(Boolean);
 const readFileBody = cCodeText(cBlock(fsRaw, "char *z_read_file"));
+const atomicWriteBytesBody = cCodeText(cBlock(fsRaw, "static bool write_atomic_bytes"));
+const atomicOpenTempBody = cCodeText(cBlock(fsRaw, "static FILE *open_atomic_write_temp"));
+const atomicCloseBody = cCodeText(cBlock(fsRaw, "static bool close_atomic_write"));
 const writeFileBody = cCodeText(cBlock(fsRaw, "bool z_write_file"));
 const writeBinaryFileBody = cCodeText(cBlock(fsRaw, "bool z_write_binary_file"));
 const mirMapFileBody = cCodeText(cBlock(mirBinaryRaw, "static bool mir_map_file"));
@@ -1589,8 +1596,7 @@ const hasRawX64PointerMemoryBytes = (text: string) =>
 const backendFormats = {
   fileIo: {
     parentCreationChecked: /\bstatic\s+bool\s+mkdir_parents\s*\(\s*const\s+char\s+\*path\s*,\s*ZDiag\s+\*diag\s*\)/.test(fsSource) &&
-      /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(writeFileBody) &&
-      /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(writeBinaryFileBody) &&
+      /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(atomicWriteBytesBody) &&
       !/\bzero_mkdir\s*\(\s*copy\s*\)\s*;/.test(fsSource),
     readSeekChecked: /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(readFileBody) &&
       /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(readFileBody) &&
@@ -1613,11 +1619,20 @@ const backendFormats = {
       !/\bfopen\s*\(/.test(programGraphPatchHeaderBody) &&
       /stat\s*\(\s*path\s*,\s*&st\s*\)\s*==\s*0/.test(directFileExistsBody) &&
       !/\bfopen\s*\(/.test(directFileExistsBody),
-    textWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(writeFileBody) &&
+    atomicWriteHelperUsed: /write_atomic_bytes/.test(writeFileBody) &&
+      /strlen\s*\(\s*data\s*\)/.test(writeFileBody) &&
+      /return\s+write_atomic_bytes\s*\(\s*path\s*,\s*data\s*,\s*len\s*,\s*diag\s*\)/.test(writeBinaryFileBody),
+    atomicWriteTempFile: /open_atomic_write_temp\s*\(\s*path\s*,\s*&temp_path\s*,\s*diag\s*\)/.test(atomicWriteBytesBody) &&
+      /atomic_write_temp_path\s*\(\s*path\s*,\s*attempt\s*\)/.test(atomicOpenTempBody) &&
+      /O_WRONLY\s*\|\s*O_CREAT\s*\|\s*O_EXCL/.test(atomicOpenTempBody),
+    atomicWriteRenameChecked: /rename\s*\(\s*temp_path\s*,\s*path\s*\)\s*!=\s*0/.test(atomicCloseBody),
+    atomicWriteCleanup: countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /remove\s*\(\s*temp_path\s*\)/g) >= 4 &&
+      countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /free\s*\(\s*temp_path\s*\)/g) >= 5,
+    textWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&
       !/\bfputs\s*\(\s*text\s*,\s*file\s*\)\s*;/.test(writeFileBody),
-    binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(writeBinaryFileBody),
-    closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeFileBody) &&
-      /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(writeBinaryFileBody),
+    binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&
+      /write_atomic_bytes/.test(writeBinaryFileBody),
+    closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(atomicCloseBody),
     bufferFormatChecked: /if\s*\(\s*!fmt\s*\)\s*return\s*;/.test(zbufAppendfBody) &&
       /int\s+written\s*=\s*vsnprintf\s*\(\s*tmp\s*,\s*\(size_t\)\s*needed\s*\+\s*1\s*,\s*fmt\s*,\s*args\s*\)/.test(zbufAppendfBody) &&
       /written\s*<\s*0\s*\|\|\s*written\s*>\s*needed/.test(zbufAppendfBody) &&

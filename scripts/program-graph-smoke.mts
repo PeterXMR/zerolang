@@ -118,6 +118,25 @@ async function findCheckedInFiles(root: string, suffix: string, files: string[] 
   return files;
 }
 
+async function findAtomicWriteTempFiles(root: string, files: string[] = []) {
+  if (!existsSync(root)) return files;
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const path = `${root}/${entry.name}`;
+    if (entry.name.includes(".zero-tmp-")) {
+      files.push(path);
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await findAtomicWriteTempFiles(path, files);
+    }
+  }
+  return files;
+}
+
+async function assertNoAtomicWriteTempFiles(root: string) {
+  assert.deepEqual(await findAtomicWriteTempFiles(root), [], `${root}: atomic graph writes must clean up temporary files`);
+}
+
 function projectionHasGraphAuthority(path: string) {
   if (existsSync(path.replace(/\.0$/, ".graph"))) return true;
   for (let current = dirname(path); current !== "." && current !== "/"; current = dirname(current)) {
@@ -240,10 +259,12 @@ assert.equal((await zeroRun(["verify-projection", checkedInBinaryCrmRoot])).stdo
 await rm(binaryRoot, { recursive: true, force: true });
 await mkdir(binaryRoot, { recursive: true });
 await zeroRun(["init", binaryRoot]);
+await assertNoAtomicWriteTempFiles(binaryRoot);
 let binaryStore = await readFile(`${binaryRoot}/zero.graph`);
 assert.equal(binaryStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 
 await zeroRun(["patch", binaryRoot, "--op", "addMain", "--op", 'addCheckWrite fn="main" text="hello binary\\n"']);
+await assertNoAtomicWriteTempFiles(binaryRoot);
 binaryStore = await readFile(`${binaryRoot}/zero.graph`);
 assert.equal(binaryStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 await assertInvalidBinaryStoreRejected(
@@ -271,6 +292,7 @@ assert.equal(binaryStatus.storage.binaryAvailable, true);
 assert.equal((await zeroRun(["check", binaryRoot])).stdout, "ok\n");
 assert.equal((await zeroRun(["run", binaryRoot])).stdout, "hello binary\n");
 assert.match((await zeroRun(["export", binaryRoot])).stdout, /repository graph export ok/);
+await assertNoAtomicWriteTempFiles(binaryRoot);
 assert.equal((await zeroRun(["verify-projection", binaryRoot])).stdout, "repository graph verify-projection ok\n");
 
 const textRoot = `/tmp/zero-program-graph-binary-convert-${process.pid}`;
@@ -278,9 +300,11 @@ await rm(textRoot, { recursive: true, force: true });
 await mkdir(textRoot, { recursive: true });
 await zeroRun(["init", "--format", "text", textRoot]);
 await zeroRun(["patch", textRoot, "--op", "addMain", "--op", 'addCheckWrite fn="main" text="convert me\\n"']);
+await assertNoAtomicWriteTempFiles(textRoot);
 assert.match((await readFile(`${textRoot}/zero.graph`, "utf8")).slice(0, 64), /^zero-repository-graph v1/);
 await zeroRun(["export", textRoot]);
 await zeroRun(["import", "--format", "binary", textRoot]);
+await assertNoAtomicWriteTempFiles(textRoot);
 const convertedStore = await readFile(`${textRoot}/zero.graph`);
 assert.equal(convertedStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 assert.equal((await zeroRun(["run", textRoot])).stdout, "convert me\n");
@@ -298,6 +322,7 @@ await writeFile(
   '[package]\nname = "projection-default"\nversion = "0.1.0"\n\n[targets.cli]\nkind = "exe"\nmain = "main.0"\n',
 );
 await zeroRun(["import", projectionDefaultRoot]);
+await assertNoAtomicWriteTempFiles(projectionDefaultRoot);
 const projectionDefaultStore = await readFile(`${projectionDefaultRoot}/zero.graph`);
 assert.equal(projectionDefaultStore.subarray(0, 8).toString("binary"), "ZRGBIN1\0");
 assert.equal((await zeroRun(["run", projectionDefaultRoot])).stdout, "projection default\n");

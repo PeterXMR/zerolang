@@ -5,12 +5,20 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#if !defined(_WIN32)
+#include <fcntl.h>
+#endif
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 static void z_allocation_fatal(const char *operation) {
   fprintf(stderr, "zero: fatal: out of memory while %s\n", operation ? operation : "allocating memory");
@@ -224,46 +232,118 @@ static bool mkdir_parents(const char *path, ZDiag *diag) {
   return true;
 }
 
-bool z_write_file(const char *path, const char *text, ZDiag *diag) {
-  if (!mkdir_parents(path, diag)) return false;
-  FILE *file = fopen(path, "wb");
-  if (!file) {
-    diag_io(diag, path, "write");
-    return false;
+static unsigned long long z_write_process_id(void) {
+#if defined(_WIN32)
+  return (unsigned long long)_getpid();
+#else
+  return (unsigned long long)getpid();
+#endif
+}
+
+static char *atomic_write_temp_path(const char *path, unsigned long long attempt) {
+  static unsigned long long counter = 0;
+  ZBuf temp;
+  zbuf_init(&temp);
+  zbuf_append(&temp, path);
+  zbuf_appendf(&temp, ".zero-tmp-%llu-%llu-%llu", z_write_process_id(), counter++, attempt);
+  return temp.data;
+}
+
+static FILE *open_atomic_write_temp(const char *path, char **temp_path_out, ZDiag *diag) {
+  for (unsigned long long attempt = 0; attempt < 100; attempt++) {
+    char *temp_path = atomic_write_temp_path(path, attempt);
+#if defined(_WIN32)
+    FILE *probe = fopen(temp_path, "rb");
+    if (probe) {
+      fclose(probe);
+      free(temp_path);
+      continue;
+    }
+    FILE *file = fopen(temp_path, "wb");
+    if (!file) {
+      diag_io_at(diag, path, temp_path, "create temporary file");
+      free(temp_path);
+      return NULL;
+    }
+#else
+    int fd = open(temp_path, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (fd < 0) {
+      if (errno == EEXIST) {
+        free(temp_path);
+        continue;
+      }
+      diag_io_at(diag, path, temp_path, "create temporary file");
+      free(temp_path);
+      return NULL;
+    }
+    FILE *file = fdopen(fd, "wb");
+    if (!file) {
+      int saved_errno = errno == 0 ? EIO : errno;
+      close(fd);
+      remove(temp_path);
+      errno = saved_errno;
+      diag_io_at(diag, path, temp_path, "create temporary file");
+      free(temp_path);
+      return NULL;
+    }
+#endif
+    *temp_path_out = temp_path;
+    return file;
   }
-  const char *data = text ? text : "";
-  size_t len = strlen(data);
-  if (len > 0 && fwrite(data, 1, len, file) != len) {
-    if (errno == 0) errno = EIO;
-    diag_io(diag, path, "write");
-    fclose(file);
-    return false;
-  }
+  errno = EEXIST;
+  diag_io_at(diag, path, path, "create temporary file");
+  return NULL;
+}
+
+static bool close_atomic_write(FILE *file, const char *path, char *temp_path, ZDiag *diag) {
   if (fclose(file) != 0) {
-    diag_io(diag, path, "write");
+    diag_io_at(diag, path, temp_path, "write");
+    remove(temp_path);
+    free(temp_path);
     return false;
   }
+#if defined(_WIN32)
+  remove(path);
+#endif
+  if (rename(temp_path, path) != 0) {
+    diag_io_at(diag, path, path, "replace");
+    remove(temp_path);
+    free(temp_path);
+    return false;
+  }
+  free(temp_path);
   return true;
 }
 
-bool z_write_binary_file(const char *path, const unsigned char *data, size_t len, ZDiag *diag) {
+static bool write_atomic_bytes(const char *path, const unsigned char *data, size_t len, ZDiag *diag) {
+  if (!path || !path[0] || (!data && len > 0)) {
+    errno = EINVAL;
+    diag_io(diag, path, "write");
+    return false;
+  }
   if (!mkdir_parents(path, diag)) return false;
-  FILE *file = fopen(path, "wb");
-  if (!file) {
-    diag_io(diag, path, "write");
-    return false;
-  }
+  char *temp_path = NULL;
+  FILE *file = open_atomic_write_temp(path, &temp_path, diag);
+  if (!file) return false;
   if (len > 0 && fwrite(data, 1, len, file) != len) {
-    if (errno == 0) errno = EIO;
-    diag_io(diag, path, "write");
+    int saved_errno = errno == 0 ? EIO : errno;
     fclose(file);
+    remove(temp_path);
+    errno = saved_errno;
+    diag_io_at(diag, path, temp_path, "write");
+    free(temp_path);
     return false;
   }
-  if (fclose(file) != 0) {
-    diag_io(diag, path, "write");
-    return false;
-  }
-  return true;
+  return close_atomic_write(file, path, temp_path, diag);
+}
+
+bool z_write_file(const char *path, const char *text, ZDiag *diag) {
+  const char *data = text ? text : "";
+  return write_atomic_bytes(path, (const unsigned char *)data, strlen(data), diag);
+}
+
+bool z_write_binary_file(const char *path, const unsigned char *data, size_t len, ZDiag *diag) {
+  return write_atomic_bytes(path, data, len, diag);
 }
 
 static bool basename_is(const char *path, const char *name) {
