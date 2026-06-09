@@ -1106,6 +1106,12 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       fileIo: backendFormats.fileIo,
     });
   }
+  if (!backendFormats.processExec.childSetupChecked) {
+    violations.push({
+      kind: "process-exec-hardening",
+      processExec: backendFormats.processExec,
+    });
+  }
   if (!backendFormats.targetManifest.exactKeyMatcher ||
       !backendFormats.targetManifest.exactListMatcher ||
       !backendFormats.targetManifest.noAliasSubstringLookup ||
@@ -1442,6 +1448,7 @@ const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c")
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const fsRaw = texts.get("native/zero-c/src/fs.c") ?? "";
 const fsSource = cCodeText(fsRaw);
+const processExecRaw = texts.get("native/zero-c/src/process_exec.c") ?? "";
 const mirBinaryRaw = texts.get("native/zero-c/src/mir_binary.c") ?? "";
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
 const programGraphMirRaw = texts.get("native/zero-c/src/program_graph_mir.c") ?? "";
@@ -1485,6 +1492,11 @@ const programGraphStorageHeaderBody = cCodeText(cBlock(main, "static bool path_h
 const programGraphPatchHeaderBody = cCodeText(cBlock(main, "static bool path_has_program_graph_patch_header"));
 const directFileExistsBody = cCodeText(cBlock(main, "static bool direct_file_exists"));
 const zbufAppendfBody = cCodeText(cBlock(fsRaw, "void zbuf_appendf"));
+const processSuppressStreamBody = cCodeText(cBlock(processExecRaw, "static bool z_process_suppress_stream"));
+const processRunArgvBody = cCodeText(cBlock(processExecRaw, "bool z_process_run_argv"));
+const processFirstStdoutLineBody = cCodeText(cBlock(processExecRaw, "char *z_process_first_stdout_line"));
+const checkedChildSetenvCount = (processRunArgvBody.match(/setenv\s*\([^;]*\)\s*!=\s*0\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
+const checkedChildSuppressCount = ((processRunArgvBody + processFirstStdoutLineBody).match(/!\s*z_process_suppress_stream\s*\([^)]*\)\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
 const readFileBody = cCodeText(cBlock(fsRaw, "char *z_read_file"));
 const writeFileBody = cCodeText(cBlock(fsRaw, "bool z_write_file"));
 const writeBinaryFileBody = cCodeText(cBlock(fsRaw, "bool z_write_binary_file"));
@@ -1576,6 +1588,13 @@ const backendFormats = {
       /written\s*<\s*0\s*\|\|\s*written\s*>\s*needed/.test(zbufAppendfBody) &&
       /free\s*\(\s*tmp\s*\)/.test(zbufAppendfBody),
     diagnosticsNullSafe: /if\s*\(\s*!diag\s*\)\s*return\s*;/.test(cBlock(fsRaw, "static void diag_io_at")),
+  },
+  processExec: {
+    childSetupChecked: /freopen\s*\(\s*[^,]+,\s*[^,]+,\s*stream\s*\)\s*!=\s*NULL/.test(processSuppressStreamBody) &&
+      checkedChildSetenvCount >= 2 &&
+      checkedChildSuppressCount >= 3 &&
+      !/FILE\s+\*null_/.test(processRunArgvBody) &&
+      !/FILE\s+\*null_/.test(processFirstStdoutLineBody),
   },
   targetManifest: {
     exactKeyMatcher: /\bmanifest_key_equals\s*\(/.test(targetSource),

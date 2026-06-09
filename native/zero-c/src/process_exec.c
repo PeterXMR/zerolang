@@ -92,6 +92,12 @@ bool z_process_ensure_dir(const char *path) {
   return errno == EEXIST;
 }
 
+#if !defined(_WIN32)
+static bool z_process_suppress_stream(FILE *stream) {
+  return freopen("/dev/null", "w", stream) != NULL;
+}
+#endif
+
 bool z_process_run_argv(const ZProcessArgv *argv, bool suppress_stdout, bool suppress_stderr, bool uses_zig_env) {
   if (!argv || argv->len == 0 || !argv->items || !argv->items[0]) return false;
   char *executable = z_process_resolve_executable(argv->items[0]);
@@ -111,17 +117,11 @@ bool z_process_run_argv(const ZProcessArgv *argv, bool suppress_stdout, bool sup
   }
   if (pid == 0) {
     if (uses_zig_env) {
-      setenv("ZIG_GLOBAL_CACHE_DIR", ".zero/zig-global-cache", 1);
-      setenv("ZIG_LOCAL_CACHE_DIR", ".zero/zig-local-cache", 1);
+      if (setenv("ZIG_GLOBAL_CACHE_DIR", ".zero/zig-global-cache", 1) != 0) _exit(127);
+      if (setenv("ZIG_LOCAL_CACHE_DIR", ".zero/zig-local-cache", 1) != 0) _exit(127);
     }
-    if (suppress_stdout) {
-      FILE *null_out = freopen("/dev/null", "w", stdout);
-      (void)null_out;
-    }
-    if (suppress_stderr) {
-      FILE *null_err = freopen("/dev/null", "w", stderr);
-      (void)null_err;
-    }
+    if (suppress_stdout && !z_process_suppress_stream(stdout)) _exit(127);
+    if (suppress_stderr && !z_process_suppress_stream(stderr)) _exit(127);
     execv(executable, argv->items);
     _exit(127);
   }
@@ -162,10 +162,7 @@ char *z_process_first_stdout_line(const char *const *argv, bool suppress_stderr)
     close(pipe_fd[0]);
     if (dup2(pipe_fd[1], STDOUT_FILENO) < 0) _exit(127);
     close(pipe_fd[1]);
-    if (suppress_stderr) {
-      FILE *null_err = freopen("/dev/null", "w", stderr);
-      (void)null_err;
-    }
+    if (suppress_stderr && !z_process_suppress_stream(stderr)) _exit(127);
     execv(executable, (char *const *)argv);
     _exit(127);
   }
