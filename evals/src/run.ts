@@ -45,6 +45,7 @@ interface CommandResult {
 interface EvalRunResult {
   name: string;
   args: string[];
+  cwd: string | null;
   expectedStdout: string;
   expectedStderr: string;
   actualStdout: string;
@@ -812,6 +813,8 @@ async function buildCandidateLocally(
   outDir: string,
 ): Promise<{ build: CommandResult; runs: EvalRunResult[] }> {
   const programPath = join(outDir, "program");
+  const runDir = join(outDir, "run");
+  await mkdir(runDir, { recursive: true });
   const build = await runLocalCommand(
     zero,
     ["build", "--out", programPath, inputPath],
@@ -823,8 +826,13 @@ async function buildCandidateLocally(
   const checks = normalizedRunChecks(evalCase);
   for (const check of checks) {
     const args = check.args ?? [];
-    const command = await runLocalCommand(programPath, args);
-    results.push(toEvalRunResult(check, command));
+    const command = await runLocalCommand(
+      programPath,
+      args,
+      DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
+      runDir,
+    );
+    results.push(toEvalRunResult(check, command, runDir));
   }
   return { build, runs: results };
 }
@@ -837,6 +845,7 @@ async function buildCandidateInSandbox(
   remoteCaseDir: string,
 ): Promise<{ build: CommandResult; runs: EvalRunResult[] }> {
   const programPath = `${remoteCaseDir}/program`;
+  const runDir = `${remoteCaseDir}/run`;
   const build = await runSandboxCommand(
     context.sandbox,
     {
@@ -847,6 +856,11 @@ async function buildCandidateInSandbox(
     "zero build",
   );
   if (build.code !== 0) return { build, runs: [] };
+  await runSandboxCommandChecked(
+    context.sandbox,
+    { cmd: "mkdir", args: ["-p", runDir] },
+    "prepare candidate run directory",
+  );
 
   const results: EvalRunResult[] = [];
   const checks = normalizedRunChecks(evalCase);
@@ -857,11 +871,11 @@ async function buildCandidateInSandbox(
       {
         cmd: programPath,
         args,
-        cwd,
+        cwd: runDir,
       },
       "candidate run",
     );
-    results.push(toEvalRunResult(check, command));
+    results.push(toEvalRunResult(check, command, runDir));
   }
   return { build, runs: results };
 }
@@ -869,10 +883,12 @@ async function buildCandidateInSandbox(
 function toEvalRunResult(
   check: EvalRunCheck,
   command: CommandResult | null,
+  cwd: string | null = null,
 ): EvalRunResult {
   return {
     name: check.name,
     args: check.args ?? [],
+    cwd,
     expectedStdout: check.expectedStdout,
     expectedStderr: check.expectedStderr ?? "",
     actualStdout: command?.stdout ?? "",
@@ -1576,12 +1592,13 @@ async function runLocalCommand(
   command: string,
   args: string[],
   timeoutMs = DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
+  cwd = repoRoot,
 ): Promise<CommandResult> {
   return new Promise((resolveCommand) => {
     execFile(
       command,
       args,
-      { cwd: repoRoot, encoding: "utf8", timeout: timeoutMs },
+      { cwd, encoding: "utf8", timeout: timeoutMs },
       (error, stdout, stderr) => {
         const code =
           typeof error?.code === "number" ? error.code : error ? 1 : 0;
