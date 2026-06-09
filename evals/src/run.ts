@@ -54,6 +54,7 @@ interface EvalRunResult {
 
 interface ValidationResult {
   check: CommandResult;
+  build: CommandResult | null;
   runs: EvalRunResult[];
   remoteSourcePath: string | null;
   sourceText: string;
@@ -122,6 +123,7 @@ const REMOTE_RESULTS_ROOT = `${REMOTE_EVAL_ROOT}/results`;
 const REMOTE_WORKSPACE_ROOT = `${REMOTE_EVAL_ROOT}/workspaces`;
 const DEFAULT_SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_LOCAL_COMMAND_TIMEOUT_MS = 120_000;
 const DEFAULT_SANDBOX_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_TURNS = 30;
 const DEFAULT_MODELS = [
@@ -344,7 +346,7 @@ async function runCase(
     source,
     sourcePath,
   });
-  const { check, runs, remoteSourcePath, sourceText } = validation;
+  const { check, build, runs, remoteSourcePath, sourceText } = validation;
   const run = runs[0]?.command ?? null;
 
   let error: string | null =
@@ -366,6 +368,7 @@ async function runCase(
   const passed =
     agentRun.error === null &&
     check.code === 0 &&
+    (build?.code ?? 0) === 0 &&
     runFailures.length === 0 &&
     patternFailures.length === 0 &&
     responseFormatFailures.length === 0 &&
@@ -374,6 +377,7 @@ async function runCase(
   if (!passed && !error) {
     error = failureReason({
       run,
+      build,
       runFailures,
       actualStdout,
       actualStderr,
@@ -404,6 +408,7 @@ async function runCase(
     agentError: agentRun.error,
     agent: agentRun.metrics,
     check,
+    build,
     run,
     runChecks: runs,
     runFailures,
@@ -617,15 +622,28 @@ async function validateSourceLocally(
     sourcePath,
   ]);
   if (imported.code !== 0) {
-    return { check: imported, runs: [], remoteSourcePath: null, sourceText: source };
+    return {
+      check: imported,
+      build: null,
+      runs: [],
+      remoteSourcePath: null,
+      sourceText: source,
+    };
   }
 
   const check = await runLocalCommand(zero, ["check", "--json", graphPath]);
+  let build: CommandResult | null = null;
   let runs: EvalRunResult[] = [];
   if (check.code === 0) {
-    runs = await runChecksLocally(evalCase, graphPath, dirname(sourcePath));
+    const built = await buildCandidateLocally(
+      evalCase,
+      graphPath,
+      dirname(sourcePath),
+    );
+    build = built.build;
+    runs = built.runs.length > 0 ? built.runs : emptyRunResults(evalCase);
   }
-  return { check, runs, remoteSourcePath: null, sourceText: source };
+  return { check, build, runs, remoteSourcePath: null, sourceText: source };
 }
 
 async function validateSourceInSandbox(
@@ -665,7 +683,13 @@ async function validateSourceInSandbox(
     "zero import",
   );
   if (imported.code !== 0) {
-    return { check: imported, runs: [], remoteSourcePath, sourceText: source };
+    return {
+      check: imported,
+      build: null,
+      runs: [],
+      remoteSourcePath,
+      sourceText: source,
+    };
   }
 
   const check = await runSandboxCommand(
@@ -677,18 +701,21 @@ async function validateSourceInSandbox(
     },
     "zero check",
   );
+  let build: CommandResult | null = null;
   let runs: EvalRunResult[] = [];
   if (check.code === 0) {
-    runs = await runChecksInSandbox(
+    const built = await buildCandidateInSandbox(
       context,
       evalCase,
       projectDir,
       remoteGraphPath,
       remoteCaseDir,
     );
+    build = built.build;
+    runs = built.runs.length > 0 ? built.runs : emptyRunResults(evalCase);
   }
 
-  return { check, runs, remoteSourcePath, sourceText: source };
+  return { check, build, runs, remoteSourcePath, sourceText: source };
 }
 
 async function validateFixturePackageLocally(
@@ -701,7 +728,7 @@ async function validateFixturePackageLocally(
       stdout: "",
       stderr: "package eval case is missing fixtureProjectDir",
     };
-    return { check, runs: [], remoteSourcePath: null, sourceText: "" };
+    return { check, build: null, runs: [], remoteSourcePath: null, sourceText: "" };
   }
   const packageDir = join(caseDir, "fixture-package");
   await cp(resolve(repoRoot, evalCase.fixtureProjectDir), packageDir, {
@@ -709,9 +736,14 @@ async function validateFixturePackageLocally(
   });
   const check = await runLocalCommand(zero, ["check", "--json", packageDir]);
   const sourceText = await packageSourceTextLocally(packageDir);
-  const runs =
-    check.code === 0 ? await runChecksLocally(evalCase, packageDir, caseDir) : [];
-  return { check, runs, remoteSourcePath: null, sourceText };
+  let build: CommandResult | null = null;
+  let runs: EvalRunResult[] = [];
+  if (check.code === 0) {
+    const built = await buildCandidateLocally(evalCase, packageDir, caseDir);
+    build = built.build;
+    runs = built.runs.length > 0 ? built.runs : emptyRunResults(evalCase);
+  }
+  return { check, build, runs, remoteSourcePath: null, sourceText };
 }
 
 async function validatePackageInSandbox(
@@ -745,69 +777,81 @@ async function validatePackageInSandbox(
   );
   const runs =
     check.code === 0
-      ? await runChecksInSandbox(
+      ? await buildCandidateInSandbox(
           context,
           evalCase,
           workspaceDir,
           packageDir,
           remoteCaseDir,
         )
-      : [];
-  return { check, runs, remoteSourcePath: null, sourceText };
+      : { build: null, runs: [] };
+  return {
+    check,
+    build: runs.build,
+    runs: runs.runs.length > 0 ? runs.runs : emptyRunResults(evalCase),
+    remoteSourcePath: null,
+    sourceText,
+  };
 }
 
-async function runChecksLocally(
+async function buildCandidateLocally(
   evalCase: EvalCase,
   inputPath: string,
   outDir: string,
-): Promise<EvalRunResult[]> {
+): Promise<{ build: CommandResult; runs: EvalRunResult[] }> {
+  const programPath = join(outDir, "program");
+  const build = await runLocalCommand(
+    zero,
+    ["build", "--out", programPath, inputPath],
+    DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
+  );
+  if (build.code !== 0) return { build, runs: [] };
+
   const results: EvalRunResult[] = [];
   const checks = normalizedRunChecks(evalCase);
-  for (let index = 0; index < checks.length; index += 1) {
-    const check = checks[index];
+  for (const check of checks) {
     const args = check.args ?? [];
-    const command = await runLocalCommand(zero, [
-      "run",
-      "--out",
-      join(outDir, `program-${index}`),
-      inputPath,
-      ...(args.length > 0 ? ["--", ...args] : []),
-    ]);
+    const command = await runLocalCommand(programPath, args);
     results.push(toEvalRunResult(check, command));
   }
-  return results;
+  return { build, runs: results };
 }
 
-async function runChecksInSandbox(
+async function buildCandidateInSandbox(
   context: SandboxContext,
   evalCase: EvalCase,
   cwd: string,
   inputPath: string,
   remoteCaseDir: string,
-): Promise<EvalRunResult[]> {
+): Promise<{ build: CommandResult; runs: EvalRunResult[] }> {
+  const programPath = `${remoteCaseDir}/program`;
+  const build = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "./bin/zero",
+      args: ["build", "--out", programPath, inputPath],
+      cwd,
+    },
+    "zero build",
+  );
+  if (build.code !== 0) return { build, runs: [] };
+
   const results: EvalRunResult[] = [];
   const checks = normalizedRunChecks(evalCase);
-  for (let index = 0; index < checks.length; index += 1) {
-    const check = checks[index];
+  for (const check of checks) {
     const args = check.args ?? [];
     const command = await runSandboxCommand(
       context.sandbox,
       {
-        cmd: "./bin/zero",
-        args: [
-          "run",
-          "--out",
-          `${remoteCaseDir}/program-${index}`,
-          inputPath,
-          ...(args.length > 0 ? ["--", ...args] : []),
-        ],
+        cmd: programPath,
+        args,
         cwd,
       },
-      "zero run",
+      "candidate run",
     );
     results.push(toEvalRunResult(check, command));
   }
-  return results;
+  return { build, runs: results };
 }
 
 function toEvalRunResult(
@@ -868,6 +912,12 @@ function runResultFailures(runs: EvalRunResult[]): string[] {
     }
   }
   return failures;
+}
+
+function emptyRunResults(evalCase: EvalCase): EvalRunResult[] {
+  return normalizedRunChecks(evalCase).map((check) =>
+    toEvalRunResult(check, null),
+  );
 }
 
 async function packageSourceTextLocally(packageDir: string) {
@@ -1513,7 +1563,7 @@ function parsePositiveIntOrDefault(
 async function runLocalCommand(
   command: string,
   args: string[],
-  timeoutMs = 15_000,
+  timeoutMs = DEFAULT_LOCAL_COMMAND_TIMEOUT_MS,
 ): Promise<CommandResult> {
   return new Promise((resolveCommand) => {
     execFile(
@@ -1531,6 +1581,7 @@ async function runLocalCommand(
 
 function failureReason(input: {
   run: CommandResult | null;
+  build: CommandResult | null;
   runFailures: string[];
   actualStdout: string;
   actualStderr: string;
@@ -1540,6 +1591,9 @@ function failureReason(input: {
   responseFormatFailures: string[];
   agentRequirementFailures: string[];
 }) {
+  if (input.build && input.build.code !== 0) {
+    return `zero build exited ${input.build.code}`;
+  }
   if (!input.run) return "zero run did not execute";
   if (input.runFailures.length > 0) {
     return input.runFailures[0];
