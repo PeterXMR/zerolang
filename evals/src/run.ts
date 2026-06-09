@@ -1,11 +1,18 @@
 import { Sandbox, type NetworkPolicy } from "@vercel/sandbox";
 import { execFile, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { evalCases, findEvalCase, type EvalCase } from "./cases.js";
+import {
+  evalCases,
+  evalSuiteIds,
+  findEvalCase,
+  findEvalSuite,
+  type EvalCase,
+  type EvalRunCheck,
+} from "./cases.js";
 import {
   extractZeroSource,
   finalSourceResponseFailures,
@@ -14,6 +21,7 @@ import {
 
 interface RunOptions {
   caseId: string | null;
+  suiteId: string | null;
   dryRun: boolean;
   fixture: boolean;
   json: boolean;
@@ -32,6 +40,23 @@ interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
+}
+
+interface EvalRunResult {
+  name: string;
+  args: string[];
+  expectedStdout: string;
+  expectedStderr: string;
+  actualStdout: string;
+  actualStderr: string;
+  command: CommandResult | null;
+}
+
+interface ValidationResult {
+  check: CommandResult;
+  runs: EvalRunResult[];
+  remoteSourcePath: string | null;
+  sourceText: string;
 }
 
 interface AgentToolCall {
@@ -120,14 +145,13 @@ const systemPrompt = [
   "Do not inspect examples unless the skills and compiler diagnostics are insufficient.",
   "Use the graph-first workflow from the loaded skills. If you write a source projection for the final answer, import it to a graph before check/run.",
   "Use ./bin/zero check --json to inspect diagnostics, then ./bin/zero run to verify stdout and stderr.",
-  "For the final answer, output code only: exactly the verified source bytes.",
-  "Do not summarize success, mention stdout, add a preamble, or use Markdown fences.",
+  "Follow the final response shape requested by the task prompt.",
 ].join("\n");
 
 async function main() {
   loadDotEnvFiles([".env", ".env.local"]);
   const options = parseArgs(process.argv.slice(2));
-  const selectedCases = selectCases(options.caseId);
+  const selectedCases = selectCases(options.caseId, options.suiteId);
   applyDefaultSandboxTimeout(options, selectedCases.length);
 
   if (options.dryRun) {
@@ -142,16 +166,26 @@ async function main() {
         ({
           id,
           title,
+          kind,
+          suites,
           prompt,
           expectedStdout,
           expectedStderr,
+          runChecks,
           requiredSourcePatterns,
         }) => ({
           id,
           title,
+          kind: kind ?? "source",
+          suites: suites ?? [],
           prompt,
           expectedStdout,
           expectedStderr: expectedStderr ?? "",
+          runCheckCount: normalizedRunChecks({
+            expectedStdout,
+            expectedStderr,
+            runChecks,
+          }).length,
           requiredSourcePatternCount: requiredSourcePatterns.length,
         }),
       ),
@@ -259,11 +293,19 @@ async function runCase(
   const sandboxProjectDir = sandboxContext
     ? await createSandboxRunWorkspace(sandboxContext, evalCase, model)
     : null;
+  const sandboxCandidatePackageDir =
+    sandboxContext && sandboxProjectDir && isPackageEvalCase(evalCase)
+      ? await createSandboxCandidatePackage(
+          sandboxContext,
+          sandboxProjectDir,
+          evalCase,
+        )
+      : null;
 
   const agentRun: AgentRun =
     options.fixture || !sandboxContext || !sandboxProjectDir
       ? {
-          responseText: evalCase.fixtureSource,
+          responseText: evalCase.fixtureSource ?? "READY\n",
           steps: [],
           metrics: null,
           error: null,
@@ -280,47 +322,51 @@ async function runCase(
   const responsePath = join(caseDir, "response.md");
   const stepsPath = options.fixture ? null : join(caseDir, "steps.json");
   const sourcePath = join(caseDir, "candidate.0");
-  const source = extractZeroSource(agentRun.responseText);
+  const source = isPackageEvalCase(evalCase)
+    ? ""
+    : extractZeroSource(agentRun.responseText);
 
   await writeFile(responsePath, agentRun.responseText);
   if (stepsPath) {
     await writeFile(stepsPath, `${JSON.stringify(agentRun.steps, null, 2)}\n`);
   }
-  await writeFile(sourcePath, source);
+  if (!isPackageEvalCase(evalCase)) {
+    await writeFile(sourcePath, source);
+  }
 
-  const validation = sandboxContext
-    ? await validateSourceInSandbox(
-        sandboxContext,
-        evalCase,
-        model,
-        source,
-        sandboxProjectDir ?? sandboxContext.projectDir,
-      )
-    : await validateSourceLocally(sourcePath);
-  const { check, run, remoteSourcePath } = validation;
+  const validation = await validateEvalCase({
+    caseDir,
+    evalCase,
+    model,
+    sandboxCandidatePackageDir,
+    sandboxContext,
+    sandboxProjectDir,
+    source,
+    sourcePath,
+  });
+  const { check, runs, remoteSourcePath, sourceText } = validation;
+  const run = runs[0]?.command ?? null;
 
   let error: string | null =
     agentRun.error ?? (check.code === 0 ? null : "zero check failed");
   const patternFailures = sourcePatternFailures(
-    source,
+    sourceText,
     evalCase.requiredSourcePatterns,
   );
-  const responseFormatFailures = finalSourceResponseFailures(
-    agentRun.responseText,
-    source,
-  );
+  const responseFormatFailures = isPackageEvalCase(evalCase)
+    ? finalPackageResponseFailures(agentRun.responseText)
+    : finalSourceResponseFailures(agentRun.responseText, source);
   const agentRequirementFailures = options.fixture
     ? []
     : getAgentRequirementFailures(agentRun.metrics, options.maxTurns);
   const actualStdout = run?.stdout ?? "";
   const actualStderr = run?.stderr ?? "";
-  const expectedStderr = evalCase.expectedStderr ?? "";
+  const expectedStderr = normalizedRunChecks(evalCase)[0]?.expectedStderr ?? "";
+  const runFailures = runResultFailures(runs);
   const passed =
     agentRun.error === null &&
     check.code === 0 &&
-    run?.code === 0 &&
-    actualStdout === evalCase.expectedStdout &&
-    actualStderr === expectedStderr &&
+    runFailures.length === 0 &&
     patternFailures.length === 0 &&
     responseFormatFailures.length === 0 &&
     agentRequirementFailures.length === 0;
@@ -328,6 +374,7 @@ async function runCase(
   if (!passed && !error) {
     error = failureReason({
       run,
+      runFailures,
       actualStdout,
       actualStderr,
       expectedStdout: evalCase.expectedStdout,
@@ -344,10 +391,12 @@ async function runCase(
     passed,
     model,
     mode: options.fixture ? "fixture" : "sandbox",
+    kind: evalCase.kind ?? "source",
     durationMs: Math.round(performance.now() - started),
-    sourcePath,
+    sourcePath: isPackageEvalCase(evalCase) ? null : sourcePath,
     remoteSourcePath,
     remoteProjectDir: sandboxProjectDir,
+    remoteCandidatePackageDir: sandboxCandidatePackageDir,
     responsePath,
     stepsPath,
     rawOutputPath: agentRun.rawOutputPath ?? null,
@@ -356,6 +405,8 @@ async function runCase(
     agent: agentRun.metrics,
     check,
     run,
+    runChecks: runs,
+    runFailures,
     expectedStdout: evalCase.expectedStdout,
     expectedStderr,
     actualStdout,
@@ -464,11 +515,30 @@ async function createSandboxRunWorkspace(
   return workspaceDir;
 }
 
+async function createSandboxCandidatePackage(
+  context: SandboxContext,
+  workspaceDir: string,
+  evalCase: EvalCase,
+) {
+  const candidateDir = `${workspaceDir}/.zero/eval-candidates/${modelPathSegment(
+    evalCase.id,
+  )}`;
+  await runSandboxCommandChecked(
+    context.sandbox,
+    { cmd: "mkdir", args: ["-p", candidateDir] },
+    "prepare candidate package",
+  );
+  return candidateDir;
+}
+
 function buildClaudePrompt(
   evalCase: EvalCase,
   options: RunOptions,
   projectDir: string,
 ) {
+  const candidatePackageDir = isPackageEvalCase(evalCase)
+    ? `${projectDir}/.zero/eval-candidates/${modelPathSegment(evalCase.id)}`
+    : null;
   return [
     systemPrompt,
     "",
@@ -476,14 +546,67 @@ function buildClaudePrompt(
     evalCase.prompt,
     "",
     `Repository root: ${projectDir}`,
+    candidatePackageDir ? `Candidate package root: ${candidatePackageDir}` : "",
     `You have at most ${options.maxTurns} agent turns before the evaluator marks the run failed.`,
     "Use shell commands from the repository root. Prefer ./bin/zero, not any global zero binary.",
-    "After graph import, ./bin/zero check, and ./bin/zero run confirm the expected output, return code only.",
-    "Do not include a success sentence, explanation, or Markdown fence.",
-  ].join("\n");
+    ...finalAnswerInstructions(evalCase),
+  ].filter(Boolean).join("\n");
 }
 
-async function validateSourceLocally(sourcePath: string) {
+function finalAnswerInstructions(evalCase: EvalCase) {
+  if (isPackageEvalCase(evalCase)) {
+    return [
+      "Create and validate the Zero package in the candidate package root.",
+      "After ./bin/zero check and the expected ./bin/zero run commands pass, answer exactly READY.",
+      "Do not paste source, include a success sentence, explanation, or Markdown fence.",
+    ];
+  }
+  return [
+    "After graph import, ./bin/zero check, and ./bin/zero run confirm the expected output, return code only.",
+    "Do not include a success sentence, explanation, or Markdown fence.",
+  ];
+}
+
+async function validateEvalCase(input: {
+  caseDir: string;
+  evalCase: EvalCase;
+  model: string;
+  sandboxCandidatePackageDir: string | null;
+  sandboxContext: SandboxContext | null;
+  sandboxProjectDir: string | null;
+  source: string;
+  sourcePath: string;
+}): Promise<ValidationResult> {
+  if (isPackageEvalCase(input.evalCase)) {
+    if (input.sandboxContext && input.sandboxCandidatePackageDir) {
+      return validatePackageInSandbox(
+        input.sandboxContext,
+        input.evalCase,
+        input.model,
+        input.sandboxProjectDir ?? input.sandboxContext.projectDir,
+        input.sandboxCandidatePackageDir,
+      );
+    }
+    return validateFixturePackageLocally(input.evalCase, input.caseDir);
+  }
+
+  if (input.sandboxContext) {
+    return validateSourceInSandbox(
+      input.sandboxContext,
+      input.evalCase,
+      input.model,
+      input.source,
+      input.sandboxProjectDir ?? input.sandboxContext.projectDir,
+    );
+  }
+  return validateSourceLocally(input.evalCase, input.sourcePath, input.source);
+}
+
+async function validateSourceLocally(
+  evalCase: EvalCase,
+  sourcePath: string,
+  source: string,
+): Promise<ValidationResult> {
   const graphPath = join(dirname(sourcePath), "candidate.graph");
   const imported = await runLocalCommand(zero, [
     "import",
@@ -494,20 +617,15 @@ async function validateSourceLocally(sourcePath: string) {
     sourcePath,
   ]);
   if (imported.code !== 0) {
-    return { check: imported, run: null, remoteSourcePath: null };
+    return { check: imported, runs: [], remoteSourcePath: null, sourceText: source };
   }
 
   const check = await runLocalCommand(zero, ["check", "--json", graphPath]);
-  let run: CommandResult | null = null;
+  let runs: EvalRunResult[] = [];
   if (check.code === 0) {
-    run = await runLocalCommand(zero, [
-      "run",
-      "--out",
-      join(dirname(sourcePath), "program"),
-      graphPath,
-    ]);
+    runs = await runChecksLocally(evalCase, graphPath, dirname(sourcePath));
   }
-  return { check, run, remoteSourcePath: null };
+  return { check, runs, remoteSourcePath: null, sourceText: source };
 }
 
 async function validateSourceInSandbox(
@@ -516,7 +634,7 @@ async function validateSourceInSandbox(
   model: string,
   source: string,
   projectDir: string,
-) {
+): Promise<ValidationResult> {
   const remoteCaseDir = `${REMOTE_RESULTS_ROOT}/${modelPathSegment(model)}/${
     evalCase.id
   }`;
@@ -547,7 +665,7 @@ async function validateSourceInSandbox(
     "zero import",
   );
   if (imported.code !== 0) {
-    return { check: imported, run: null, remoteSourcePath };
+    return { check: imported, runs: [], remoteSourcePath, sourceText: source };
   }
 
   const check = await runSandboxCommand(
@@ -559,23 +677,254 @@ async function validateSourceInSandbox(
     },
     "zero check",
   );
-  let run: CommandResult | null = null;
+  let runs: EvalRunResult[] = [];
   if (check.code === 0) {
-    run = await runSandboxCommand(
-      context.sandbox,
-      {
-        cmd: "bash",
-        args: [
-          "-lc",
-          `./bin/zero run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteGraphPath)}`,
-        ],
-        cwd: projectDir,
-      },
-      "zero run",
+    runs = await runChecksInSandbox(
+      context,
+      evalCase,
+      projectDir,
+      remoteGraphPath,
+      remoteCaseDir,
     );
   }
 
-  return { check, run, remoteSourcePath };
+  return { check, runs, remoteSourcePath, sourceText: source };
+}
+
+async function validateFixturePackageLocally(
+  evalCase: EvalCase,
+  caseDir: string,
+): Promise<ValidationResult> {
+  if (!evalCase.fixtureProjectDir) {
+    const check = {
+      code: 1,
+      stdout: "",
+      stderr: "package eval case is missing fixtureProjectDir",
+    };
+    return { check, runs: [], remoteSourcePath: null, sourceText: "" };
+  }
+  const packageDir = join(caseDir, "fixture-package");
+  await cp(resolve(repoRoot, evalCase.fixtureProjectDir), packageDir, {
+    recursive: true,
+  });
+  const check = await runLocalCommand(zero, ["check", "--json", packageDir]);
+  const sourceText = await packageSourceTextLocally(packageDir);
+  const runs =
+    check.code === 0 ? await runChecksLocally(evalCase, packageDir, caseDir) : [];
+  return { check, runs, remoteSourcePath: null, sourceText };
+}
+
+async function validatePackageInSandbox(
+  context: SandboxContext,
+  evalCase: EvalCase,
+  model: string,
+  workspaceDir: string,
+  packageDir: string,
+): Promise<ValidationResult> {
+  const remoteCaseDir = `${REMOTE_RESULTS_ROOT}/${modelPathSegment(model)}/${
+    evalCase.id
+  }`;
+  await runSandboxCommandChecked(
+    context.sandbox,
+    { cmd: "mkdir", args: ["-p", remoteCaseDir] },
+    "create eval case directory",
+  );
+  const check = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "./bin/zero",
+      args: ["check", "--json", packageDir],
+      cwd: workspaceDir,
+    },
+    "zero check",
+  );
+  const sourceText = await packageSourceTextInSandbox(
+    context,
+    workspaceDir,
+    packageDir,
+  );
+  const runs =
+    check.code === 0
+      ? await runChecksInSandbox(
+          context,
+          evalCase,
+          workspaceDir,
+          packageDir,
+          remoteCaseDir,
+        )
+      : [];
+  return { check, runs, remoteSourcePath: null, sourceText };
+}
+
+async function runChecksLocally(
+  evalCase: EvalCase,
+  inputPath: string,
+  outDir: string,
+): Promise<EvalRunResult[]> {
+  const results: EvalRunResult[] = [];
+  const checks = normalizedRunChecks(evalCase);
+  for (let index = 0; index < checks.length; index += 1) {
+    const check = checks[index];
+    const args = check.args ?? [];
+    const command = await runLocalCommand(zero, [
+      "run",
+      "--out",
+      join(outDir, `program-${index}`),
+      inputPath,
+      ...(args.length > 0 ? ["--", ...args] : []),
+    ]);
+    results.push(toEvalRunResult(check, command));
+  }
+  return results;
+}
+
+async function runChecksInSandbox(
+  context: SandboxContext,
+  evalCase: EvalCase,
+  cwd: string,
+  inputPath: string,
+  remoteCaseDir: string,
+): Promise<EvalRunResult[]> {
+  const results: EvalRunResult[] = [];
+  const checks = normalizedRunChecks(evalCase);
+  for (let index = 0; index < checks.length; index += 1) {
+    const check = checks[index];
+    const args = check.args ?? [];
+    const command = await runSandboxCommand(
+      context.sandbox,
+      {
+        cmd: "./bin/zero",
+        args: [
+          "run",
+          "--out",
+          `${remoteCaseDir}/program-${index}`,
+          inputPath,
+          ...(args.length > 0 ? ["--", ...args] : []),
+        ],
+        cwd,
+      },
+      "zero run",
+    );
+    results.push(toEvalRunResult(check, command));
+  }
+  return results;
+}
+
+function toEvalRunResult(
+  check: EvalRunCheck,
+  command: CommandResult | null,
+): EvalRunResult {
+  return {
+    name: check.name,
+    args: check.args ?? [],
+    expectedStdout: check.expectedStdout,
+    expectedStderr: check.expectedStderr ?? "",
+    actualStdout: command?.stdout ?? "",
+    actualStderr: command?.stderr ?? "",
+    command,
+  };
+}
+
+function normalizedRunChecks(evalCase: {
+  expectedStdout: string;
+  expectedStderr?: string;
+  runArgs?: string[];
+  runChecks?: EvalRunCheck[];
+}): EvalRunCheck[] {
+  if (evalCase.runChecks && evalCase.runChecks.length > 0) {
+    return evalCase.runChecks.map((check) => ({
+      ...check,
+      args: check.args ?? [],
+      expectedStderr: check.expectedStderr ?? "",
+    }));
+  }
+  return [
+    {
+      name: "default",
+      args: evalCase.runArgs ?? [],
+      expectedStdout: evalCase.expectedStdout,
+      expectedStderr: evalCase.expectedStderr ?? "",
+    },
+  ];
+}
+
+function runResultFailures(runs: EvalRunResult[]): string[] {
+  if (runs.length === 0) return ["zero run did not execute"];
+  const failures: string[] = [];
+  for (const run of runs) {
+    if (!run.command) {
+      failures.push(`${run.name}: zero run did not execute`);
+      continue;
+    }
+    if (run.command.code !== 0) {
+      failures.push(`${run.name}: zero run exited ${run.command.code}`);
+      continue;
+    }
+    if (run.actualStdout !== run.expectedStdout) {
+      failures.push(`${run.name}: stdout did not match expected output`);
+    }
+    if (run.actualStderr !== run.expectedStderr) {
+      failures.push(`${run.name}: stderr did not match expected output`);
+    }
+  }
+  return failures;
+}
+
+async function packageSourceTextLocally(packageDir: string) {
+  const manifestText = manifestSummary(packageDir);
+  const graphText = existsSync(join(packageDir, "zero.graph")) ? "zero.graph\n" : "";
+  const view = await runLocalCommand(zero, ["view", packageDir]);
+  return `${manifestText}${graphText}${view.stdout}${view.stderr}`;
+}
+
+async function packageSourceTextInSandbox(
+  context: SandboxContext,
+  cwd: string,
+  packageDir: string,
+) {
+  const manifest = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "bash",
+      args: [
+        "-lc",
+        [
+          `test -f ${shellQuote(`${packageDir}/zero.toml`)} && echo zero.toml || true`,
+          `test -f ${shellQuote(`${packageDir}/zero.json`)} && echo zero.json || true`,
+          `test -f ${shellQuote(`${packageDir}/zero.graph`)} && echo zero.graph || true`,
+        ].join("\n"),
+      ],
+      cwd,
+    },
+    "package manifest summary",
+  );
+  const view = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "./bin/zero",
+      args: ["view", packageDir],
+      cwd,
+    },
+    "zero view",
+  );
+  return `${manifest.stdout}${manifest.stderr}${view.stdout}${view.stderr}`;
+}
+
+function manifestSummary(packageDir: string) {
+  const parts = [];
+  if (existsSync(join(packageDir, "zero.toml"))) parts.push("zero.toml");
+  if (existsSync(join(packageDir, "zero.json"))) parts.push("zero.json");
+  return parts.length > 0 ? `${parts.join("\n")}\n` : "";
+}
+
+function isPackageEvalCase(evalCase: EvalCase) {
+  return evalCase.kind === "package";
+}
+
+function finalPackageResponseFailures(responseText: string) {
+  return responseText.trim() === "READY"
+    ? []
+    : ["final response for package eval must be exactly READY"];
 }
 
 async function runSandboxCommand(
@@ -970,6 +1319,7 @@ function claudeModelName(value: string) {
 
 function parseArgs(args: string[]): RunOptions {
   let caseId: string | null = null;
+  let suiteId: string | null = null;
   let dryRun = false;
   let fixture = false;
   let json = false;
@@ -1004,6 +1354,8 @@ function parseArgs(args: string[]): RunOptions {
       continue;
     } else if (arg === "--case") {
       caseId = requiredValue(args, ++i, "--case");
+    } else if (arg === "--suite") {
+      suiteId = requiredValue(args, ++i, "--suite");
     } else if (arg === "--model") {
       requestedModels.push(
         ...parseModelList(requiredValue(args, ++i, "--model"), "--model"),
@@ -1059,6 +1411,7 @@ function parseArgs(args: string[]): RunOptions {
 
   return {
     caseId,
+    suiteId,
     dryRun,
     fixture,
     json,
@@ -1110,7 +1463,19 @@ function uniqueOrdered(values: string[]) {
   return values.filter((value, index) => values.indexOf(value) === index);
 }
 
-function selectCases(caseId: string | null) {
+function selectCases(caseId: string | null, suiteId: string | null) {
+  if (caseId && suiteId) {
+    throw new Error("Use either --case or --suite, not both");
+  }
+  if (suiteId) {
+    const cases = findEvalSuite(suiteId);
+    if (cases.length === 0) {
+      throw new Error(
+        `Unknown eval suite '${suiteId}'. Available suites: ${evalSuiteIds().join(", ")}`,
+      );
+    }
+    return cases;
+  }
   if (!caseId) return evalCases;
   const evalCase = findEvalCase(caseId);
   if (!evalCase) {
@@ -1166,6 +1531,7 @@ async function runLocalCommand(
 
 function failureReason(input: {
   run: CommandResult | null;
+  runFailures: string[];
   actualStdout: string;
   actualStderr: string;
   expectedStdout: string;
@@ -1175,12 +1541,8 @@ function failureReason(input: {
   agentRequirementFailures: string[];
 }) {
   if (!input.run) return "zero run did not execute";
-  if (input.run.code !== 0) return `zero run exited ${input.run.code}`;
-  if (input.actualStdout !== input.expectedStdout) {
-    return "stdout did not match expected output";
-  }
-  if (input.actualStderr !== input.expectedStderr) {
-    return "stderr did not match expected output";
+  if (input.runFailures.length > 0) {
+    return input.runFailures[0];
   }
   if (input.patternFailures.length > 0) {
     return "source did not match required patterns";
@@ -1345,6 +1707,7 @@ function printHelp() {
 
 Options:
   --case <id>              Run one case, e.g. hello-world
+  --suite <id>             Run one suite, e.g. agent-scale
   --model <id>             AI Gateway model id. May be repeated; overrides defaults
   --models <ids>           Comma-separated AI Gateway model ids; overrides defaults
   --max-turns <n>          Maximum Claude turns before failing scoring (default: ${DEFAULT_MAX_TURNS})
@@ -1364,6 +1727,9 @@ Live eval credentials:
 
 Default models:
   ${DEFAULT_MODELS.join("\n  ")}
+
+Suites:
+  ${evalSuiteIds().join("\n  ")}
 
 Model environment:
   ZERO_EVAL_MODELS=<comma-separated ids>

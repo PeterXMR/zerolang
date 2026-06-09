@@ -2,11 +2,25 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+export type EvalCaseKind = "source" | "package";
+
+export interface EvalRunCheck {
+  name: string;
+  args?: string[];
+  expectedStdout: string;
+  expectedStderr?: string;
+}
+
 export interface EvalCase {
   id: string;
   title: string;
   prompt: string;
-  fixtureSource: string;
+  kind?: EvalCaseKind;
+  suites?: string[];
+  fixtureSource?: string;
+  fixtureProjectDir?: string;
+  runArgs?: string[];
+  runChecks?: EvalRunCheck[];
   expectedStdout: string;
   expectedStderr?: string;
   requiredSourcePatterns: RegExp[];
@@ -24,6 +38,7 @@ interface RosettaChallenge {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const commonProgramPatterns = [/pub\s+fn\s+main/, /World/];
+const packageProgramPatterns = [/zero\.toml|zero\.json/, /zero\.graph/];
 
 function readRosettaFixture(slug: string) {
   return readFileSync(
@@ -58,6 +73,7 @@ function rosettaCase(challenge: RosettaChallenge): EvalCase {
         : "Do not write to stderr.",
     ]),
     fixtureSource: readRosettaFixture(challenge.slug),
+    suites: ["rosetta"],
     expectedStdout: challenge.expectedStdout,
     expectedStderr,
     requiredSourcePatterns: [
@@ -82,6 +98,7 @@ const baseEvalCases: EvalCase[] = [
       "}",
       "",
     ].join("\n"),
+    suites: ["base"],
     expectedStdout: "hello from zero\n",
     requiredSourcePatterns: [
       /pub\s+fn\s+main/,
@@ -115,6 +132,7 @@ const baseEvalCases: EvalCase[] = [
       "}",
       "",
     ].join("\n"),
+    suites: ["base"],
     expectedStdout: "fib sequence: 0 1 1 2 3 5 8 13 21 34 55\n",
     requiredSourcePatterns: [
       /fn\s+fib\s*\(\s*n\s*:\s*u32\s*\)\s*->\s*u32/,
@@ -134,6 +152,182 @@ const baseEvalCases: EvalCase[] = [
       /World/,
       /world\.out\.write/,
       /fib sequence: 0 1 1 2 3 5 8 13 21 34 55/,
+    ],
+  },
+];
+
+const scaleCliUsage =
+  "usage: zero run . -- <add|subtract|multiply|help> <x> <y>\n";
+
+const agentScaleEvalCases: EvalCase[] = [
+  {
+    id: "scale-multi-command-cli",
+    title: "Agent scale: multi-command arithmetic CLI",
+    suites: ["agent-scale"],
+    prompt: promptLines([
+      "Build a graph-first Zerolang arithmetic CLI.",
+      "It should support `add`, `subtract`, `multiply`, and `help` commands.",
+      "The arithmetic commands take two non-negative integer CLI arguments and print one decimal result plus a newline.",
+      "The help command prints the exact usage line for the CLI.",
+      "The evaluator will run several command combinations, not just one happy path.",
+    ]),
+    fixtureSource: [
+      "fn add(x: u32, y: u32) -> u32 {",
+      "    return x + y",
+      "}",
+      "",
+      "fn subtract(x: u32, y: u32) -> u32 {",
+      "    return x - y",
+      "}",
+      "",
+      "fn multiply(x: u32, y: u32) -> u32 {",
+      "    return x * y",
+      "}",
+      "",
+      "pub fn main(world: World) -> Void raises {",
+      "    if std.cli.argEquals(1, \"help\") {",
+      `        check world.out.write(${JSON.stringify(scaleCliUsage)})`,
+      "        return",
+      "    }",
+      "    let x: Maybe<u32> = std.args.parseU32(2)",
+      "    let y: Maybe<u32> = std.args.parseU32(3)",
+      "    if !x.has || !y.has {",
+      `        check world.out.write(${JSON.stringify(scaleCliUsage)})`,
+      "        return",
+      "    }",
+      "    if std.cli.argEquals(1, \"add\") {",
+      "        let result: u32 = add(x.value, y.value)",
+      "        var out: [10]u8 = [0_u8; 10]",
+      "        let text: Maybe<Span<u8>> = std.fmt.u32(out, result)",
+      "        if text.has {",
+      "            check world.out.write(text.value)",
+      "            check world.out.write(\"\\n\")",
+      "        }",
+      "        return",
+      "    }",
+      "    if std.cli.argEquals(1, \"subtract\") {",
+      "        let result: u32 = subtract(x.value, y.value)",
+      "        var out: [10]u8 = [0_u8; 10]",
+      "        let text: Maybe<Span<u8>> = std.fmt.u32(out, result)",
+      "        if text.has {",
+      "            check world.out.write(text.value)",
+      "            check world.out.write(\"\\n\")",
+      "        }",
+      "        return",
+      "    }",
+      "    if std.cli.argEquals(1, \"multiply\") {",
+      "        let result: u32 = multiply(x.value, y.value)",
+      "        var out: [10]u8 = [0_u8; 10]",
+      "        let text: Maybe<Span<u8>> = std.fmt.u32(out, result)",
+      "        if text.has {",
+      "            check world.out.write(text.value)",
+      "            check world.out.write(\"\\n\")",
+      "        }",
+      "        return",
+      "    }",
+      `    check world.out.write(${JSON.stringify(scaleCliUsage)})`,
+      "}",
+      "",
+    ].join("\n"),
+    runArgs: ["help"],
+    expectedStdout: scaleCliUsage,
+    runChecks: [
+      {
+        name: "help",
+        args: ["help"],
+        expectedStdout: scaleCliUsage,
+      },
+      {
+        name: "add",
+        args: ["add", "40", "2"],
+        expectedStdout: "42\n",
+      },
+      {
+        name: "subtract",
+        args: ["subtract", "40", "2"],
+        expectedStdout: "38\n",
+      },
+      {
+        name: "multiply",
+        args: ["multiply", "6", "7"],
+        expectedStdout: "42\n",
+      },
+      {
+        name: "bad-args",
+        args: ["add", "nope", "2"],
+        expectedStdout: scaleCliUsage,
+      },
+    ],
+    requiredSourcePatterns: [
+      ...commonProgramPatterns,
+      /std\.cli\.argEquals/,
+      /std\.args\.parseU32/,
+      /std\.fmt\.u32/,
+      /fn\s+add/,
+      /fn\s+subtract/,
+      /fn\s+multiply/,
+      /usage: zero run \. -- <add\|subtract\|multiply\|help> <x> <y>/,
+    ],
+  },
+  {
+    id: "scale-crm-http-api",
+    title: "Agent scale: CRM HTTP API package",
+    kind: "package",
+    suites: ["agent-scale"],
+    prompt: [
+      "Build a graph-first Zerolang CRM HTTP request-envelope API package.",
+      "Create the package in the candidate package root provided by the evaluator.",
+      "It should expose at least ten route branches across health, accounts, contacts, deals, activities, and search.",
+      "Cover CRUD-style list, create, read, update, and delete flows where the current HTTP helpers support them.",
+      "Use deterministic in-memory responses so the evaluator can run request envelopes without external services.",
+    ].join("\n"),
+    fixtureProjectDir: "examples/crm-api",
+    runArgs: ["GET /health\n\n"],
+    expectedStdout:
+      "HTTP/1.1 200 OK\ncontent-type: application/json\ncontent-length: 27\n\n{\"ok\":true,\"service\":\"crm\"}",
+    runChecks: [
+      {
+        name: "health",
+        args: ["GET /health\n\n"],
+        expectedStdout:
+          "HTTP/1.1 200 OK\ncontent-type: application/json\ncontent-length: 27\n\n{\"ok\":true,\"service\":\"crm\"}",
+      },
+      {
+        name: "contact-read",
+        args: ["GET /crm/contacts/7\n\n"],
+        expectedStdout:
+          "HTTP/1.1 200 OK\ncontent-type: application/json\ncontent-length: 85\n\n{\"contact\":{\"id\":7,\"name\":\"Grace Hopper\",\"email\":\"grace@example.com\",\"account_id\":1}}",
+      },
+      {
+        name: "deal-read",
+        args: ["GET /crm/deals/42\n\n"],
+        expectedStdout:
+          "HTTP/1.1 200 OK\ncontent-type: application/json\ncontent-length: 72\n\n{\"deal\":{\"id\":42,\"name\":\"Expansion\",\"stage\":\"proposal\",\"amount\":120000}}",
+      },
+      {
+        name: "search",
+        args: ["GET /crm/search\n\n"],
+        expectedStdout:
+          "HTTP/1.1 200 OK\ncontent-type: application/json\ncontent-length: 98\n\n{\"results\":[{\"type\":\"account\",\"id\":1,\"label\":\"Acme\"},{\"type\":\"deal\",\"id\":42,\"label\":\"Expansion\"}]}",
+      },
+      {
+        name: "not-found",
+        args: ["GET /crm/missing\n\n"],
+        expectedStdout:
+          "HTTP/1.1 404 Not Found\ncontent-type: application/json\ncontent-length: 38\n\n{\"error\":\"not_found\",\"resource\":\"crm\"}",
+      },
+    ],
+    requiredSourcePatterns: [
+      ...packageProgramPatterns,
+      /handleCrm|fn\s+handle/,
+      /std\.http\.requestIsGet/,
+      /std\.http\.requestIsPost/,
+      /\/crm\/accounts/,
+      /\/crm\/contacts/,
+      /\/crm\/deals/,
+      /\/crm\/activities/,
+      /\/crm\/search/,
+      /badRequest|methodNotAllowed|notFound/,
     ],
   },
 ];
@@ -516,8 +710,21 @@ const rosettaChallenges: RosettaChallenge[] = [
 export const evalCases: EvalCase[] = [
   ...baseEvalCases,
   ...rosettaChallenges.map(rosettaCase),
+  ...agentScaleEvalCases,
 ];
 
 export function findEvalCase(id: string): EvalCase | undefined {
   return evalCases.find((evalCase) => evalCase.id === id);
+}
+
+export function evalSuiteIds(): string[] {
+  return uniqueOrdered(evalCases.flatMap((evalCase) => evalCase.suites ?? []));
+}
+
+export function findEvalSuite(suiteId: string): EvalCase[] {
+  return evalCases.filter((evalCase) => evalCase.suites?.includes(suiteId));
+}
+
+function uniqueOrdered(values: string[]) {
+  return values.filter((value, index) => values.indexOf(value) === index);
 }
