@@ -325,6 +325,21 @@ run_native_or_gap conformance/native/pass/rescue-check.graph .zero/native-test/r
 run_native_or_gap conformance/native/pass/std-fs-fallible.graph .zero/native-test/std-fs-fallible "fs named errors ok"
 run_native_or_gap conformance/native/pass/std-fs-fallible-resources.graph .zero/native-test/std-fs-fallible-resources "fs fallible resources ok"
 run_native_or_gap conformance/native/pass/std-cli-helpers.graph .zero/native-test/std-cli-helpers "cli helpers ok"
+run_native_or_gap conformance/native/pass/std-fs-bytes.graph .zero/native-test/std-fs-bytes "fs bytes ok"
+run_native_or_gap conformance/native/pass/std-fs-resource.graph .zero/native-test/std-fs-resource "fs resource ok"
+run_native_or_gap conformance/native/pass/std-fs-readall.graph .zero/native-test/std-fs-readall "fs readAll ok"
+run_native_or_gap conformance/native/pass/std-fs-polish.graph .zero/native-test/std-fs-polish "fs polish ok"
+run_native_or_gap conformance/native/pass/std-mem-copy-fill.graph .zero/native-test/std-mem-copy-fill "mem copy fill ok"
+run_native_or_gap conformance/native/pass/generic-function-basic.graph .zero/native-test/generic-function-basic "generic function ok"
+run_native_or_gap conformance/native/pass/generic-shape-basic.graph .zero/native-test/generic-shape-basic "generic shape ok"
+run_native_or_gap conformance/native/pass/generic-shape-multi.graph .zero/native-test/generic-shape-multi "generic shape multi ok"
+run_native_or_gap conformance/native/pass/generic-constructor-expected.graph .zero/native-test/generic-constructor-expected "generic constructor expected ok"
+run_native_or_gap conformance/native/pass/generic-literals-arrays.graph .zero/native-test/generic-literals-arrays "generic literals arrays ok"
+run_native_or_gap conformance/native/pass/top-level-const.graph .zero/native-test/top-level-const "const ok"
+run_native_or_gap conformance/native/pass/const-arithmetic.graph .zero/native-test/const-arithmetic "const arithmetic ok"
+run_native_or_gap conformance/native/pass/type-alias-basic.graph .zero/native-test/type-alias-basic "type alias ok"
+run_native_or_gap conformance/native/pass/static-method-namespace.graph .zero/native-test/static-method-namespace "static method ok"
+run_native_or_gap conformance/native/pass/match-fallback.graph .zero/native-test/match-fallback "match fallback ok"
 
 if native_phase_selected "metadata-and-reports"; then
 native_phase_started_at="$SECONDS"
@@ -402,36 +417,6 @@ SOURCE
 fi
 
 bin/zero check conformance/native/pass/std-env.graph >/dev/null
-
-run_native_or_gap conformance/native/pass/std-fs-bytes.graph .zero/native-test/std-fs-bytes "fs bytes ok"
-
-run_native_or_gap conformance/native/pass/std-fs-resource.graph .zero/native-test/std-fs-resource "fs resource ok"
-
-run_native_or_gap conformance/native/pass/std-fs-readall.graph .zero/native-test/std-fs-readall "fs readAll ok"
-
-run_native_or_gap conformance/native/pass/std-fs-polish.graph .zero/native-test/std-fs-polish "fs polish ok"
-
-run_native_or_gap conformance/native/pass/std-mem-copy-fill.graph .zero/native-test/std-mem-copy-fill "mem copy fill ok"
-
-run_native_or_gap conformance/native/pass/generic-function-basic.graph .zero/native-test/generic-function-basic "generic function ok"
-
-run_native_or_gap conformance/native/pass/generic-shape-basic.graph .zero/native-test/generic-shape-basic "generic shape ok"
-
-run_native_or_gap conformance/native/pass/generic-shape-multi.graph .zero/native-test/generic-shape-multi "generic shape multi ok"
-
-run_native_or_gap conformance/native/pass/generic-constructor-expected.graph .zero/native-test/generic-constructor-expected "generic constructor expected ok"
-
-run_native_or_gap conformance/native/pass/generic-literals-arrays.graph .zero/native-test/generic-literals-arrays "generic literals arrays ok"
-
-run_native_or_gap conformance/native/pass/top-level-const.graph .zero/native-test/top-level-const "const ok"
-
-run_native_or_gap conformance/native/pass/const-arithmetic.graph .zero/native-test/const-arithmetic "const arithmetic ok"
-
-run_native_or_gap conformance/native/pass/type-alias-basic.graph .zero/native-test/type-alias-basic "type alias ok"
-
-run_native_or_gap conformance/native/pass/static-method-namespace.graph .zero/native-test/static-method-namespace "static method ok"
-
-run_native_or_gap conformance/native/pass/match-fallback.graph .zero/native-test/match-fallback "match fallback ok"
 
 bin/zero inspect --json conformance/check/pass/imports > .zero/native-test/imports-graph.json
 node -e 'const fs=require("node:fs"); const j=JSON.parse(fs.readFileSync(".zero/native-test/imports-graph.json","utf8")); const imports=(j.importEdges||[]).map((edge)=>edge.to).sort(); if (!j.targets || imports.join(",")!=="math,types") process.exit(1);'
