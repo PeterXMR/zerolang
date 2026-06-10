@@ -126,7 +126,7 @@ void z_program_graph_print_command_help(void) {
   printf("Source map usage: zero source-map [--json] [graph-input]\n");
   printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [--depth <n>] [--full] [graph-input|name]\n");
   printf("Reconcile usage: zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
-  printf("Repository projection usage: zero status|verify-projection [--json] [project|zero.toml|zero.json|file.0]; zero import [--json] [--format text|binary] [project|zero.toml|zero.json|file.0]; zero export [--json] [project|zero.toml|zero.json|file.0]; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] [project|zero.toml|zero.json|file.0]\n");
+  printf("Repository projection usage: zero status|verify-projection [--json] [project|zero.toml|zero.json|file.0|zero.graph]; zero import [--json] [--format text|binary] [project|zero.toml|zero.json|file.0]; zero export [--json] [project|zero.toml|zero.json|file.0]; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] [project|zero.toml|zero.json|file.0]\n");
   printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] [graph-input]\n");
   printf("Patch usage: zero patch [--json] [--check-only|--dry-run] [--format text|binary] [--out <program-graph-artifact>] [graph-input] (<patch-file>|--op <operation>)\n");
   printf("  In a graph-first package, zero patch --op <operation> defaults to the current directory.\nPatch operation help: zero patch --op help\n\n");
