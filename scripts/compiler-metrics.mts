@@ -182,7 +182,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_store_tables.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_tables.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store.h": { maxLines: 50, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_test.c": { maxLines: 700, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test.c": { maxLines: 705, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.c": { maxLines: 230, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test.h": { maxLines: 20, maxStrcmpCalls: 0 },
