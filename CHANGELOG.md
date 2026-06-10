@@ -1,8 +1,19 @@
 # Changelog
 
-## 0.3.1
+## 0.3.2
 
 <!-- release:start -->
+
+- Adds `break` and `continue` support to the direct backend and `zero test`, lowering both through typed MIR and all direct emitters with conformance coverage and required runtime checks.
+- Speeds up graph validation with indexed node-hash tables, a reusable adjacency index, and deduplicated store validation, making `zero import` on large programs roughly 12x faster.
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.3.1
 
 - Hardens compiler, runtime, and toolchain I/O boundaries with checked file reads and writes, directory rejection, atomic output staging, safer executable finalization, mapped-MIR and binary graph parser validation, and regular-file checks for generated compiler/linker outputs.
 - Removes remaining shell-based native execution surfaces in favor of argv-based process helpers, safer tool resolution, guarded child setup, validated compiler overrides, and explicit metrics coverage for process and shell-call regressions.
@@ -14,8 +25,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.3.0
 

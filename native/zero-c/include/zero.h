@@ -6,7 +6,7 @@
 
 #include "zero_contracts.h"
 
-#define ZERO_VERSION "0.3.1"
+#define ZERO_VERSION "0.3.2"
 
 typedef struct ZTargetInfo ZTargetInfo;
 typedef struct ZProgramGraph ZProgramGraph;
