@@ -6999,6 +6999,16 @@ assert.equal(machOMemoryPackageReport.objectBackend.directFacts.runtimeHelperCou
 assert.equal(machOMemoryPackageBytes.readUInt32LE(0), 0xfeedfacf);
 assert(machOMemoryPackageBytes.includes(Buffer.from("memory package ok")));
 
+// Package builds must be byte-deterministic: emitting the same package through
+// the store-backed manifest pipeline twice must produce identical object bytes,
+// so toolchain or allocation randomness can never leak into emitted artifacts.
+const crmApiDeterminismPath = join(outDir, "determinism-crm-api.o");
+rmSync(crmApiDeterminismPath, { force: true });
+const crmApiDeterminismReport = json(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", "examples/crm-api", "--out", crmApiDeterminismPath]).body;
+assert.equal(crmApiDeterminismReport.generatedCBytes, 0);
+assert.equal(crmApiDeterminismReport.cBridgeFallback ?? false, false);
+repeatBuildHash(["build", "--json", "--emit", "obj", "--target", "linux-musl-x64", "examples/crm-api", "--out", crmApiDeterminismPath], crmApiDeterminismPath, join(outDir, "determinism-crm-api.repeat.o"));
+
 const graph = json(["inspect", "--json", "--target", "linux-musl-x64", "examples/memory-package"]).body;
 assert.equal(graph.schemaVersion, 1);
 assert.equal(graph.targetSupport.target, "linux-musl-x64");
