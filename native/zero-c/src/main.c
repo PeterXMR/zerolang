@@ -13332,6 +13332,20 @@ static int refresh_stale_manifest_graph_input(const Command *command, const ZTar
   return rc;
 }
 
+static void resolve_compiler_command_package_source_input(Command *command) {
+  if (!command || !command->input) return;
+  if (!z_program_graph_manifest_command_can_use_compiler_input(command->command)) return;
+  if (!is_zero_source_path(command->input) || !direct_file_exists(command->input)) return;
+  char *root = z_program_graph_store_root_for_input(command->input);
+  char *manifest_path = root ? z_manifest_path_for_root(root) : NULL;
+  if (manifest_path) {
+    command_set_owned_input(command, root);
+    root = NULL;
+  }
+  free(manifest_path);
+  free(root);
+}
+
 static int resolve_direct_command_manifest_graph_input(Command *command, const ZTargetInfo *target, bool *handled) {
   if (handled) *handled = false;
   if (!command || !z_program_graph_manifest_command_can_use_compiler_input(command->command)) return 0;
@@ -14128,6 +14142,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  resolve_compiler_command_package_source_input(&command);
   const char *direct_graph_manifest_input = command.input;
   bool direct_graph_manifest_command = false;
   int repository_graph_check_rc = run_repository_graph_check_command(&command, target, &direct_graph_manifest_command);
