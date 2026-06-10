@@ -12439,7 +12439,10 @@ static int run_graph_view_command(const Command *command, ZDiag *diag) {
   }
   ZBuf view;
   zbuf_init(&view);
-  if (!z_program_graph_append_view(&view, &graph, command->input, diag)) {
+  bool view_ok = command->query_function
+    ? z_program_graph_append_view_function(&view, &graph, command->input, command->query_function, diag)
+    : z_program_graph_append_view(&view, &graph, command->input, diag);
+  if (!view_ok) {
     print_command_diag(command, diag->path ? diag->path : command->input, diag);
     zbuf_free(&view);
     z_free_program(&program);

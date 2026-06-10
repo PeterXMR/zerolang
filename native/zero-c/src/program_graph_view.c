@@ -237,6 +237,133 @@ bool z_program_graph_append_view(ZBuf *buf, const ZProgramGraph *graph, const ch
   return view_append_program(buf, graph, source_path, true, diag);
 }
 
+static size_t view_name_distance(const char *left, const char *right) {
+  size_t left_len = left ? strlen(left) : 0;
+  size_t right_len = right ? strlen(right) : 0;
+  enum { VIEW_NAME_DISTANCE_MAX = 64 };
+  if (left_len > VIEW_NAME_DISTANCE_MAX || right_len > VIEW_NAME_DISTANCE_MAX) {
+    return left_len > right_len ? left_len : right_len;
+  }
+  size_t row[VIEW_NAME_DISTANCE_MAX + 1];
+  for (size_t j = 0; j <= right_len; j++) row[j] = j;
+  for (size_t i = 1; i <= left_len; i++) {
+    size_t previous_diagonal = row[0];
+    row[0] = i;
+    for (size_t j = 1; j <= right_len; j++) {
+      size_t previous = row[j];
+      size_t substitute = previous_diagonal + ((left[i - 1] == right[j - 1] || (left[i - 1] | 32) == (right[j - 1] | 32)) ? 0 : 1);
+      size_t insert = row[j - 1] + 1;
+      size_t delete_cost = previous + 1;
+      size_t best = substitute < insert ? substitute : insert;
+      row[j] = best < delete_cost ? best : delete_cost;
+      previous_diagonal = previous;
+    }
+  }
+  return row[right_len];
+}
+
+static void view_collect_function_suggestions(const ZProgramGraph *graph, const char *function_name, char *out, size_t out_size) {
+  enum { VIEW_SUGGESTION_MAX = 3 };
+  const char *names[VIEW_SUGGESTION_MAX] = {0};
+  size_t distances[VIEW_SUGGESTION_MAX] = {0};
+  size_t count = 0;
+  size_t name_len = function_name ? strlen(function_name) : 0;
+  size_t threshold = name_len / 3 + 2;
+  if (out_size) out[0] = '\0';
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    const ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !node->name || !node->name[0]) continue;
+    size_t distance = view_name_distance(function_name, node->name);
+    if (distance > threshold) continue;
+    bool duplicate = false;
+    for (size_t known = 0; known < count && !duplicate; known++) {
+      duplicate = view_text_eq(names[known], node->name);
+    }
+    if (duplicate) continue;
+    size_t slot = count < VIEW_SUGGESTION_MAX ? count : VIEW_SUGGESTION_MAX;
+    for (size_t pos = 0; pos < count; pos++) {
+      if (distance < distances[pos]) {
+        slot = pos;
+        break;
+      }
+    }
+    if (slot >= VIEW_SUGGESTION_MAX) continue;
+    size_t last = count < VIEW_SUGGESTION_MAX ? count : VIEW_SUGGESTION_MAX - 1;
+    for (size_t pos = last; pos > slot; pos--) {
+      names[pos] = names[pos - 1];
+      distances[pos] = distances[pos - 1];
+    }
+    names[slot] = node->name;
+    distances[slot] = distance;
+    if (count < VIEW_SUGGESTION_MAX) count++;
+  }
+  size_t used = 0;
+  for (size_t i = 0; i < count && out_size; i++) {
+    int written = snprintf(out + used, out_size - used, "%s%s", i ? ", " : "", names[i]);
+    if (written < 0 || (size_t)written >= out_size - used) break;
+    used += (size_t)written;
+  }
+}
+
+static bool view_line_is_function_header(const char *line, size_t line_len, const char *function_name) {
+  size_t name_len = strlen(function_name);
+  if (line_len >= 4 && strncmp(line, "pub ", 4) == 0) {
+    line += 4;
+    line_len -= 4;
+  }
+  if (line_len < 3 || strncmp(line, "fn ", 3) != 0) return false;
+  line += 3;
+  line_len -= 3;
+  return line_len > name_len && strncmp(line, function_name, name_len) == 0 && line[name_len] == '(';
+}
+
+bool z_program_graph_append_view_function(ZBuf *buf, const ZProgramGraph *graph, const char *source_path, const char *function_name, ZDiag *diag) {
+  if (!buf || !function_name || !function_name[0]) return false;
+  ZBuf full;
+  zbuf_init(&full);
+  if (!view_append_program(&full, graph, source_path, true, diag)) {
+    zbuf_free(&full);
+    return false;
+  }
+  const char *text = full.data ? full.data : "";
+  const char *line = text;
+  const char *function_start = NULL;
+  while (*line) {
+    const char *line_end = strchr(line, '\n');
+    size_t line_len = line_end ? (size_t)(line_end - line) : strlen(line);
+    if (!function_start && view_line_is_function_header(line, line_len, function_name)) {
+      function_start = line;
+    } else if (function_start && line_len == 1 && line[0] == '}') {
+      full.data[(size_t)(line + line_len - text)] = '\0';
+      zbuf_append(buf, function_start);
+      zbuf_append_char(buf, '\n');
+      zbuf_free(&full);
+      return true;
+    }
+    if (!line_end) break;
+    line = line_end + 1;
+  }
+  zbuf_free(&full);
+  if (diag) {
+    char suggestions[160];
+    view_collect_function_suggestions(graph, function_name, suggestions, sizeof(suggestions));
+    diag->code = 2002;
+    diag->path = source_path;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "function '%s' not found in graph view", function_name);
+    snprintf(diag->expected, sizeof(diag->expected), "an existing function name");
+    snprintf(diag->actual, sizeof(diag->actual), "--fn %s", function_name);
+    if (suggestions[0]) {
+      snprintf(diag->help, sizeof(diag->help), "close matches: %s; run zero view --fn <name> with one of them, or zero query --find %s to search the graph", suggestions, function_name);
+    } else {
+      snprintf(diag->help, sizeof(diag->help), "run zero query to list functions, or zero query --find %s to search the graph", function_name);
+    }
+  }
+  return false;
+}
+
 bool z_program_graph_append_source_view(ZBuf *buf, const ZProgramGraph *graph, const char *source_path, ZDiag *diag) {
   ZProgramGraph sliced = {0};
   if (!view_slice_graph_for_source(graph, source_path, &sliced, diag)) return false;
