@@ -11,6 +11,7 @@ const sourceFileDirs = [
 ];
 const auditFiles = [
   "native/zero-c/runtime/zero_runtime.c",
+  "native/zero-c/tests/http_listen_runner_smoke.c",
   "scripts/fs-runtime-smoke.mts",
   "scripts/test-native.sh",
 ];
@@ -35,7 +36,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/checker.c": { maxLines: 11789, maxStrcmpCalls: 287 },
   "native/zero-c/src/cli_help.c": { maxLines: 125, maxStrcmpCalls: 1 },
   "native/zero-c/src/cli_help.h": { maxLines: 8, maxStrcmpCalls: 0 },
-  "native/zero-c/src/http_listen_runner.c": { maxLines: 575, maxStrcmpCalls: 0 },
+  "native/zero-c/src/http_listen_runner.c": { maxLines: 600, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.h": { maxLines: 22, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_temp.c": { maxLines: 120, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_temp.h": { maxLines: 15, maxStrcmpCalls: 0 },
@@ -1135,6 +1136,15 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       processExec: backendFormats.processExec,
     });
   }
+  if (!backendFormats.httpListen.sendAllChecked ||
+      !backendFormats.httpListen.jsonErrorNoTruncation ||
+      !backendFormats.httpListen.handlerCaptureStrict ||
+      !backendFormats.httpListen.nativeSmokeWired) {
+    violations.push({
+      kind: "http-listen-hardening",
+      httpListen: backendFormats.httpListen,
+    });
+  }
   if (!backendFormats.targetManifest.exactKeyMatcher ||
       !backendFormats.targetManifest.exactListMatcher ||
       !backendFormats.targetManifest.noAliasSubstringLookup ||
@@ -1490,6 +1500,11 @@ const runtimeFsReadBody = cCodeText(cBlock(runtimeRaw, "ZeroMaybeUsize zero_fs_r
 const runtimeOpenReadonlyBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_open_readonly"));
 const runtimeReadFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_read_fd"));
 const runtimeCloseFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_close_fd"));
+const httpListenRunnerRaw = texts.get("native/zero-c/src/http_listen_runner.c") ?? "";
+const httpListenRunnerSmokeRaw = auditTexts.get("native/zero-c/tests/http_listen_runner_smoke.c") ?? "";
+const listenSendAllBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_all"));
+const listenJsonErrorBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_json_error"));
+const listenHandlerCaptureBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool run_handler_capture"));
 const mirBinaryRaw = texts.get("native/zero-c/src/mir_binary.c") ?? "";
 const mirBinarySource = cCodeText(mirBinaryRaw);
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
@@ -1691,6 +1706,24 @@ const backendFormats = {
   processExec: {
     ...processExecHardening,
     childSetupChecked: processExecChildSetupChecked,
+  },
+  httpListen: {
+    sendAllChecked: /static\s+bool\s+send_all\s*\(/.test(httpListenRunnerRaw) &&
+      /if\s*\(\s*!data\s*&&\s*len\s*>\s*0\s*\)\s*return\s+false/.test(listenSendAllBody) &&
+      /if\s*\(\s*n\s*==\s*0\s*\)\s*return\s+false/.test(listenSendAllBody) &&
+      /return\s+true\s*;/.test(listenSendAllBody),
+    jsonErrorNoTruncation: /static\s+bool\s+send_json_error\s*\(/.test(httpListenRunnerRaw) &&
+      /len\s*<\s*0\s*\|\|\s*\(size_t\)\s*len\s*>=\s*sizeof\s*\(\s*response\s*\)/.test(listenJsonErrorBody) &&
+      /return\s+send_all\s*\(\s*fd\s*,\s*response\s*,\s*\(size_t\)\s*len\s*\)/.test(listenJsonErrorBody),
+    handlerCaptureStrict: /bool\s+read_ok\s*=\s*true/.test(listenHandlerCaptureBody) &&
+      /read_ok\s*=\s*false/.test(listenHandlerCaptureBody) &&
+      /bool\s+handler_ok\s*=\s*WIFEXITED\s*\(\s*status\s*\)\s*&&\s*WEXITSTATUS\s*\(\s*status\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
+      /memcmp\s*\(\s*response\s*,\s*"HTTP\/"\s*,\s*5\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
+      /read_ok\s*&&\s*!\s*overflow\s*&&\s*handler_ok\s*&&\s*response_ok/.test(httpListenRunnerRaw),
+    nativeSmokeWired: /http_listen_runner_smoke\.c/.test(nativeTestRaw) &&
+      /http-listen-runner-smoke/.test(nativeTestRaw) &&
+      /smoke_json_error/.test(httpListenRunnerSmokeRaw) &&
+      /smoke_handler_capture/.test(httpListenRunnerSmokeRaw),
   },
   targetManifest: {
     exactKeyMatcher: /\bmanifest_key_equals\s*\(/.test(targetSource),

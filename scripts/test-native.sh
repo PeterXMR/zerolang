@@ -110,6 +110,10 @@ if native_phase_selected "preflight"; then
     native/zero-c/src/process_path.c \
     -o .zero/native-test/process-exec-smoke
   .zero/native-test/process-exec-smoke
+  cc -std=c11 -Wall -Wextra -Wpedantic -I native/zero-c/include -I native/zero-c/src \
+    native/zero-c/tests/http_listen_runner_smoke.c \
+    -o .zero/native-test/http-listen-runner-smoke
+  .zero/native-test/http-listen-runner-smoke
   scripts/fs-runtime-smoke.mts
   bin/zero check --json std/path.graph >/dev/null
   bin/zero check --json std/str.graph >/dev/null
