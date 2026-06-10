@@ -341,49 +341,9 @@ static bool store_read_file_bytes(const char *path, unsigned char **out, size_t 
   *out = NULL;
   *out_len = 0;
   if (store_path_is_dir(path)) return store_diag(diag, path, 1, "failed to read repository graph store", "is a directory");
-  FILE *file = fopen(path, "rb");
-  if (!file) {
-    if (diag) {
-      *diag = (ZDiag){0};
-      diag->code = 1;
-      diag->path = path;
-      diag->line = 1;
-      diag->column = 1;
-      snprintf(diag->message, sizeof(diag->message), "failed to read '%s'", path ? path : "zero.graph");
-    }
-    return false;
-  }
-  if (fseek(file, 0, SEEK_END) != 0) {
-    if (errno == 0) errno = EIO;
-    fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
-  }
-  long size = ftell(file);
-  if (size < 0 || (size_t)size > SIZE_MAX - 1) {
-    if (errno == 0) errno = EIO;
-    fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
-  }
-  if (fseek(file, 0, SEEK_SET) != 0) {
-    if (errno == 0) errno = EIO;
-    fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
-  }
-  unsigned char *data = z_checked_malloc((size_t)size + 1);
-  if (size > 0 && fread(data, 1, (size_t)size, file) != (size_t)size) {
-    if (errno == 0) errno = EIO;
-    free(data);
-    fclose(file);
-    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
-  }
-  data[(size_t)size] = 0;
-  if (fclose(file) != 0) {
-    free(data);
-    return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
-  }
-  *out = data;
-  *out_len = (size_t)size;
-  return true;
+  ZDiag read_diag = {0};
+  if (z_read_binary_file(path, out, out_len, &read_diag)) return true;
+  return store_diag(diag, path, 1, "failed to read repository graph store", strerror(errno));
 }
 
 bool z_program_graph_store_path_is_binary(const char *path) {

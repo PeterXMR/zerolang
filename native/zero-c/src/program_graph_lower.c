@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 typedef struct {
   const ZProgramGraph *graph;
@@ -262,10 +263,8 @@ static bool lower_path_is_absolute(const char *path) {
 }
 
 static bool lower_file_exists(const char *path) {
-  FILE *file = path && path[0] ? fopen(path, "rb") : NULL;
-  if (!file) return false;
-  fclose(file);
-  return true;
+  struct stat st;
+  return path && path[0] && stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
 static char *lower_dirname_of(const char *path) {

@@ -10,6 +10,11 @@ const sourceFileDirs = [
   "native/zero-c/src",
 ];
 const auditFiles = [
+  "native/zero-c/runtime/zero_runtime.c",
+  "native/zero-c/tests/http_listen_runner_smoke.c",
+  "native/zero-c/tests/process_exec_smoke.c",
+  "scripts/artifact-finalization-smoke.mts",
+  "scripts/fs-runtime-smoke.mts",
   "scripts/test-native.sh",
 ];
 
@@ -33,7 +38,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/checker.c": { maxLines: 11789, maxStrcmpCalls: 287 },
   "native/zero-c/src/cli_help.c": { maxLines: 125, maxStrcmpCalls: 1 },
   "native/zero-c/src/cli_help.h": { maxLines: 8, maxStrcmpCalls: 0 },
-  "native/zero-c/src/http_listen_runner.c": { maxLines: 575, maxStrcmpCalls: 0 },
+  "native/zero-c/src/http_listen_runner.c": { maxLines: 600, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_runner.h": { maxLines: 22, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_temp.c": { maxLines: 120, maxStrcmpCalls: 0 },
   "native/zero-c/src/http_listen_temp.h": { maxLines: 15, maxStrcmpCalls: 0 },
@@ -94,9 +99,10 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/emit_llvm_ir.c": { maxLines: 944, maxStrcmpCalls: 9 },
   "native/zero-c/src/emit_coff.c": { maxLines: 1974, maxStrcmpCalls: 1 },
   "native/zero-c/src/emit_coff_aarch64.c": { maxLines: 490, maxStrcmpCalls: 0 },
-  "native/zero-c/src/fs.c": { maxLines: 1525, maxStrcmpCalls: 36, maxShellCalls: 0 },
-  "native/zero-c/src/process_exec.c": { maxLines: 225, maxStrcmpCalls: 1, maxShellCalls: 0 },
-  "native/zero-c/src/process_exec.h": { maxLines: 25, maxStrcmpCalls: 0, maxShellCalls: 0 },
+  "native/zero-c/src/fs.c": { maxLines: 1545, maxStrcmpCalls: 36, maxShellCalls: 0 },
+  "native/zero-c/src/fs_read.c": { maxLines: 130, maxStrcmpCalls: 0, maxShellCalls: 0 },
+  "native/zero-c/src/process_exec.c": { maxLines: 325, maxStrcmpCalls: 1, maxShellCalls: 0 },
+  "native/zero-c/src/process_exec.h": { maxLines: 26, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/process_path.c": { maxLines: 110, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/process_path.h": { maxLines: 10, maxStrcmpCalls: 0, maxShellCalls: 0 },
   "native/zero-c/src/mir_verify.c": { maxLines: 2331, maxStrcmpCalls: 0 },
@@ -1104,6 +1110,7 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.readSeekChecked ||
       !backendFormats.fileIo.readSizeChecked ||
       !backendFormats.fileIo.readShortReadChecked ||
+      !backendFormats.fileIo.sharedBinaryReadHelperUsed ||
       !backendFormats.fileIo.optionalReadChecked ||
       !backendFormats.fileIo.inputProbeReadChecked ||
       !backendFormats.fileIo.atomicWriteHelperUsed ||
@@ -1114,6 +1121,10 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
       !backendFormats.fileIo.textWriteChecked ||
       !backendFormats.fileIo.binaryWriteChecked ||
       !backendFormats.fileIo.closeChecked ||
+      !backendFormats.fileIo.runtimeReadDescriptorChecked ||
+      !backendFormats.fileIo.runtimeReadHandlesEintr ||
+      !backendFormats.fileIo.runtimeReadCloseChecked ||
+      !backendFormats.fileIo.runtimeReadSmokeWired ||
       !backendFormats.fileIo.bufferFormatChecked ||
       !backendFormats.fileIo.diagnosticsNullSafe) {
     violations.push({
@@ -1125,6 +1136,15 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats, prog
     violations.push({
       kind: "process-exec-hardening",
       processExec: backendFormats.processExec,
+    });
+  }
+  if (!backendFormats.httpListen.sendAllChecked ||
+      !backendFormats.httpListen.jsonErrorNoTruncation ||
+      !backendFormats.httpListen.handlerCaptureStrict ||
+      !backendFormats.httpListen.nativeSmokeWired) {
+    violations.push({
+      kind: "http-listen-hardening",
+      httpListen: backendFormats.httpListen,
     });
   }
   if (!backendFormats.targetManifest.exactKeyMatcher ||
@@ -1467,13 +1487,28 @@ const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c")
 const machoX64Source = cCodeText(texts.get("native/zero-c/src/emit_macho_x64.c") ?? "");
 const fsRaw = texts.get("native/zero-c/src/fs.c") ?? "";
 const fsSource = cCodeText(fsRaw);
+const fsReadRaw = texts.get("native/zero-c/src/fs_read.c") ?? "";
 const directWriteFopenFiles = [...texts.entries()]
   .filter(([path]) => path.startsWith("native/zero-c/src/") && path !== "native/zero-c/src/fs.c")
   .filter(([, text]) => /\bfopen\s*\([^,\n]+,\s*"w[ab]?"/.test(cCodeText(text)))
   .map(([path]) => path)
   .sort((a, b) => a.localeCompare(b));
 const processExecRaw = texts.get("native/zero-c/src/process_exec.c") ?? "";
+const processExecSmokeRaw = auditTexts.get("native/zero-c/tests/process_exec_smoke.c") ?? "";
 const nativeTestRaw = auditTexts.get("scripts/test-native.sh") ?? "";
+const fsRuntimeSmokeRaw = auditTexts.get("scripts/fs-runtime-smoke.mts") ?? "";
+const artifactFinalizationSmokeRaw = auditTexts.get("scripts/artifact-finalization-smoke.mts") ?? "";
+const runtimeRaw = auditTexts.get("native/zero-c/runtime/zero_runtime.c") ?? "";
+const runtimeSource = cCodeText(runtimeRaw);
+const runtimeFsReadBody = cCodeText(cBlock(runtimeRaw, "ZeroMaybeUsize zero_fs_read_bytes"));
+const runtimeOpenReadonlyBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_open_readonly"));
+const runtimeReadFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_read_fd"));
+const runtimeCloseFdBody = cCodeText(cBlock(runtimeRaw, "static int zero_runtime_close_fd"));
+const httpListenRunnerRaw = texts.get("native/zero-c/src/http_listen_runner.c") ?? "";
+const httpListenRunnerSmokeRaw = auditTexts.get("native/zero-c/tests/http_listen_runner_smoke.c") ?? "";
+const listenSendAllBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_all"));
+const listenJsonErrorBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool send_json_error"));
+const listenHandlerCaptureBody = cCodeText(cBlock(httpListenRunnerRaw, "static bool run_handler_capture"));
 const mirBinaryRaw = texts.get("native/zero-c/src/mir_binary.c") ?? "";
 const mirBinarySource = cCodeText(mirBinaryRaw);
 const programGraphCompileSource = cCodeText(texts.get("native/zero-c/src/program_graph_compile.c") ?? "");
@@ -1515,17 +1550,22 @@ const repositoryGraphCheckJsonBody = cCodeText(cBlock(main, "static void append_
 const repositoryGraphDefaultReadinessRawBody = cBlock(main, "static void append_repository_graph_default_readiness_json");
 const directManifestGraphInputBody = cCodeText(cBlock(main, "static int resolve_direct_command_manifest_graph_input"));
 const readOptionalFileBody = cCodeText(cBlock(main, "static char *read_optional_file"));
-const readFilePrefixBody = cCodeText(cBlock(main, "static bool read_file_prefix"));
 const programGraphStorageHeaderBody = cCodeText(cBlock(main, "static bool path_has_program_graph_storage_header"));
 const programGraphPatchHeaderBody = cCodeText(cBlock(main, "static bool path_has_program_graph_patch_header"));
 const directFileExistsBody = cCodeText(cBlock(main, "static bool direct_file_exists"));
 const zbufAppendfBody = cCodeText(cBlock(fsRaw, "void zbuf_appendf"));
 const processExistingDirBody = cCodeText(cBlock(processExecRaw, "static bool z_process_existing_dir"));
 const processEnsureDirBody = cCodeText(cBlock(processExecRaw, "bool z_process_ensure_dir"));
+const processFlagParserBody = cCodeText(cBlock(processExecRaw, "bool z_process_argv_append_flag_text"));
 const processSuppressStreamBody = cCodeText(cBlock(processExecRaw, "static bool z_process_suppress_stream"));
 const processWaitSuccessBody = cCodeText(cBlock(processExecRaw, "static bool z_process_wait_success"));
 const processRunArgvBody = cCodeText(cBlock(processExecRaw, "bool z_process_run_argv"));
 const processFirstStdoutLineBody = cCodeText(cBlock(processExecRaw, "char *z_process_first_stdout_line"));
+const processPrepareOutputBody = cCodeText(cBlock(processExecRaw, "bool z_process_prepare_output_file"));
+const processOutputReadyBody = cCodeText(cBlock(processExecRaw, "bool z_process_output_file_ready"));
+const processExecutableReadyBody = cCodeText(cBlock(processExecRaw, "bool z_process_executable_file_ready"));
+const processMarkExecutableBody = cCodeText(cBlock(processExecRaw, "bool z_process_mark_executable"));
+const processRemoveRegularBody = cCodeText(cBlock(processExecRaw, "bool z_process_remove_regular_file"));
 const checkedChildSetenvCount = (processRunArgvBody.match(/setenv\s*\([^;]*\)\s*!=\s*0\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
 const checkedChildSuppressCount = ((processRunArgvBody + processFirstStdoutLineBody).match(/!\s*z_process_suppress_stream\s*\([^)]*\)\)\s*_exit\s*\(\s*127\s*\)/g) ?? []).length;
 const processExecHardening = {
@@ -1544,12 +1584,61 @@ const processExecHardening = {
     /read_ok\s*=\s*false\s*;/.test(processFirstStdoutLineBody) &&
     /bool\s+child_ok\s*=\s*z_process_wait_success\s*\(\s*pid\s*\)\s*;/.test(processFirstStdoutLineBody) &&
     /read_ok\s*&&\s*child_ok\s*&&\s*line\.data/.test(processFirstStdoutLineBody),
-  nativeSmokeWired: /process_exec_smoke\.c/.test(nativeTestRaw) && /process-exec-smoke/.test(nativeTestRaw),
+  flagParserRejectsMalformedQuote: /bool\s+closed\s*=\s*false/.test(processFlagParserBody) &&
+    /if\s*\(\s*!\s*closed\s*\)\s*\{\s*zbuf_free\s*\(\s*&token\s*\)\s*;\s*return\s+false\s*;/.test(processFlagParserBody) &&
+    /unterminated quotes/.test(processExecSmokeRaw),
+  outputPreparationStrict: /z_process_output_parent_ready\s*\(\s*path\s*\)/.test(processPrepareOutputBody) &&
+    /z_process_lstat_output\s*\(\s*path\s*,\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /z_process_output_is_symlink\s*\(\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /!\s*z_process_output_is_regular\s*\(\s*&st\s*\)/.test(processPrepareOutputBody) &&
+    /remove\s*\(\s*path\s*\)\s*==\s*0/.test(processPrepareOutputBody),
+  outputReadyStrict: /z_process_lstat_output\s*\(\s*path\s*,\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /z_process_output_is_symlink\s*\(\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /!\s*z_process_output_is_regular\s*\(\s*&st\s*\)/.test(processOutputReadyBody) &&
+    /st\.st_size\s*>\s*0/.test(processOutputReadyBody),
+  executableFinalizationStrict: /z_process_output_file_ready\s*\(\s*path\s*\)/.test(processMarkExecutableBody) &&
+    /z_process_output_file_ready\s*\(\s*path\s*\)/.test(processExecutableReadyBody) &&
+    /access\s*\(\s*path\s*,\s*X_OK\s*\)\s*==\s*0/.test(processExecutableReadyBody) &&
+    /chmod\s*\(\s*path\s*,\s*0755\s*\)\s*!=\s*0/.test(processMarkExecutableBody) &&
+    /z_process_executable_file_ready\s*\(\s*path\s*\)/.test(processMarkExecutableBody) &&
+    /z_process_mark_executable\s*\(\s*exe_file\s*\)/.test(main) &&
+    /z_process_executable_file_ready\s*\(\s*exe_file\s*\)/.test(main) &&
+    !/chmod\s*\(/.test(cCodeText(main)) &&
+    /failed to finalize executable artifact/.test(main),
+  cleanupRejectsNonRegular: /z_process_lstat_output\s*\(\s*path\s*,\s*&st\s*\)/.test(processRemoveRegularBody) &&
+    /z_process_output_is_symlink\s*\(\s*&st\s*\)/.test(processRemoveRegularBody) &&
+    /!\s*z_process_output_is_regular\s*\(\s*&st\s*\)/.test(processRemoveRegularBody) &&
+    /remove\s*\(\s*path\s*\)\s*==\s*0/.test(processRemoveRegularBody) &&
+    /z_process_remove_regular_file\s*\(\s*object_file\s*\)/.test(main) &&
+    /z_process_remove_regular_file\s*\(\s*llvm_file\s*\)/.test(main),
+  toolchainUsesOutputContract: /z_process_prepare_output_file\s*\(\s*object_file\s*\)/.test(fsRaw) &&
+    /z_process_prepare_output_file\s*\(\s*exe_file\s*\)/.test(fsRaw) &&
+    /z_process_output_file_ready\s*\(\s*object_file\s*\)/.test(fsRaw) &&
+    /z_process_output_file_ready\s*\(\s*exe_file\s*\)/.test(fsRaw) &&
+    !/remove_existing_tool_output/.test(fsRaw),
+  nativeSmokeWired: /process_exec_smoke\.c/.test(nativeTestRaw) &&
+    /process-exec-smoke/.test(nativeTestRaw) &&
+    /artifact-finalization-smoke\.mts/.test(nativeTestRaw) &&
+    /test_output_file_contract/.test(processExecSmokeRaw) &&
+    /missing parent directory/.test(processExecSmokeRaw) &&
+    /z_process_prepare_output_file/.test(processExecSmokeRaw) &&
+    /z_process_output_file_ready/.test(processExecSmokeRaw) &&
+    /z_process_executable_file_ready/.test(processExecSmokeRaw) &&
+    /z_process_mark_executable/.test(processExecSmokeRaw) &&
+    /z_process_remove_regular_file/.test(processExecSmokeRaw) &&
+    /zero-artifact-finalization-/.test(artifactFinalizationSmokeRaw) &&
+    /assertExecutable/.test(artifactFinalizationSmokeRaw) &&
+    /assertRunnable/.test(artifactFinalizationSmokeRaw) &&
+    /as-directory/.test(artifactFinalizationSmokeRaw) &&
+    /as-symlink/.test(artifactFinalizationSmokeRaw),
   noIgnoredNullStreams: !/FILE\s+\*null_/.test(processRunArgvBody) && !/FILE\s+\*null_/.test(processFirstStdoutLineBody),
 };
 const processExecChildSetupChecked = Object.values(processExecHardening).every(Boolean);
-const readFileBody = cCodeText(cBlock(fsRaw, "char *z_read_file"));
+const readFileBody = cCodeText(cBlock(fsReadRaw, "char *z_read_file"));
+const readBinaryFileBody = cCodeText(cBlock(fsReadRaw, "bool z_read_binary_file"));
+const readFilePrefixBody = cCodeText(cBlock(fsReadRaw, "bool z_read_file_prefix"));
 const atomicWriteBytesBody = cCodeText(cBlock(fsRaw, "static bool write_atomic_bytes"));
+const atomicOutputReadyBody = cCodeText(cBlock(fsRaw, "static bool atomic_output_path_ready_posix"));
 const atomicOpenTempBody = cCodeText(cBlock(fsRaw, "static FILE *open_atomic_write_temp"));
 const atomicCloseBody = cCodeText(cBlock(fsRaw, "static bool close_atomic_write"));
 const writeFileBody = cCodeText(cBlock(fsRaw, "bool z_write_file"));
@@ -1610,23 +1699,25 @@ const backendFormats = {
     parentCreationChecked: /\bstatic\s+bool\s+mkdir_parents\s*\(\s*const\s+char\s+\*path\s*,\s*ZDiag\s+\*diag\s*\)/.test(fsSource) &&
       /if\s*\(\s*!mkdir_parents\s*\(\s*path\s*,\s*diag\s*\)\s*\)\s*return\s+false/.test(atomicWriteBytesBody) &&
       !/\bzero_mkdir\s*\(\s*copy\s*\)\s*;/.test(fsSource),
-    readSeekChecked: /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(readFileBody) &&
-      /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(readFileBody) &&
-      !/\brewind\s*\(\s*file\s*\)\s*;/.test(readFileBody),
-    readSizeChecked: /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(readFileBody),
-    readShortReadChecked: /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(readFileBody) &&
-      /free\s*\(\s*data\s*\)/.test(readFileBody),
-    optionalReadChecked: /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(readOptionalFileBody) &&
-      /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(readOptionalFileBody) &&
-      /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(readOptionalFileBody) &&
-      /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(readOptionalFileBody) &&
-      /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(readOptionalFileBody) &&
-      !/\brewind\s*\(\s*file\s*\)\s*;/.test(readOptionalFileBody),
+    readSeekChecked: /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(readBinaryFileBody) &&
+      /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(readBinaryFileBody) &&
+      !/\brewind\s*\(\s*file\s*\)\s*;/.test(readBinaryFileBody),
+    readSizeChecked: /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(readBinaryFileBody),
+    readShortReadChecked: /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(readBinaryFileBody) &&
+      /free\s*\(\s*data\s*\)/.test(readBinaryFileBody),
+    sharedBinaryReadHelperUsed: /z_read_binary_file\s*\(\s*path\s*,\s*&data\s*,\s*&len\s*,\s*diag\s*\)/.test(readFileBody) &&
+      /z_read_binary_file\s*\(\s*path\s*,\s*&bytes\s*,\s*&len\s*,\s*NULL\s*\)/.test(readOptionalFileBody) &&
+      /z_read_binary_file\s*\(\s*path\s*,\s*&bytes\s*,\s*&len\s*,\s*diag\s*\)/.test(programGraphPatchReadBody) &&
+      /z_read_binary_file\s*\(\s*path\s*,\s*out\s*,\s*out_len\s*,\s*&read_diag\s*\)/.test(programGraphStoreReadBody),
+    optionalReadChecked: /z_read_binary_file\s*\(\s*path\s*,\s*&bytes\s*,\s*&len\s*,\s*NULL\s*\)/.test(readOptionalFileBody) &&
+      !/\bfopen\s*\(/.test(readOptionalFileBody) &&
+      !/\bfseek\s*\(/.test(readOptionalFileBody) &&
+      !/\bfread\s*\(/.test(readOptionalFileBody),
     inputProbeReadChecked: /fread\s*\(\s*bytes\s*,\s*1\s*,\s*len\s*,\s*file\s*\)/.test(readFilePrefixBody) &&
       /ferror\s*\(\s*file\s*\)/.test(readFilePrefixBody) &&
       /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(readFilePrefixBody) &&
-      /read_file_prefix\s*\(\s*path\s*,\s*bytes\s*,\s*sizeof\s*\(\s*bytes\s*\)\s*,\s*&read\s*\)/.test(programGraphStorageHeaderBody) &&
-      /read_file_prefix\s*\(\s*path\s*,\s*bytes\s*,\s*sizeof\s*\(\s*bytes\s*\)\s*,\s*&read\s*\)/.test(programGraphPatchHeaderBody) &&
+      /z_read_file_prefix\s*\(\s*path\s*,\s*bytes\s*,\s*sizeof\s*\(\s*bytes\s*\)\s*,\s*&read\s*,\s*NULL\s*\)/.test(programGraphStorageHeaderBody) &&
+      /z_read_file_prefix\s*\(\s*path\s*,\s*bytes\s*,\s*sizeof\s*\(\s*bytes\s*\)\s*,\s*&read\s*,\s*NULL\s*\)/.test(programGraphPatchHeaderBody) &&
       !/\bfopen\s*\(/.test(programGraphStorageHeaderBody) &&
       !/\bfopen\s*\(/.test(programGraphPatchHeaderBody) &&
       /stat\s*\(\s*path\s*,\s*&st\s*\)\s*==\s*0/.test(directFileExistsBody) &&
@@ -1638,6 +1729,12 @@ const backendFormats = {
       /atomic_write_temp_path\s*\(\s*path\s*,\s*attempt\s*\)/.test(atomicOpenTempBody) &&
       /O_WRONLY\s*\|\s*O_CREAT\s*\|\s*O_EXCL/.test(atomicOpenTempBody),
     atomicWriteRenameChecked: /rename\s*\(\s*temp_path\s*,\s*path\s*\)\s*!=\s*0/.test(atomicCloseBody),
+    atomicWriteRejectsUnsafeOutput: /lstat\s*\(\s*path\s*,\s*&st\s*\)/.test(atomicOutputReadyBody) &&
+      /S_ISLNK\s*\(\s*st\.st_mode\s*\)/.test(atomicOutputReadyBody) &&
+      /!\s*S_ISREG\s*\(\s*st\.st_mode\s*\)/.test(atomicOutputReadyBody) &&
+      /atomic_output_path_ready\s*\(\s*path\s*,\s*diag\s*\)/.test(atomicWriteBytesBody) &&
+      /atomic_output_path_ready\s*\(\s*path\s*,\s*diag\s*\)/.test(atomicCloseBody) &&
+      /symlinks are rejected/.test(fsRaw),
     atomicWriteCleanup: countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /remove\s*\(\s*temp_path\s*\)/g) >= 4 &&
       countMatches(atomicWriteBytesBody + atomicOpenTempBody + atomicCloseBody, /free\s*\(\s*temp_path\s*\)/g) >= 5,
     noDirectWriteFopenOutsideFs: directWriteFopenFiles.length === 0,
@@ -1647,6 +1744,22 @@ const backendFormats = {
     binaryWriteChecked: /fwrite\s*\(\s*data\s*,\s*1\s*,\s*len\s*,\s*file\s*\)\s*!=\s*len/.test(atomicWriteBytesBody) &&
       /write_atomic_bytes/.test(writeBinaryFileBody),
     closeChecked: /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(atomicCloseBody),
+    runtimeReadDescriptorChecked: /zero_runtime_open_readonly\s*\(\s*path_buf\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_fd_is_regular_file\s*\(\s*fd\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_read_fd\s*\(\s*fd\s*,\s*buffer\s*,\s*&read_len\s*\)/.test(runtimeFsReadBody) &&
+      /zero_runtime_close_fd\s*\(\s*fd\s*\)/.test(runtimeFsReadBody) &&
+      !/\bfopen\s*\(/.test(runtimeFsReadBody) &&
+      !/\bfread\s*\(/.test(runtimeFsReadBody) &&
+      /ZERO_RUNTIME_FSTAT\s*\(\s*fd\s*,\s*&st\s*\)/.test(runtimeSource) &&
+      /ZERO_RUNTIME_IS_REGULAR\s*\(\s*st\.st_mode\s*\)/.test(runtimeSource),
+    runtimeReadHandlesEintr: /errno\s*==\s*EINTR/.test(runtimeOpenReadonlyBody) &&
+      /errno\s*==\s*EINTR/.test(runtimeReadFdBody),
+    runtimeReadCloseChecked: /return\s+ZERO_RUNTIME_CLOSE\s*\(\s*fd\s*\)\s*==\s*0/.test(runtimeCloseFdBody) &&
+      /!\s*ok\s*\|\|\s*!\s*closed/.test(runtimeFsReadBody),
+    runtimeReadSmokeWired: /scripts\/fs-runtime-smoke\.mts/.test(nativeTestRaw) &&
+      /reject directory/.test(fsRuntimeSmokeRaw) &&
+      /read large file/.test(fsRuntimeSmokeRaw) &&
+      /reject path at runtime limit/.test(fsRuntimeSmokeRaw),
     bufferFormatChecked: /if\s*\(\s*!fmt\s*\)\s*return\s*;/.test(zbufAppendfBody) &&
       /int\s+written\s*=\s*vsnprintf\s*\(\s*tmp\s*,\s*\(size_t\)\s*needed\s*\+\s*1\s*,\s*fmt\s*,\s*args\s*\)/.test(zbufAppendfBody) &&
       /written\s*<\s*0\s*\|\|\s*written\s*>\s*needed/.test(zbufAppendfBody) &&
@@ -1656,6 +1769,24 @@ const backendFormats = {
   processExec: {
     ...processExecHardening,
     childSetupChecked: processExecChildSetupChecked,
+  },
+  httpListen: {
+    sendAllChecked: /static\s+bool\s+send_all\s*\(/.test(httpListenRunnerRaw) &&
+      /if\s*\(\s*!data\s*&&\s*len\s*>\s*0\s*\)\s*return\s+false/.test(listenSendAllBody) &&
+      /if\s*\(\s*n\s*==\s*0\s*\)\s*return\s+false/.test(listenSendAllBody) &&
+      /return\s+true\s*;/.test(listenSendAllBody),
+    jsonErrorNoTruncation: /static\s+bool\s+send_json_error\s*\(/.test(httpListenRunnerRaw) &&
+      /len\s*<\s*0\s*\|\|\s*\(size_t\)\s*len\s*>=\s*sizeof\s*\(\s*response\s*\)/.test(listenJsonErrorBody) &&
+      /return\s+send_all\s*\(\s*fd\s*,\s*response\s*,\s*\(size_t\)\s*len\s*\)/.test(listenJsonErrorBody),
+    handlerCaptureStrict: /bool\s+read_ok\s*=\s*true/.test(listenHandlerCaptureBody) &&
+      /read_ok\s*=\s*false/.test(listenHandlerCaptureBody) &&
+      /bool\s+handler_ok\s*=\s*WIFEXITED\s*\(\s*status\s*\)\s*&&\s*WEXITSTATUS\s*\(\s*status\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
+      /memcmp\s*\(\s*response\s*,\s*"HTTP\/"\s*,\s*5\s*\)\s*==\s*0/.test(httpListenRunnerRaw) &&
+      /read_ok\s*&&\s*!\s*overflow\s*&&\s*handler_ok\s*&&\s*response_ok/.test(httpListenRunnerRaw),
+    nativeSmokeWired: /http_listen_runner_smoke\.c/.test(nativeTestRaw) &&
+      /http-listen-runner-smoke/.test(nativeTestRaw) &&
+      /smoke_json_error/.test(httpListenRunnerSmokeRaw) &&
+      /smoke_handler_capture/.test(httpListenRunnerSmokeRaw),
   },
   targetManifest: {
     exactKeyMatcher: /\bmanifest_key_equals\s*\(/.test(targetSource),
@@ -2069,11 +2200,11 @@ const programGraph = {
     /z_program_graph_store_path_exists\s*\(/.test(programGraphStoreHeaderRaw) &&
     /z_program_graph_store_path_exists\s*\(/.test(programGraphRepositoryRaw) &&
     /z_program_graph_store_path_exists\s*\(/.test(programGraphRepositoryInputRaw) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
-    /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(programGraphStoreReadBody) &&
-    /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphStoreReadBody) &&
-    /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphStoreReadBody) &&
+    /store_path_is_dir\s*\(\s*path\s*\)/.test(programGraphStoreReadBody) &&
+    /z_read_binary_file\s*\(\s*path\s*,\s*out\s*,\s*out_len\s*,\s*&read_diag\s*\)/.test(programGraphStoreReadBody) &&
+    /store_diag\s*\(\s*diag\s*,\s*path\s*,\s*1\s*,/.test(programGraphStoreReadBody) &&
+    /strerror\s*\(\s*errno\s*\)/.test(programGraphStoreReadBody) &&
+    !/\bfopen\s*\(/.test(programGraphStoreReadBody) &&
     !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphStoreReadBody),
   repositoryBinaryStoreReadHardening: /STORE_BINARY_MAX_SOURCE_COUNT/.test(programGraphStoreBinaryRaw) &&
     /STORE_BINARY_MAX_PROJECTION_COUNT/.test(programGraphStoreBinaryRaw) &&
@@ -2085,11 +2216,8 @@ const programGraph = {
     /binary_header_counts_are_reasonable\s*\(\s*header\s*\)\s*&&\s*binary_header_records_fit/.test(programGraphStoreBinarySource),
   graphPatchFileReadHardening: /#include\s+<errno\.h>/.test(programGraphPatchRaw) &&
     /#include\s+<stdint\.h>/.test(programGraphPatchRaw) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
-    /size\s*<\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX\s*-\s*1/.test(programGraphPatchReadBody) &&
-    /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(programGraphPatchReadBody) &&
-    /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(programGraphPatchReadBody) &&
+    /z_read_binary_file\s*\(\s*path\s*,\s*&bytes\s*,\s*&len\s*,\s*diag\s*\)/.test(programGraphPatchReadBody) &&
+    !/\bfopen\s*\(/.test(programGraphPatchReadBody) &&
     !/\brewind\s*\(\s*file\s*\)\s*;/.test(programGraphPatchReadBody),
   repositoryStatusCompilerStoreFacts: /compilerStore/.test(programGraphRepositoryRaw) &&
     /sourceFreeInspection/.test(programGraphRepositoryRaw) &&
@@ -2186,13 +2314,11 @@ const programGraph = {
     !/ir_graph_lower_checked_program\s*\(/.test(artifactGraphMirPrepRawBody) &&
     /ir_graph_set_mapped_mir_cache_facts\s*\(\s*input,\s*&mir_cache,\s*true,\s*false,\s*true,\s*false\s*\)/.test(artifactGraphMirPrepRawBody),
   mappedMirCacheReadHardening: /fstat\s*\(\s*fd\s*,\s*&st\s*\)\s*!=\s*0/.test(mirMapFileBody) &&
+    /!\s*S_ISREG\s*\(\s*st\.st_mode\s*\)/.test(mirMapFileBody) &&
     /st\.st_size\s*<=\s*0\s*\|\|\s*\(uintmax_t\)\s*st\.st_size\s*>\s*\(uintmax_t\)\s*SIZE_MAX/.test(mirMapFileBody) &&
     /mmap\s*\(\s*NULL\s*,\s*\(size_t\)\s*st\.st_size/.test(mirMapFileBody) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_END\s*\)\s*!=\s*0/.test(mirMapFileBody) &&
-    /fseek\s*\(\s*file\s*,\s*0\s*,\s*SEEK_SET\s*\)\s*!=\s*0/.test(mirMapFileBody) &&
-    /size\s*<=\s*0\s*\|\|\s*\(size_t\)\s*size\s*>\s*SIZE_MAX/.test(mirMapFileBody) &&
-    /fread\s*\(\s*data\s*,\s*1\s*,\s*\(size_t\)\s*size\s*,\s*file\s*\)\s*!=\s*\(size_t\)\s*size/.test(mirMapFileBody) &&
-    /fclose\s*\(\s*file\s*\)\s*!=\s*0/.test(mirMapFileBody) &&
+    /z_read_binary_file\s*\(\s*path\s*,\s*&data\s*,\s*&len\s*,\s*&read_diag\s*\)/.test(mirMapFileBody) &&
+    /len\s*==\s*0/.test(mirMapFileBody) &&
     /MIR_BINARY_MAX_FUNCTION_COUNT/.test(mirBinaryRaw) &&
     /MIR_BINARY_MAX_VALUE_COUNT/.test(mirBinaryRaw) &&
     /MIR_BINARY_MAX_REF_COUNT/.test(mirBinaryRaw) &&

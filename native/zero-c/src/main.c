@@ -1894,32 +1894,11 @@ static uint64_t fnv1a_text(const char *text) {
 }
 
 static char *read_optional_file(const char *path) {
-  FILE *file = fopen(path, "rb");
-  if (!file) return NULL;
-  if (fseek(file, 0, SEEK_END) != 0) {
-    fclose(file);
-    return NULL;
-  }
-  long size = ftell(file);
-  if (size < 0 || (size_t)size > SIZE_MAX - 1) {
-    fclose(file);
-    return NULL;
-  }
-  if (fseek(file, 0, SEEK_SET) != 0) {
-    fclose(file);
-    return NULL;
-  }
-  char *data = z_checked_calloc((size_t)size + 1, 1);
-  if (size > 0 && fread(data, 1, (size_t)size, file) != (size_t)size) {
-    free(data);
-    fclose(file);
-    return NULL;
-  }
-  if (fclose(file) != 0) {
-    free(data);
-    return NULL;
-  }
-  return data;
+  unsigned char *bytes = NULL;
+  size_t len = 0;
+  if (!z_read_binary_file(path, &bytes, &len, NULL)) return NULL;
+  (void)len;
+  return (char *)bytes;
 }
 
 static char *read_optional_manifest_file(const SourceInput *input) {
@@ -4395,27 +4374,12 @@ static bool is_existing_directory_path(const char *path) {
   return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-static bool read_file_prefix(const char *path, void *bytes, size_t len, size_t *out_read) {
-  if (out_read) *out_read = 0;
-  if (!path || !path[0] || !bytes || len == 0) return false;
-  FILE *file = fopen(path, "rb");
-  if (!file) return false;
-  size_t read = fread(bytes, 1, len, file);
-  if (out_read) *out_read = read;
-  if (ferror(file)) {
-    fclose(file);
-    return false;
-  }
-  if (fclose(file) != 0) return false;
-  return true;
-}
-
 static bool path_has_program_graph_storage_header(const char *path) {
   static const char graph_header[] = "zero-graph v";
   static const char repository_header[] = "zero-repository-graph v";
   unsigned char bytes[32];
   size_t read = 0;
-  if (!read_file_prefix(path, bytes, sizeof(bytes), &read)) return false;
+  if (!z_read_file_prefix(path, bytes, sizeof(bytes), &read, NULL)) return false;
   return (read >= sizeof(graph_header) - 1 && memcmp(bytes, graph_header, sizeof(graph_header) - 1) == 0) ||
          (read >= sizeof(repository_header) - 1 && memcmp(bytes, repository_header, sizeof(repository_header) - 1) == 0) ||
          z_program_graph_store_bytes_are_binary(bytes, read);
@@ -4461,7 +4425,7 @@ static bool path_has_program_graph_patch_header(const char *path) {
   static const char header[] = "zero-program-graph-patch v1";
   char bytes[sizeof(header) - 1];
   size_t read = 0;
-  if (!read_file_prefix(path, bytes, sizeof(bytes), &read)) return false;
+  if (!z_read_file_prefix(path, bytes, sizeof(bytes), &read, NULL)) return false;
   return read == sizeof(bytes) && memcmp(bytes, header, sizeof(bytes)) == 0;
 }
 
@@ -5489,7 +5453,24 @@ static void print_artifact(const char *path, long long elapsed_ms) {
   }
 }
 
+static void init_executable_finalize_diag(ZDiag *diag, const char *path) {
+  if (!diag) return;
+  diag->code = 2003;
+  diag->line = 1;
+  diag->column = 1;
+  diag->length = 1;
+  diag->path = path;
+  snprintf(diag->message, sizeof(diag->message), "failed to finalize executable artifact");
+  snprintf(diag->expected, sizeof(diag->expected), "regular non-empty executable artifact with executable permissions");
+  snprintf(diag->actual, sizeof(diag->actual), "%s", path && path[0] ? path : "missing artifact path");
+  snprintf(diag->help, sizeof(diag->help), "check output path permissions and ensure the artifact path is not a directory or symlink");
+}
+
 static int run_executable_artifact(const char *exe_file, const Command *command) {
+  if (!z_process_executable_file_ready(exe_file)) {
+    fprintf(stderr, "zero run: executable artifact is not a regular executable file: %s\n", exe_file ? exe_file : "<missing>");
+    return 1;
+  }
   int run_argc = command ? command->run_argc : 0;
   if (run_argc < 0) run_argc = 0;
   char **child_argv = (char **)z_checked_calloc((size_t)run_argc + 2, sizeof(char *));
@@ -13430,10 +13411,13 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
 
   phase_started = now_ms();
   bool linked = z_llvm_link_executable(llvm_file, runtime_object_file, exe_file, &llvm_toolchain, target, command->profile, links_zero_runtime, &diag);
-  if (linked) chmod(exe_file, 0755);
+  if (linked && !z_process_mark_executable(exe_file)) {
+    init_executable_finalize_diag(&diag, exe_file);
+    linked = false;
+  }
   input->link_ms = now_ms() - phase_started;
-  remove(llvm_file);
-  if (runtime_object_file) remove(runtime_object_file);
+  (void)z_process_remove_regular_file(llvm_file);
+  if (runtime_object_file) (void)z_process_remove_regular_file(runtime_object_file);
   if (!linked) {
     print_command_diag(command, diag.path ? diag.path : input->source_file, &diag);
     free(runtime_object_file); free(llvm_file); free(exe_file); zbuf_free(&llvm_ir); z_free_ir_program(ir); z_free_program(program); z_free_source(input);
@@ -14396,11 +14380,14 @@ int main(int argc, char **argv) {
 
     phase_started = now_ms();
     bool linked = link_direct_object_executable(object_file, runtime_object_file, http_object_file, exe_file, &runtime_toolchain, target, &input, needs_zero_runtime, &diag);
-    if (linked) chmod(exe_file, 0755);
+    if (linked && !z_process_mark_executable(exe_file)) {
+      init_executable_finalize_diag(&diag, exe_file);
+      linked = false;
+    }
     input.link_ms = now_ms() - phase_started;
-    remove(object_file);
-    if (runtime_object_file) remove(runtime_object_file);
-    if (http_object_file) remove(http_object_file);
+    (void)z_process_remove_regular_file(object_file);
+    if (runtime_object_file) (void)z_process_remove_regular_file(runtime_object_file);
+    if (http_object_file) (void)z_process_remove_regular_file(http_object_file);
     if (!linked) {
       if (command.json) print_diag_json(diag.path ? diag.path : input.source_file, &diag);
       else print_diag(diag.path ? diag.path : input.source_file, &diag);
@@ -14482,7 +14469,10 @@ int main(int argc, char **argv) {
     phase_started = now_ms();
     input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", command_compile_cache_key(&command, &input, target, command.profile, direct_exe.artifact_path));
     bool wrote_exe = z_write_binary_file(exe_file, (const unsigned char *)exe.data, exe.len, &diag);
-    if (wrote_exe) chmod(exe_file, 0755);
+    if (wrote_exe && !z_process_mark_executable(exe_file)) {
+      init_executable_finalize_diag(&diag, exe_file);
+      wrote_exe = false;
+    }
     input.object_ms = now_ms() - phase_started;
     input.link_ms = 0;
     if (!wrote_exe) {

@@ -1,18 +1,84 @@
 #include "zero_runtime.h"
 
 #include <errno.h>
-#include <stdio.h>
+#include <fcntl.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #if defined(_WIN32)
 #include <io.h>
 typedef int ZeroWriteResult;
+typedef int ZeroReadResult;
+typedef struct _stat ZeroRuntimeStat;
 #define ZERO_RUNTIME_WRITE _write
+#define ZERO_RUNTIME_OPEN _open
+#define ZERO_RUNTIME_READ _read
+#define ZERO_RUNTIME_CLOSE _close
+#define ZERO_RUNTIME_FSTAT _fstat
+#define ZERO_RUNTIME_OPEN_FLAGS (_O_RDONLY | _O_BINARY)
+#define ZERO_RUNTIME_IS_REGULAR(mode) (((mode) & _S_IFREG) != 0)
 #else
 #include <unistd.h>
 typedef ssize_t ZeroWriteResult;
+typedef ssize_t ZeroReadResult;
+typedef struct stat ZeroRuntimeStat;
 #define ZERO_RUNTIME_WRITE write
+#define ZERO_RUNTIME_OPEN open
+#define ZERO_RUNTIME_READ read
+#define ZERO_RUNTIME_CLOSE close
+#define ZERO_RUNTIME_FSTAT fstat
+#define ZERO_RUNTIME_OPEN_FLAGS O_RDONLY
+#define ZERO_RUNTIME_IS_REGULAR(mode) S_ISREG(mode)
 #endif
+
+#define ZERO_RUNTIME_PATH_BYTES 4096u
+#define ZERO_RUNTIME_READ_CHUNK 1048576u
+
+static ZeroMaybeUsize zero_runtime_none_usize(void) {
+  return (ZeroMaybeUsize){0, 0};
+}
+
+static int zero_runtime_path_copy(ZeroByteView path, char out[ZERO_RUNTIME_PATH_BYTES]) {
+  if ((!path.ptr && path.len > 0) || path.len == 0 || path.len >= ZERO_RUNTIME_PATH_BYTES) return 0;
+  memcpy(out, path.ptr, path.len);
+  out[path.len] = '\0';
+  return 1;
+}
+
+static int zero_runtime_open_readonly(const char *path) {
+  int fd;
+  do {
+    fd = ZERO_RUNTIME_OPEN(path, ZERO_RUNTIME_OPEN_FLAGS);
+  } while (fd < 0 && errno == EINTR);
+  return fd;
+}
+
+static int zero_runtime_fd_is_regular_file(int fd) {
+  ZeroRuntimeStat st;
+  if (ZERO_RUNTIME_FSTAT(fd, &st) != 0) return 0;
+  return ZERO_RUNTIME_IS_REGULAR(st.st_mode);
+}
+
+static int zero_runtime_close_fd(int fd) {
+  return ZERO_RUNTIME_CLOSE(fd) == 0;
+}
+
+static int zero_runtime_read_fd(int fd, ZeroMutByteView buffer, uint64_t *read_len_out) {
+  size_t total = 0;
+  while (total < buffer.len) {
+    size_t remaining = buffer.len - total;
+    unsigned chunk = remaining > ZERO_RUNTIME_READ_CHUNK ? ZERO_RUNTIME_READ_CHUNK : (unsigned)remaining;
+    ZeroReadResult read_len = ZERO_RUNTIME_READ(fd, buffer.ptr + total, chunk);
+    if (read_len < 0) {
+      if (errno == EINTR) continue;
+      return 0;
+    }
+    if (read_len == 0) break;
+    total += (size_t)read_len;
+  }
+  if (read_len_out) *read_len_out = (uint64_t)total;
+  return 1;
+}
 
 int zero_world_write(int fd, const char *buf, unsigned len) {
   if (len == 0) return 0;
@@ -33,21 +99,18 @@ int zero_world_write(int fd, const char *buf, unsigned len) {
 }
 
 ZeroMaybeUsize zero_fs_read_bytes(ZeroByteView path, ZeroMutByteView buffer) {
-  if ((!path.ptr && path.len > 0) || !buffer.ptr || path.len == 0 || path.len >= 4096) {
-    return (ZeroMaybeUsize){0, 0};
-  }
-  char path_buf[4096];
-  memcpy(path_buf, path.ptr, path.len);
-  path_buf[path.len] = '\0';
-  FILE *file = fopen(path_buf, "rb");
-  if (!file) return (ZeroMaybeUsize){0, 0};
-  size_t read_len = fread(buffer.ptr, 1, buffer.len, file);
-  if (ferror(file)) {
-    fclose(file);
-    return (ZeroMaybeUsize){0, 0};
-  }
-  if (fclose(file) != 0) return (ZeroMaybeUsize){0, 0};
-  return (ZeroMaybeUsize){1, (uint64_t)read_len};
+  if (!buffer.ptr) return zero_runtime_none_usize();
+  char path_buf[ZERO_RUNTIME_PATH_BYTES];
+  if (!zero_runtime_path_copy(path, path_buf)) return zero_runtime_none_usize();
+
+  int fd = zero_runtime_open_readonly(path_buf);
+  if (fd < 0) return zero_runtime_none_usize();
+
+  uint64_t read_len = 0;
+  int ok = zero_runtime_fd_is_regular_file(fd) && zero_runtime_read_fd(fd, buffer, &read_len);
+  int closed = zero_runtime_close_fd(fd);
+  if (!ok || !closed) return zero_runtime_none_usize();
+  return (ZeroMaybeUsize){1, read_len};
 }
 
 uint64_t zero_parse_u32(ZeroByteView text) {

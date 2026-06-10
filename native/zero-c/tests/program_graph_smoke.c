@@ -49,22 +49,6 @@ char *z_strndup(const char *text, size_t len) {
   return copy;
 }
 
-char *z_read_file(const char *path, ZDiag *diag) {
-  FILE *file = fopen(path, "rb");
-  if (!file) {
-    if (diag) snprintf(diag->message, sizeof(diag->message), "failed to read test graph");
-    return NULL;
-  }
-  fseek(file, 0, SEEK_END);
-  long size = ftell(file);
-  rewind(file);
-  char *data = z_checked_malloc((size_t)size + 1);
-  size_t read = fread(data, 1, (size_t)size, file);
-  fclose(file);
-  data[read] = 0;
-  return data;
-}
-
 bool z_write_file(const char *path, const char *text, ZDiag *diag) {
   FILE *file = fopen(path, "wb");
   if (!file) {

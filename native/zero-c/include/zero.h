@@ -1053,6 +1053,8 @@ size_t z_grow_capacity(size_t current, size_t required, size_t initial);
 Z_RET_OWNED char *z_strdup(Z_IN const char *text);
 Z_RET_OWNED char *z_strndup(Z_IN const char *text, size_t len);
 Z_RET_OWNED Z_RET_OPTIONAL char *z_read_file(Z_IN const char *path, Z_OUT ZDiag *diag);
+bool z_read_binary_file(Z_IN const char *path, Z_OUT unsigned char **out, Z_OUT size_t *out_len, Z_OUT ZDiag *diag);
+bool z_read_file_prefix(Z_IN const char *path, Z_OUT void *bytes, size_t len, Z_OUT size_t *out_read, Z_OUT ZDiag *diag);
 bool z_write_file(Z_IN const char *path, Z_IN const char *text, Z_OUT ZDiag *diag);
 bool z_write_binary_file(Z_IN const char *path, Z_IN const unsigned char *data, size_t len, Z_OUT ZDiag *diag);
 bool z_map_source_diag(Z_IN const SourceInput *input, Z_INOUT ZDiag *diag);

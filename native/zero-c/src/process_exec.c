@@ -49,8 +49,16 @@ bool z_process_argv_append_flag_text(ZProcessArgv *argv, const char *text, bool 
     while (*cursor && !isspace((unsigned char)*cursor)) {
       if (*cursor == '\'') {
         cursor++;
+        bool closed = false;
         while (*cursor && *cursor != '\'') zbuf_append_char(&token, *cursor++);
-        if (*cursor == '\'') cursor++;
+        if (*cursor == '\'') {
+          closed = true;
+          cursor++;
+        }
+        if (!closed) {
+          zbuf_free(&token);
+          return false;
+        }
       } else if (*cursor == '\\' && cursor[1]) {
         cursor++;
         zbuf_append_char(&token, *cursor++);
@@ -101,6 +109,105 @@ bool z_process_ensure_dir(const char *path) {
 #endif
   if (errno != EEXIST) return false;
   return z_process_existing_dir(path);
+}
+
+#if defined(_WIN32)
+typedef struct _stat ZProcessOutputStat;
+#else
+typedef struct stat ZProcessOutputStat;
+#endif
+
+static bool z_process_lstat_output(const char *path, ZProcessOutputStat *st) {
+  if (!path || !path[0] || !st) return false;
+#if defined(_WIN32)
+  return _stat(path, st) == 0;
+#else
+  return lstat(path, st) == 0;
+#endif
+}
+
+static bool z_process_output_is_regular(const ZProcessOutputStat *st) {
+#if defined(_WIN32)
+  return st && (st->st_mode & _S_IFREG) != 0;
+#else
+  return st && S_ISREG(st->st_mode);
+#endif
+}
+
+static bool z_process_output_is_symlink(const ZProcessOutputStat *st) {
+#if defined(_WIN32)
+  (void)st;
+  return false;
+#else
+  return st && S_ISLNK(st->st_mode);
+#endif
+}
+
+static bool z_process_output_parent_ready(const char *path) {
+  if (!path || !path[0]) return false;
+  const char *last_sep = NULL;
+  for (const char *cursor = path; *cursor; cursor++) {
+    if (*cursor == '/' || *cursor == '\\') last_sep = cursor;
+  }
+  if (!last_sep) return true;
+  if (last_sep == path) return z_process_existing_dir("/");
+#if defined(_WIN32)
+  if (last_sep == path + 2 && isalpha((unsigned char)path[0]) && path[1] == ':') {
+    char drive_root[4] = {path[0], ':', '\\', 0};
+    return z_process_existing_dir(drive_root);
+  }
+#endif
+  ZBuf parent;
+  zbuf_init(&parent);
+  for (const char *cursor = path; cursor < last_sep; cursor++) zbuf_append_char(&parent, *cursor);
+  bool ok = z_process_existing_dir(parent.data);
+  zbuf_free(&parent);
+  return ok;
+}
+
+bool z_process_prepare_output_file(const char *path) {
+  ZProcessOutputStat st;
+  if (!path || !path[0]) return false;
+  if (!z_process_output_parent_ready(path)) return false;
+  if (!z_process_lstat_output(path, &st)) return errno == ENOENT;
+  if (z_process_output_is_symlink(&st) || !z_process_output_is_regular(&st)) return false;
+  if (remove(path) == 0) return true;
+  return errno == ENOENT;
+}
+
+bool z_process_output_file_ready(const char *path) {
+  ZProcessOutputStat st;
+  if (!z_process_lstat_output(path, &st)) return false;
+  if (z_process_output_is_symlink(&st) || !z_process_output_is_regular(&st)) return false;
+  return st.st_size > 0;
+}
+
+bool z_process_executable_file_ready(const char *path) {
+  if (!z_process_output_file_ready(path)) return false;
+#if defined(_WIN32)
+  return true;
+#else
+  return access(path, X_OK) == 0;
+#endif
+}
+
+bool z_process_mark_executable(const char *path) {
+  if (!z_process_output_file_ready(path)) return false;
+#if defined(_WIN32)
+  return true;
+#else
+  if (chmod(path, 0755) != 0) return false;
+  return z_process_executable_file_ready(path);
+#endif
+}
+
+bool z_process_remove_regular_file(const char *path) {
+  ZProcessOutputStat st;
+  if (!path || !path[0]) return false;
+  if (!z_process_lstat_output(path, &st)) return errno == ENOENT;
+  if (z_process_output_is_symlink(&st) || !z_process_output_is_regular(&st)) return false;
+  if (remove(path) == 0) return true;
+  return errno == ENOENT;
 }
 
 #if !defined(_WIN32)

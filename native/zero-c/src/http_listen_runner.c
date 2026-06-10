@@ -224,18 +224,19 @@ static bool build_handler_graph(const ZHttpListenRunConfig *config, const char *
   return true;
 }
 
-static ssize_t send_all(int fd, const char *data, size_t len) {
+static bool send_all(int fd, const char *data, size_t len) {
+  if (!data && len > 0) return false;
   size_t sent = 0;
   while (sent < len) {
     ssize_t n = send(fd, data + sent, len - sent, 0);
     if (n < 0) {
       if (errno == EINTR) continue;
-      return -1;
+      return false;
     }
-    if (n == 0) break;
+    if (n == 0) return false;
     sent += (size_t)n;
   }
-  return (ssize_t)sent;
+  return true;
 }
 
 static void configure_client_socket(int fd) {
@@ -375,13 +376,14 @@ static bool write_request_file(const char *path, const char *request, size_t req
 static bool run_handler_capture(const char *handler_exe, const char *request_path, char **out_data, size_t *out_len) {
   if (out_data) *out_data = NULL;
   if (out_len) *out_len = 0;
+  if (!handler_exe || !request_path) return false;
   int fds[2];
   if (pipe(fds) != 0) return false;
   pid_t pid = fork();
   if (pid == 0) {
-    close(fds[0]);
-    dup2(fds[1], STDOUT_FILENO);
-    close(fds[1]);
+    if (close(fds[0]) != 0) _exit(127);
+    if (dup2(fds[1], STDOUT_FILENO) < 0) _exit(127);
+    if (close(fds[1]) != 0) _exit(127);
     char *const argv[] = {(char *)handler_exe, (char *)request_path, NULL};
     execv(handler_exe, argv);
     perror("zero listen handler");
@@ -396,11 +398,13 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
   char *response = z_checked_malloc(Z_HTTP_LISTEN_RESPONSE_CAP + 1);
   size_t len = 0;
   bool overflow = false;
+  bool read_ok = true;
   char chunk[4096];
   while (true) {
     ssize_t n = read(fds[0], chunk, sizeof(chunk));
     if (n < 0) {
       if (errno == EINTR) continue;
+      read_ok = false;
       break;
     }
     if (n == 0) break;
@@ -415,7 +419,7 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
       len += count;
     }
   }
-  close(fds[0]);
+  if (close(fds[0]) != 0) read_ok = false;
   response[len] = '\0';
 
   int status = 0;
@@ -424,7 +428,9 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
     free(response);
     return false;
   }
-  bool ok = !overflow && len > 0 && ((WIFEXITED(status) && WEXITSTATUS(status) == 0) || response[0] == 'H');
+  bool handler_ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+  bool response_ok = len >= 5 && memcmp(response, "HTTP/", 5) == 0;
+  bool ok = read_ok && !overflow && handler_ok && response_ok;
   if (!ok) {
     free(response);
     return false;
@@ -435,13 +441,14 @@ static bool run_handler_capture(const char *handler_exe, const char *request_pat
   return true;
 }
 
-static void send_json_error(int fd, unsigned status, const char *reason, const char *body) {
+static bool send_json_error(int fd, unsigned status, const char *reason, const char *body) {
   char response[512];
   size_t body_len = strlen(body ? body : "");
   int len = snprintf(response, sizeof(response),
                      "HTTP/1.1 %u %s\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: %zu\r\n\r\n%s",
                      status, reason ? reason : "Error", body_len, body ? body : "");
-  if (len > 0) (void)send_all(fd, response, (size_t)len);
+  if (len < 0 || (size_t)len >= sizeof(response)) return false;
+  return send_all(fd, response, (size_t)len);
 }
 
 static int listen_open_server_socket(const ZHttpListenRunConfig *config, uint16_t *out_bound_port, ZDiag *diag) {

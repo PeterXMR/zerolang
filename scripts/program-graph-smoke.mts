@@ -46,6 +46,7 @@ try {
     "native/zero-c/src/canonical_text_format.c",
     "native/zero-c/src/canonical_text_program.c",
     "native/zero-c/src/canonical_text_write.c",
+    "native/zero-c/src/fs_read.c",
     "native/zero-c/src/std_sig.c",
     "native/zero-c/src/std_source.c",
     "native/zero-c/src/ast.c",
