@@ -5039,7 +5039,8 @@ pub fn main(world: World) -> Void raises {
 }
 `);
 assert.equal(rescueNonPrimitiveBody.diagnostics[0].code, "BLD004");
-assert.equal(rescueNonPrimitiveBody.diagnostics[0].line, 9);
+assert.equal(rescueNonPrimitiveBody.diagnostics[0].actual, "String");
+assert.equal(rescueNonPrimitiveBody.diagnostics[0].line, 1);
 
 const refByteBufParamBody = await writeImportFailureFixture(`${outDir}/ref-bytebuf-param-gate.0`, `fn buffered(buf: ref<ByteBuf>) -> usize {
     return std.mem.bufLen(buf)

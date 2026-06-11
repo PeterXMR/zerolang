@@ -42,6 +42,7 @@ bool z_check_gate_diag_is_known_construct(const ZProgramGraph *graph, const ZDia
   if (strcmp(message, "typed graph MIR local type is unsupported") == 0) return check_gate_type_decl_is_enum_or_choice(graph, actual);
   if (strcmp(message, "typed graph MIR rescue supports fallible function calls with primitive fallbacks") == 0) return true;
   if (strcmp(message, "typed graph MIR literal type is unsupported") == 0) return strcmp(actual, "String") == 0;
+  if (strcmp(message, "typed graph MIR fallible return type is unsupported") == 0) return strcmp(actual, "String") == 0;
   if (strcmp(message, "typed graph MIR parameter type is unsupported") == 0) return strcmp(actual, "ref<ByteBuf>") == 0;
   if (strcmp(message, "typed graph MIR reference parameter requires a shape whose fields are scalars or fixed scalar arrays") == 0) return strcmp(actual, "ref<ByteBuf>") == 0;
   if (strcmp(message, "typed graph MIR call target is unsupported") == 0) return strcmp(actual, "readU32") == 0;
