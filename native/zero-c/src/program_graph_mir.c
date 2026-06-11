@@ -1090,14 +1090,6 @@ static bool ir_graph_function_is_hosted_world_main(const ZProgramGraph *graph, c
          ir_text_eq(return_type, "Void");
 }
 
-bool z_program_graph_has_hosted_world_main(const ZProgramGraph *graph) {
-  for (size_t i = 0; graph && i < graph->node_len; i++) {
-    const ZProgramGraphNode *node = &graph->nodes[i];
-    if (node->kind == Z_PROGRAM_GRAPH_NODE_FUNCTION && ir_graph_function_is_hosted_world_main(graph, node)) return true;
-  }
-  return false;
-}
-
 bool z_program_graph_has_direct_entry_function(const ZProgramGraph *graph) {
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     const ZProgramGraphNode *node = &graph->nodes[i];

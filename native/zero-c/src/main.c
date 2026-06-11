@@ -11006,16 +11006,18 @@ static bool repository_graph_target_readiness_select_diag(const Command *command
 
 /*
  * Check-time buildability gate: `zero check` and `zero import` fail with the
- * same BLD004 diagnostics `zero build`/`zero run` would report when the typed
- * graph cannot lower to MIR or the lowered MIR is outside the selected
- * backend's buildable subset for the checked target. Target/backend
- * availability and toolchain readiness stay target-readiness facts only.
+ * same BLD004 "typed graph MIR unsupported" diagnostics `zero build`/`zero
+ * run` would report when the typed graph cannot lower to MIR at all.
+ * Target-specific backend buildability subsets (for example fs values on the
+ * Mach-O direct backend), target/backend availability, and toolchain
+ * readiness stay target-readiness facts only, so packages that build for
+ * another supported target keep checking clean on every host.
  */
 static bool check_diag_is_buildability_blocker(const ZDiag *diag) {
   if (!diag) return false;
   if (diag->code != 2004 && diag->code != 4004) return false;
   if (!diag->backend_blocker.present) return false;
-  return strcmp(diag->backend_blocker.stage, "lower") == 0 || strcmp(diag->backend_blocker.stage, "buildability") == 0;
+  return strcmp(diag->backend_blocker.stage, "lower") == 0;
 }
 
 static bool graph_check_buildability_gate_applies(const ZProgramGraph *graph) {
@@ -11027,31 +11029,9 @@ static bool graph_check_buildability_gate_applies(const ZProgramGraph *graph) {
 }
 
 static bool check_gate_buildability_blocked(const Command *command, const SourceInput *input, const ZTargetInfo *target, const ZProgramGraph *graph, const IrProgram *ir, ZDiag *out_diag) {
-  if (!ir || !graph || !graph_check_buildability_gate_applies(graph)) return false;
+  if (!ir || !graph || ir->mir_valid || !graph_check_buildability_gate_applies(graph)) return false;
   ZDiag diag = {0};
-  if (!ir->mir_valid) {
-    init_lowering_backend_diag(&diag, input, target, command, ir);
-  } else {
-    EmitKind emit = command ? command->emit : EMIT_EXE;
-    const char *request_emit_kind = emit_kind_name(emit);
-    bool llvm_request = z_backend_request_is_llvm(command ? command->backend : NULL, request_emit_kind) ||
-                        command_uses_llvm_native_exe(command, request_emit_kind);
-    if (llvm_request) {
-      ZBuf scratch;
-      if (z_emit_llvm_ir_from_ir(ir, &scratch, &diag)) {
-        zbuf_free(&scratch);
-        return false;
-      }
-    } else {
-      if (emit != EMIT_EXE && emit != EMIT_OBJ) return false;
-      const char *emit_kind = emit == EMIT_OBJ ? "obj" : (z_program_graph_has_hosted_world_main(graph) ? "exe" : "obj");
-      if (strcmp(emit_kind, "exe") == 0 && ir_needs_linked_executable_object(ir)) emit_kind = "obj";
-      ZDirectBackend backend = strcmp(emit_kind, "exe") == 0 ? z_direct_exe_backend(target) : z_direct_object_backend(target);
-      if (backend == Z_DIRECT_BACKEND_NONE) return false;
-      if (z_direct_buildability_check(ir, target, emit_kind, &diag)) return false;
-      complete_backend_blocker_diag(&diag, target, command, emit_kind, "buildability");
-    }
-  }
+  init_lowering_backend_diag(&diag, input, target, command, ir);
   if (!check_diag_is_buildability_blocker(&diag)) return false;
   if (input) {
     if (diag.code != 8003 && diag.code != 8005) z_map_source_diag(input, &diag);
