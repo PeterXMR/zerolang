@@ -6311,6 +6311,7 @@ static void runtime_import_audit_value(const IrValue *value, RuntimeImportAudit 
     case IR_VALUE_FS_READ_PATH:
     case IR_VALUE_FS_WRITE_PATH:
     case IR_VALUE_FS_READ_BYTES_PATH:
+    case IR_VALUE_FS_READ_BYTES_AT_PATH:
     case IR_VALUE_FS_WRITE_BYTES_PATH:
     case IR_VALUE_FS_READ_ALL:
     case IR_VALUE_FS_READ_FILE:
@@ -6506,6 +6507,7 @@ static bool ir_value_needs_zero_runtime_object(const IrValue *value) {
       value->kind == IR_VALUE_FMT_U32 ||
       value->kind == IR_VALUE_FMT_USIZE ||
       value->kind == IR_VALUE_FS_READ_BYTES_PATH ||
+      value->kind == IR_VALUE_FS_READ_BYTES_AT_PATH ||
       value->kind == IR_VALUE_HTTP_FETCH ||
       value->kind == IR_VALUE_HTTP_RESULT_OK ||
       value->kind == IR_VALUE_HTTP_RESULT_STATUS ||

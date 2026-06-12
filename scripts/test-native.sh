@@ -398,6 +398,7 @@ run_native_or_gap conformance/native/pass/std-fs-fallible.graph .zero/native-tes
 run_native_or_gap conformance/native/pass/std-fs-fallible-resources.graph .zero/native-test/std-fs-fallible-resources "fs fallible resources ok"
 run_native_or_gap conformance/native/pass/std-cli-helpers.graph .zero/native-test/std-cli-helpers "cli helpers ok"
 run_native_or_gap conformance/native/pass/std-fs-bytes.graph .zero/native-test/std-fs-bytes "fs bytes ok"
+run_native_or_gap conformance/native/pass/std-fs-read-chunks.graph .zero/native-test/std-fs-read-chunks "fs read chunks ok"
 run_native_or_gap conformance/native/pass/std-fs-resource.graph .zero/native-test/std-fs-resource "fs resource ok"
 run_native_or_gap conformance/native/pass/std-fs-readall.graph .zero/native-test/std-fs-readall "fs readAll ok"
 run_native_or_gap conformance/native/pass/std-fs-polish.graph .zero/native-test/std-fs-polish "fs polish ok"

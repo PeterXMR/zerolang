@@ -124,7 +124,7 @@ static bool build_value_supported_generic(const ZBuildability *ctx, const IrValu
       return build_backend_has_byte_runtime(ctx->backend);
     case IR_VALUE_FS_HOST:
       return build_backend_is_native_graph_runtime(ctx->backend);
-    case IR_VALUE_FS_READ_BYTES_PATH:
+    case IR_VALUE_FS_READ_BYTES_PATH: case IR_VALUE_FS_READ_BYTES_AT_PATH:
       return ctx->backend == Z_DIRECT_BACKEND_ELF64 || ctx->backend == Z_DIRECT_BACKEND_MACHO64;
     case IR_VALUE_FS_OPEN: case IR_VALUE_FS_CREATE: case IR_VALUE_FS_READ_PATH:
     case IR_VALUE_FS_WRITE_PATH: case IR_VALUE_FS_WRITE_BYTES_PATH:

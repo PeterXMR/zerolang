@@ -3017,6 +3017,26 @@ static bool ir_graph_lower_std_fs_call(const ZProgramGraph *graph, IrProgram *ir
     *out = value;
     return true;
   }
+  if (arg_count == 3 && ir_text_eq(callee_name, "std.fs.readBytesAt")) {
+    IrValue *path = NULL;
+    IrValue *offset = NULL;
+    IrValue *buf = NULL;
+    if (!ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 0), &path) ||
+        !ir_graph_lower_ordered_arg(graph, ir, fun, expr, 1, IR_TYPE_USIZE, &offset) ||
+        !ir_graph_lower_byte_view(graph, ir, fun, ir_graph_ordered_node(graph, expr->id, "arg", 2), &buf)) {
+      ir_free_value(path);
+      ir_free_value(offset);
+      ir_free_value(buf);
+      return false;
+    }
+    IrValue *value = ir_new_value(ir, IR_VALUE_FS_READ_BYTES_AT_PATH, IR_TYPE_MAYBE_SCALAR, ir_graph_line(expr), ir_graph_column(expr));
+    value->left = path;
+    value->index = offset;
+    value->right = buf;
+    value->element_type = IR_TYPE_USIZE;
+    *out = value;
+    return true;
+  }
   if (arg_count == 4 && (ir_text_eq(callee_name, "std.fs.readAll") || ir_text_eq(callee_name, "std.fs.readAllOrRaise"))) {
     const ZProgramGraphNode *alloc_arg = ir_graph_ordered_node(graph, expr->id, "arg", 0);
     const IrLocal *alloc = alloc_arg && alloc_arg->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER ? ir_function_find_local(fun, alloc_arg->name) : NULL;

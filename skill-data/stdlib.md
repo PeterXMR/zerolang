@@ -386,6 +386,7 @@ readAll(allocator: Alloc, fs: Fs, path: String, max: usize) -> Maybe<owned<ByteB
 readAllOrRaise(allocator: Alloc, fs: Fs, path: String, max: usize) -> owned<ByteBuf> raises [NotFound, TooLarge, Io]
 exists(arg0: String) -> Bool
 readBytes(arg0: String, arg1: MutSpan<u8>) -> Maybe<usize>
+readBytesAt(arg0: String, arg1: usize, arg2: MutSpan<u8>) -> Maybe<usize>
 writeBytes(arg0: String, arg1: Span<u8>) -> Maybe<usize>
 isDir(arg0: String) -> Bool
 makeDir(arg0: String) -> Bool
@@ -408,7 +409,9 @@ copyFile(arg0: String, arg1: String, arg2: MutSpan<u8>) -> Bool
 (snprintf convention): a value above `len(buffer)` means the buffer holds only the
 first `len(buffer)` bytes, so compare the result against the buffer length instead
 of assuming the whole file arrived. `readFileBytes` returns `null` when the file
-exceeds the buffer.
+exceeds the buffer. Process files larger than your buffer with `readBytesAt`:
+loop `offset += len(buffer)` until `offset` reaches the returned total, taking
+`min(len(buffer), total - offset)` valid bytes per chunk.
 
 ### std.http
 

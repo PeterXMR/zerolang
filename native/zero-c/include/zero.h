@@ -495,7 +495,9 @@ typedef enum {
   IR_VALUE_FIELD_LOAD,
   IR_VALUE_CHECK,
   IR_VALUE_RESCUE,
-  IR_VALUE_RECORD_ADDR
+  IR_VALUE_RECORD_ADDR,
+  /* Appended after RECORD_ADDR so persisted MIR value-kind numbering stays stable. */
+  IR_VALUE_FS_READ_BYTES_AT_PATH
 } IrValueKind;
 
 typedef enum {

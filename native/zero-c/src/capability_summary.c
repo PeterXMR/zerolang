@@ -91,6 +91,7 @@ static void ir_value_kind_capabilities(IrValueKind kind, CapabilitySummary *caps
     case IR_VALUE_FS_READ_PATH:
     case IR_VALUE_FS_WRITE_PATH:
     case IR_VALUE_FS_READ_BYTES_PATH:
+    case IR_VALUE_FS_READ_BYTES_AT_PATH:
     case IR_VALUE_FS_WRITE_BYTES_PATH:
     case IR_VALUE_FS_READ_ALL:
     case IR_VALUE_FS_READ_FILE:

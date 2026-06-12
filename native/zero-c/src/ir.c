@@ -3719,6 +3719,28 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
+      if (strcmp(callee_name, "std.fs.readBytesAt") == 0 && expr->args.len == 3) {
+        IrValue *path = NULL;
+        IrValue *offset = NULL;
+        IrValue *buf = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &path) ||
+            !ir_lower_expr(program, ir, fun, expr->args.items[1], &offset) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &buf)) {
+          ir_free_value(path);
+          ir_free_value(offset);
+          ir_free_value(buf);
+          free(callee_name);
+          return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_FS_READ_BYTES_AT_PATH, IR_TYPE_MAYBE_SCALAR, expr->line, expr->column);
+        value->left = path;
+        value->index = offset;
+        value->right = buf;
+        value->element_type = IR_TYPE_USIZE;
+        free(callee_name);
+        *out = value;
+        return true;
+      }
       if ((strcmp(callee_name, "std.fs.readAll") == 0 || strcmp(callee_name, "std.fs.readAllOrRaise") == 0) &&
           expr->args.len == 4 && expr->args.items[0] && expr->args.items[0]->kind == EXPR_IDENT) {
         bool raises = strcmp(callee_name, "std.fs.readAllOrRaise") == 0;

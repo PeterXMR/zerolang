@@ -1224,6 +1224,11 @@ static bool mir_verify_fs_value_contract(IrProgram *ir, const IrFunction *fun, c
       if (!mir_verify_maybe_scalar_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem read result type mismatch", "filesystem read bytes")) return false;
       if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem read path", "filesystem read path")) return false;
       return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid filesystem read buffer", "filesystem read buffer");
+    case IR_VALUE_FS_READ_BYTES_AT_PATH:
+      if (!mir_verify_maybe_scalar_result(ir, value, IR_TYPE_USIZE, "MIR verifier found filesystem read result type mismatch", "filesystem read bytes at")) return false;
+      if (!mir_verify_value_type(ir, value->left, IR_TYPE_BYTE_VIEW, "MIR verifier found invalid filesystem read path", "filesystem read path")) return false;
+      if (!mir_verify_value_type(ir, value->index, IR_TYPE_USIZE, "MIR verifier found invalid filesystem read offset", "filesystem read offset")) return false;
+      return mir_verify_mutable_byte_storage(ir, fun, state, value->right, "MIR verifier found invalid filesystem read buffer", "filesystem read buffer");
     case IR_VALUE_FS_WRITE_PATH:
       if (!mir_verify_helper_result_type(ir, value, IR_TYPE_USIZE, "filesystem write result")) return false;
       return mir_verify_byte_view_pair(ir, value, "MIR verifier found invalid filesystem write input", "filesystem write path", "filesystem write bytes");
@@ -2039,6 +2044,7 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
     case IR_VALUE_FS_READ_PATH:
     case IR_VALUE_FS_WRITE_PATH:
     case IR_VALUE_FS_READ_BYTES_PATH:
+    case IR_VALUE_FS_READ_BYTES_AT_PATH:
     case IR_VALUE_FS_WRITE_BYTES_PATH:
     case IR_VALUE_FS_READ_ALL:
     case IR_VALUE_FS_READ_FILE:

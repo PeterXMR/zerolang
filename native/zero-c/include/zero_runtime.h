@@ -174,6 +174,7 @@ typedef enum {
 int zero_world_write(int fd, const char *buf, unsigned len);
 
 ZeroMaybeUsize zero_fs_read_bytes(ZeroByteView path, ZeroMutByteView buffer);
+ZeroMaybeUsize zero_fs_read_bytes_at(ZeroByteView path, uint64_t offset, ZeroMutByteView buffer);
 
 int64_t zero_json_parse_bytes(ZeroByteView input);
 uint32_t zero_ascii_op(uint32_t byte, uint32_t op);

@@ -43,6 +43,7 @@ static const char *const runtime_helper_symbols[MACHO_RUNTIME_HELPER_COUNT] = {
   "_zero_str_count_byte",
   "_zero_str_word_count_ascii",
   "_zero_fs_read_bytes",
+  "_zero_fs_read_bytes_at",
   "_zero_args_find",
   "_zero_parse_i32",
   "_zero_parse_u32",

@@ -434,6 +434,7 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.fs.readAllOrRaise", "owned<ByteBuf>", 4, {"Alloc", "Fs", "String", "usize"}, {"NotFound", "TooLarge", "Io"}, "fs", "host", "uses explicit allocator only", true, Z_STD_HELPER_KIND_FS_READ_ALL_OR_RAISE},
   {"std.fs.exists", "Bool", 1, {"String"}, {NULL}, "fs", "host", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.readBytes", "Maybe<usize>", 2, {"String", "MutSpan<u8>"}, {NULL}, "fs", "host", "fills caller buffer and returns total file size; value above len(buffer) signals truncation", true, Z_STD_HELPER_KIND_TABLE},
+  {"std.fs.readBytesAt", "Maybe<usize>", 3, {"String", "usize", "MutSpan<u8>"}, {NULL}, "fs", "host", "fills caller buffer from a byte offset and returns total file size for chunked reads", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.writeBytes", "Maybe<usize>", 2, {"String", "Span<u8>"}, {NULL}, "fs", "host", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.isDir", "Bool", 1, {"String"}, {NULL}, "fs", "host", "no allocation", true, Z_STD_HELPER_KIND_TABLE},
   {"std.fs.makeDir", "Bool", 1, {"String"}, {NULL}, "fs", "host", "creates a directory", true, Z_STD_HELPER_KIND_TABLE},

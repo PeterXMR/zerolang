@@ -15,6 +15,7 @@ typedef struct _stat ZeroRuntimeStat;
 #define ZERO_RUNTIME_READ _read
 #define ZERO_RUNTIME_CLOSE _close
 #define ZERO_RUNTIME_FSTAT _fstat
+#define ZERO_RUNTIME_LSEEK _lseeki64
 #define ZERO_RUNTIME_OPEN_FLAGS (_O_RDONLY | _O_BINARY)
 #define ZERO_RUNTIME_IS_REGULAR(mode) (((mode) & _S_IFREG) != 0)
 #else
@@ -27,6 +28,7 @@ typedef struct stat ZeroRuntimeStat;
 #define ZERO_RUNTIME_READ read
 #define ZERO_RUNTIME_CLOSE close
 #define ZERO_RUNTIME_FSTAT fstat
+#define ZERO_RUNTIME_LSEEK lseek
 #define ZERO_RUNTIME_OPEN_FLAGS O_RDONLY
 #define ZERO_RUNTIME_IS_REGULAR(mode) S_ISREG(mode)
 #endif
@@ -116,6 +118,29 @@ ZeroMaybeUsize zero_fs_read_bytes(ZeroByteView path, ZeroMutByteView buffer) {
   /* snprintf convention: report the total file size so callers can detect
      truncation when the value exceeds the buffer length. */
   if (read_len > total) total = read_len;
+  return (ZeroMaybeUsize){1, total};
+}
+
+ZeroMaybeUsize zero_fs_read_bytes_at(ZeroByteView path, uint64_t offset, ZeroMutByteView buffer) {
+  if (!buffer.ptr) return zero_runtime_none_usize();
+  char path_buf[ZERO_RUNTIME_PATH_BYTES];
+  if (!zero_runtime_path_copy(path, path_buf)) return zero_runtime_none_usize();
+
+  int fd = zero_runtime_open_readonly(path_buf);
+  if (fd < 0) return zero_runtime_none_usize();
+
+  uint64_t total = 0;
+  uint64_t read_len = 0;
+  int ok = zero_runtime_fd_regular_size(fd, &total);
+  if (ok && offset < total && buffer.len > 0) {
+    ok = ZERO_RUNTIME_LSEEK(fd, (int64_t)offset, SEEK_SET) == (int64_t)offset &&
+         zero_runtime_read_fd(fd, buffer, &read_len);
+  }
+  int closed = zero_runtime_close_fd(fd);
+  if (!ok || !closed) return zero_runtime_none_usize();
+  /* snprintf convention: report the total file size so callers can loop
+     offset += len(buffer) until offset reaches the returned total. */
+  if (read_len > 0 && offset + read_len > total) total = offset + read_len;
   return (ZeroMaybeUsize){1, total};
 }
 

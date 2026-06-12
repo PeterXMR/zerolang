@@ -95,6 +95,7 @@ const char *z_build_value_kind_name(IrValueKind kind) {
     case IR_VALUE_FS_READ_PATH: return "IR_VALUE_FS_READ_PATH";
     case IR_VALUE_FS_WRITE_PATH: return "IR_VALUE_FS_WRITE_PATH";
     case IR_VALUE_FS_READ_BYTES_PATH: return "IR_VALUE_FS_READ_BYTES_PATH";
+    case IR_VALUE_FS_READ_BYTES_AT_PATH: return "IR_VALUE_FS_READ_BYTES_AT_PATH";
     case IR_VALUE_FS_WRITE_BYTES_PATH: return "IR_VALUE_FS_WRITE_BYTES_PATH";
     case IR_VALUE_FS_READ_ALL: return "IR_VALUE_FS_READ_ALL";
     case IR_VALUE_FS_READ_FILE: return "IR_VALUE_FS_READ_FILE";

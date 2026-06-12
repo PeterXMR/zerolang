@@ -29,6 +29,7 @@ Runnable today:
 | `std.fs.readAll(alloc, fs, path, limit)` | `Maybe<owned<ByteBuf>>` | Reads through an explicit allocator and size limit. |
 | `std.fs.readAllOrRaise(alloc, fs, path, limit)` | `owned<ByteBuf>` | Reads through an explicit allocator and size limit. |
 | `std.fs.readBytes(path, buf)` | `Maybe<usize>` | Fills caller storage and returns the total file size; a value above `len(buf)` means the buffer holds only the first `len(buf)` bytes. |
+| `std.fs.readBytesAt(path, offset, buf)` | `Maybe<usize>` | Fills caller storage starting at a byte offset and returns the total file size, so bounded buffers can process larger files in chunks. |
 | `std.fs.writeBytes(path, bytes)` | `Maybe<usize>` | Writes byte spans to a hosted path. |
 | `std.fs.exists(path)` | `Bool` | Checks whether a hosted path exists. |
 | `std.fs.isDir(path)` | `Bool` | Checks whether a hosted path is a directory. |

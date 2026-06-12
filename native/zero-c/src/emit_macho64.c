@@ -356,6 +356,7 @@ static MachORuntimeHelper macho_runtime_helper_for_value(IrValueKind kind) {
     case IR_VALUE_HTTP_REQUEST_BODY_WITHIN: return MACHO_RUNTIME_HTTP_REQUEST_BODY_WITHIN;
     case IR_VALUE_STR_CONTAINS: return MACHO_RUNTIME_STR_CONTAINS;
     case IR_VALUE_FS_READ_BYTES_PATH: return MACHO_RUNTIME_FS_READ_BYTES;
+    case IR_VALUE_FS_READ_BYTES_AT_PATH: return MACHO_RUNTIME_FS_READ_BYTES_AT;
     case IR_VALUE_PARSE_RUNTIME: return MACHO_RUNTIME_PARSE_OP;
     case IR_VALUE_TIME_RUNTIME: return MACHO_RUNTIME_TIME_OP;
     case IR_VALUE_MATH_RUNTIME: return MACHO_RUNTIME_MATH_OP;
@@ -1611,6 +1612,27 @@ static bool macho_emit_fs_read_bytes_to_maybe_regs_at(ZBuf *text, const IrFuncti
   return z_macho_record_value_runtime_patch(ctx, MACHO_RUNTIME_FS_READ_BYTES, patch, value, diag);
 }
 
+static bool macho_emit_fs_read_bytes_at_to_maybe_regs_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
+  if (!value || !value->left || !value->index || !value->right) {
+    return macho_diag_at(diag, "direct AArch64 Mach-O std.fs.readBytesAt requires a path, offset, and buffer", value ? value->line : 1, value ? value->column : 1, "missing readBytesAt input");
+  }
+  if (!macho_emit_byte_view_pair_at(text, fun, value->left, 0, 1, frame_size, scratch_slot, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 0, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_store_scratch(text, 1, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!macho_emit_value_to_reg_at(text, fun, value->index, 2, frame_size, scratch_slot + 2, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 2, IR_TYPE_U64, scratch_slot + 2, value->index, diag)) return false;
+  if (!macho_emit_byte_view_pair_at(text, fun, value->right, 3, 4, frame_size, scratch_slot + 3, ctx, diag)) return false;
+  if (!macho_emit_store_scratch(text, 3, IR_TYPE_U64, scratch_slot + 3, value->right, diag)) return false;
+  if (!macho_emit_store_scratch(text, 4, IR_TYPE_U32, scratch_slot + 4, value->right, diag)) return false;
+  if (!macho_emit_load_scratch(text, 0, IR_TYPE_U64, scratch_slot, value->left, diag)) return false;
+  if (!macho_emit_load_scratch(text, 1, IR_TYPE_U32, scratch_slot + 1, value->left, diag)) return false;
+  if (!macho_emit_load_scratch(text, 2, IR_TYPE_U64, scratch_slot + 2, value->index, diag)) return false;
+  if (!macho_emit_load_scratch(text, 3, IR_TYPE_U64, scratch_slot + 3, value->right, diag)) return false;
+  if (!macho_emit_load_scratch(text, 4, IR_TYPE_U32, scratch_slot + 4, value->right, diag)) return false;
+  size_t patch = z_aarch64_emit_bl_placeholder(text);
+  return z_macho_record_value_runtime_patch(ctx, MACHO_RUNTIME_FS_READ_BYTES_AT, patch, value, diag);
+}
+
 static bool macho_emit_http_value_to_reg_at(ZBuf *text, const IrFunction *fun, const IrValue *value, unsigned reg, unsigned frame_size, unsigned scratch_slot, MachOEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
     case IR_VALUE_HTTP_STATUS_CLASS:
@@ -1867,6 +1889,7 @@ static bool macho_emit_value_to_reg_at(ZBuf *text, const IrFunction *fun, const 
       z_aarch64_emit_movz_w(text, reg, 0);
       return true;
     case IR_VALUE_FS_READ_BYTES_PATH: return macho_emit_fs_read_bytes_to_maybe_regs_at(text, fun, value, frame_size, scratch_slot, ctx, diag);
+    case IR_VALUE_FS_READ_BYTES_AT_PATH: return macho_emit_fs_read_bytes_at_to_maybe_regs_at(text, fun, value, frame_size, scratch_slot, ctx, diag);
     case IR_VALUE_JSON_PARSE_BYTES:
       if (!macho_emit_json_parse_bytes_call_at(text, fun, value, frame_size, scratch_slot, ctx, diag)) return false;
       if (reg != 0) z_aarch64_emit_mov_x(text, reg, 0);
@@ -2290,7 +2313,8 @@ static bool macho_emit_local_set_maybe_scalar(ZBuf *text, const IrFunction *fun,
       instr->value->kind == IR_VALUE_PARSE_I32 || instr->value->kind == IR_VALUE_PARSE_U32 || instr->value->kind == IR_VALUE_ARGS_PARSE_U32 || instr->value->kind == IR_VALUE_ARGS_FIND ||
       instr->value->kind == IR_VALUE_ARGS_VALUE_AFTER_PARSE_U32 ||
       instr->value->kind == IR_VALUE_ASCII_RUNTIME || instr->value->kind == IR_VALUE_TEXT_RUNTIME || instr->value->kind == IR_VALUE_MATH_RUNTIME ||
-      instr->value->kind == IR_VALUE_FS_READ_BYTES_PATH) {
+      instr->value->kind == IR_VALUE_FS_READ_BYTES_PATH ||
+      instr->value->kind == IR_VALUE_FS_READ_BYTES_AT_PATH) {
     if (!macho_emit_value_to_reg(text, fun, instr->value, 0, frame_size, ctx, diag)) return false;
     macho_emit_store_local_w(text, fun, 0, instr->local_index, 0, frame_size);
     macho_emit_store_local_x(text, fun, 1, instr->local_index, 8, frame_size);
@@ -2372,7 +2396,8 @@ static bool macho_emit_return_maybe_scalar(ZBuf *text, const IrFunction *fun, co
       instr->value->kind == IR_VALUE_PARSE_I32 || instr->value->kind == IR_VALUE_PARSE_U32 || instr->value->kind == IR_VALUE_ARGS_PARSE_U32 || instr->value->kind == IR_VALUE_ARGS_FIND ||
       instr->value->kind == IR_VALUE_ARGS_VALUE_AFTER_PARSE_U32 ||
       instr->value->kind == IR_VALUE_ASCII_RUNTIME || instr->value->kind == IR_VALUE_TEXT_RUNTIME || instr->value->kind == IR_VALUE_MATH_RUNTIME ||
-      instr->value->kind == IR_VALUE_FS_READ_BYTES_PATH) {
+      instr->value->kind == IR_VALUE_FS_READ_BYTES_PATH ||
+      instr->value->kind == IR_VALUE_FS_READ_BYTES_AT_PATH) {
     return macho_emit_value_to_reg(text, fun, instr->value, 0, frame_size, ctx, diag);
   }
   if (instr->value->kind == IR_VALUE_MAYBE_SCALAR_LITERAL) {
