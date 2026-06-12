@@ -1,8 +1,23 @@
 # Changelog
 
-## 0.3.2
+## 0.3.3
 
 <!-- release:start -->
+
+- Makes package graph stores refresh from edited projections across compiler commands, classifies source/store sync by content instead of mtimes, and gives stale, diverged, and ambiguous reconcile states deterministic diagnostics and repairs.
+- Improves agent-facing inspection and edit loops with scoped `zero query` output, `zero view --fn`, `zero diff --fn`, `zero patch --replace-fn --body-file`, focused command help, and smaller version-matched skill topics with section-scoped stdlib fetches.
+- Expands standard-library coverage with `std.regex`, `std.inet`, `std.unicode`, and RFC 3339 helpers in `std.time`, including docs, skill references, and runtime conformance fixtures.
+- Hardens direct backend correctness for shape references, large stack frames, fallible `Void` mains, file reads, trap stderr, top-level consts, null `Maybe` locals, fixed-array lengths, and untyped integer literal adoption.
+- Speeds up large graph workflows with indexed reconciliation, stdlib merges, projection validation caches, graph lowering indexes, and borrow-contract scans while preserving deterministic graph hashes and artifacts.
+- Adds graph-store diagnostic codes and complete `zero explain` coverage, buildability gating for unsupported checked constructs, example package gates, sanitizer smoke, package build determinism contracts, and git build hashes in `zero --version`.
+
+### Contributors
+
+- @ctate
+
+<!-- release:end -->
+
+## 0.3.2
 
 - Adds `break` and `continue` support to the direct backend and `zero test`, lowering both through typed MIR and all direct emitters with conformance coverage and required runtime checks.
 - Speeds up graph validation with indexed node-hash tables, a reusable adjacency index, and deduplicated store validation, making `zero import` on large programs roughly 12x faster.
@@ -10,8 +25,6 @@
 ### Contributors
 
 - @ctate
-
-<!-- release:end -->
 
 ## 0.3.1
 
