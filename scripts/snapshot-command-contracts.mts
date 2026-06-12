@@ -1013,7 +1013,7 @@ assert.match(graphHelp, /zero import \[--json\] \[--format text\|binary\] \[proj
 assert.match(graphHelp, /zero export \[--json\] \[project\|zero\.toml\|zero\.json\|file\.0\]/);
 assert.match(graphHelp, /zero merge --base <base-zero\.graph> --left <left-zero\.graph> --right <right-zero\.graph> \[--json\] \[project\|zero\.toml\|zero\.json\|file\.0\]/);
 assert.match(graphHelp, /zero size \[--json\] \[--target <target>\] \[--out <artifact>\] \[graph-input\]/);
-assert.match(graphHelp, /Patch usage: zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\|--replace-fn <name> --body-file <file\|->\|--replace-in-fn <name> --old <text> --new <text>\)/);
+assert.match(graphHelp, /Patch usage: zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\|--replace-fn <name> --body-file <file\|->\|--replace-in-fn <name> --old <text> --new <text>\|--rewrite <pattern> --to <template> \[--fn <name>\] \[--apply\]\)/);
 assert.match(graphHelp, /Patch operation help: zero patch --op help/);
 assert.match(graphHelp, /binary is the default zero\.graph encoding/);
 assert.match(graphHelp, /--format text writes readable repository stores when explicitly requested/);
@@ -1036,7 +1036,7 @@ assert.match(rootHelp, /zero build \[--json\] \[--emit exe\|obj\|llvm-ir\].*\[gr
 assert.match(rootHelp, /zero test \[graph-input\]/);
 assert.match(rootHelp, /zero check \[--json\] \[--target <target>\] \[--emit exe\|obj\|llvm-ir\] \[graph-input\]/);
 assert.match(rootHelp, /zero fix --plan --json \[graph-input\]/);
-assert.match(rootHelp, /zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\|--replace-fn <name> --body-file <file\|->\|--replace-in-fn <name> --old <text> --new <text>\)/);
+assert.match(rootHelp, /zero patch \[--json\] \[--check-only\|--dry-run\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\] \(<patch-file>\|--op <operation>\|--replace-fn <name> --body-file <file\|->\|--replace-in-fn <name> --old <text> --new <text>\|--rewrite <pattern> --to <template> \[--fn <name>\] \[--apply\]\)/);
 assert.match(rootHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[graph-input\]/);
 assert.match(rootHelp, /zero view \[--json\] \[--fn <name> \[--around <text>\|--handles\]\] \[--outline <module-or-file>\] \[--out <file\.0>\] \[graph-input\]/);
 assert.match(rootHelp, /zero diff \[--fn <name>\] \[graph-input\]/);
@@ -1335,6 +1335,76 @@ assert.match(batchPatch.stdout, /applied: 3 ops/, "batched --op edits apply as o
 const viewMainAfterBatch = zero(["view", "--fn", "main", queryScopeRoot]).stdout;
 assert.match(viewMainAfterBatch, /var total: usize = dealsTotal\(20\) \+ 1/);
 assert.match(viewMainAfterBatch, /if total != 0 \{/);
+
+// structural rewrite by example: zero patch --rewrite '<pattern>' --to '<template>'
+const rewriteRoot = join("/tmp", `zero-rewrite-scope-${process.pid}`);
+rmSync(rewriteRoot, { force: true, recursive: true });
+assert.equal(json(["init", "--json", rewriteRoot]).body.ok, true);
+mkdirSync(join(rewriteRoot, "src"), { recursive: true });
+writeFileSync(
+  join(rewriteRoot, "src", "main.0"),
+  'fn calc(a: usize) -> usize {\n    let x: usize = a + 1\n    let y: usize = a + 1\n    return x + y\n}\n\nfn calc2(b: usize) -> usize {\n    return b + 1\n}\n\npub fn main(world: World) -> Void raises {\n    let t: usize = calc(1) + calc2(2)\n    if t == t {\n        check world.out.write("rewrite scope\\n")\n    }\n}\n',
+);
+assert.equal(json(["import", "--json", join(rewriteRoot, "src", "main.0")]).body.ok, true);
+
+// dry run is the default: each site lists file, fn, handle, and rendered before/after
+const rewriteDry = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A + 2"]);
+assert.equal(rewriteDry.code, 0);
+assert.match(rewriteDry.stdout, /rewrite: \$A \+ 1 -> \$A \+ 2/);
+assert.match(rewriteDry.stdout, /matches: 3/, "package-wide rewrite matches all three sites");
+assert.match(rewriteDry.stdout, /src\/main\.0 fn:calc #\S+/);
+assert.match(rewriteDry.stdout, /- a \+ 1/);
+assert.match(rewriteDry.stdout, /\+ a \+ 2/);
+assert.match(rewriteDry.stdout, /- b \+ 1/);
+assert.match(rewriteDry.stdout, /dry run: pass --apply/);
+assert.equal(zero(["view", "--fn", "calc", rewriteRoot]).stdout.includes("a + 2"), false, "dry run leaves the store untouched");
+
+// --fn scopes matching to one function
+const rewriteScoped = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A + 2", "--fn", "calc"]);
+assert.match(rewriteScoped.stdout, /matches: 2/, "--fn calc scopes the rewrite to two sites");
+assert.doesNotMatch(rewriteScoped.stdout, /fn:calc2/);
+
+// the same metavariable twice must match equal subtrees
+const rewriteEquality = zero(["patch", rewriteRoot, "--rewrite", "$A == $A", "--to", "true"]);
+assert.match(rewriteEquality.stdout, /matches: 1/, "$A == $A matches t == t and nothing else");
+assert.match(rewriteEquality.stdout, /- t == t/);
+
+// JSON dry run carries the match list
+const rewriteJson = json(["patch", "--json", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A + 2"]).body;
+assert.equal(rewriteJson.ok, true);
+assert.equal(rewriteJson.matchCount, 3);
+assert.equal(rewriteJson.matches.length, 3);
+assert.equal(rewriteJson.matches[0].before, "a + 1");
+assert.equal(rewriteJson.matches[0].after, "a + 2");
+assert.equal(rewriteJson.rewrite.apply, false);
+
+// revalidation failure rolls the whole batch back
+const rewriteRollback = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A + nosuchconst", "--apply"], { allowFailure: true });
+assert.notEqual(rewriteRollback.code, 0);
+assert.match(`${rewriteRollback.stdout}${rewriteRollback.stderr}`, /revalidation/);
+assert.equal(zero(["view", "--fn", "calc", rewriteRoot]).stdout.includes("nosuchconst"), false, "failed rewrite leaves the store untouched");
+
+// metavar capture reuse on both sides, applied in one batch
+const rewriteApply = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A + 1 + ($A - $A)", "--apply"]);
+assert.equal(rewriteApply.code, 0);
+assert.match(rewriteApply.stdout, /matches: 3/);
+assert.match(rewriteApply.stdout, /applied: 3 ops/, "apply rewrites every site in one batch with one revalidation");
+const rewriteCalcView = zero(["view", "--fn", "calc", rewriteRoot]).stdout;
+assert.match(rewriteCalcView, /let x: usize = a \+ 1 \+ \(a - a\)/, "applied rewrite matches the dry-run rendering");
+assert.match(rewriteCalcView, /let y: usize = a \+ 1 \+ \(a - a\)/);
+assert.match(zero(["view", "--fn", "calc2", rewriteRoot]).stdout, /return b \+ 1 \+ \(b - b\)/);
+
+// rewrite needs both halves and a real function for --fn
+const rewriteMissingTo = zero(["patch", rewriteRoot, "--rewrite", "$A + 1"], { allowFailure: true });
+assert.notEqual(rewriteMissingTo.code, 0);
+assert.match(rewriteMissingTo.stderr, /graph rewrite needs both --rewrite and --to/);
+const rewriteBadFn = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$A", "--fn", "nosuchfn"], { allowFailure: true });
+assert.notEqual(rewriteBadFn.code, 0);
+assert.match(rewriteBadFn.stderr, /rewrite --fn function 'nosuchfn' was not found/);
+const rewriteUnboundVar = zero(["patch", rewriteRoot, "--rewrite", "$A + 1", "--to", "$B + 1"], { allowFailure: true });
+assert.notEqual(rewriteUnboundVar.code, 0);
+assert.match(rewriteUnboundVar.stderr, /template uses \$B which the pattern does not bind/);
+rmSync(rewriteRoot, { force: true, recursive: true });
 
 // GPH004 with a near-miss handle names the nearest existing handle
 const nearMiss = `${letHandle.slice(0, -1)}${letHandle.endsWith("z") ? "y" : "z"}`;

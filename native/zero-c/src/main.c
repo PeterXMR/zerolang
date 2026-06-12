@@ -28,6 +28,7 @@
 #include "program_graph_reconcile.h"
 #include "program_graph_reconcile_apply.h"
 #include "program_graph_report.h"
+#include "program_graph_rewrite.h"
 #include "program_graph_resolve.h"
 #include "program_graph_repository.h"
 #include "program_graph_repository_input.h"
@@ -88,6 +89,8 @@ typedef struct {
   const char *patch_old_file;
   const char *patch_new_text;
   const char *patch_new_file;
+  const char *patch_rewrite;
+  const char *patch_rewrite_to;
   const char *reconcile_source;
   const char *merge_base;
   const char *merge_left;
@@ -4530,6 +4533,15 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
     command->query_handles = true;
     return true;
   }
+  const bool patch_command = command_is_program_graph_command(command) && cli_arg_is(command->kind, "patch");
+  if (function_selector && patch_command) {
+    if (*index + 1 >= argc) {
+      command->unknown_flag = arg;
+      return true;
+    }
+    command->query_function = argv[++(*index)];
+    return true;
+  }
   if (!query_command) {
     command->unknown_flag = arg;
     return true;
@@ -4603,6 +4615,8 @@ static const char **graph_patch_value_option_slot(Command *command, const char *
   if (cli_arg_is(arg, "--old-file")) return &command->patch_old_file;
   if (cli_arg_is(arg, "--new")) return &command->patch_new_text;
   if (cli_arg_is(arg, "--new-file")) return &command->patch_new_file;
+  if (cli_arg_is(arg, "--rewrite")) return &command->patch_rewrite;
+  if (cli_arg_is(arg, "--to")) return &command->patch_rewrite_to;
   return NULL;
 }
 
@@ -13907,6 +13921,7 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
   *has_ops = command->patch_op_len > 0;
   bool has_body = command->patch_replace_fn || command->patch_body_file;
   bool has_in_fn = command->patch_replace_in_fn || command->patch_old_text || command->patch_old_file || command->patch_new_text || command->patch_new_file;
+  bool has_rewrite = command->patch_rewrite || command->patch_rewrite_to;
   diag->code = 2002;
   diag->path = command->input;
   diag->line = 1;
@@ -13917,6 +13932,13 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
     snprintf(diag->expected, sizeof(diag->expected), "zero patch [graph-input] --replace-fn <function> --body-file <body-rows-file|->");
     snprintf(diag->actual, sizeof(diag->actual), "missing %s", command->patch_replace_fn ? "--body-file" : "--replace-fn");
     snprintf(diag->help, sizeof(diag->help), "the body file holds only the new body rows, exactly what zero view --fn prints between the signature braces; --body-file - reads them from stdin");
+    return false;
+  }
+  if (has_rewrite && (!command->patch_rewrite || !command->patch_rewrite_to)) {
+    snprintf(diag->message, sizeof(diag->message), "graph rewrite needs both --rewrite and --to");
+    snprintf(diag->expected, sizeof(diag->expected), "zero patch [graph-input] --rewrite '<pattern>' --to '<template>' [--fn <name>] [--apply]");
+    snprintf(diag->actual, sizeof(diag->actual), "missing %s", command->patch_rewrite ? "--to" : "--rewrite");
+    snprintf(diag->help, sizeof(diag->help), "pattern and template are canonical projection expressions; metavariables $A, $B bind arbitrary subtrees");
     return false;
   }
   if (has_in_fn) {
@@ -13944,10 +13966,10 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
       return false;
     }
   }
-  int source_count = (*has_file ? 1 : 0) + (*has_patch_text ? 1 : 0) + (*has_ops ? 1 : 0) + (has_body ? 1 : 0) + (has_in_fn ? 1 : 0);
+  int source_count = (*has_file ? 1 : 0) + (*has_patch_text ? 1 : 0) + (*has_ops ? 1 : 0) + (has_body ? 1 : 0) + (has_in_fn ? 1 : 0) + (has_rewrite ? 1 : 0);
   if (source_count == 0) {
     snprintf(diag->message, sizeof(diag->message), "graph patch requires patch operations");
-    snprintf(diag->expected, sizeof(diag->expected), "zero patch [graph-input] with a patch file, --op, --patch-text, --replace-fn, or --replace-in-fn; see zero patch --op help");
+    snprintf(diag->expected, sizeof(diag->expected), "zero patch [graph-input] with a patch file, --op, --patch-text, --replace-fn, --replace-in-fn, or --rewrite; see zero patch --op help");
     snprintf(diag->actual, sizeof(diag->actual), "missing patch input");
     snprintf(diag->help, sizeof(diag->help), "pass a zero-program-graph-patch v1 file, one or more --op lines, --replace-fn with --body-file, or --replace-in-fn with --old and --new");
     return false;
@@ -13964,7 +13986,8 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
   return true;
 }
 
-static bool apply_graph_patch_source(const Command *command, bool has_file, bool has_patch_text, ZProgramGraph *graph, ZProgramGraphPatchResult *result, char **inline_text, ZDiag *diag) {
+static bool apply_graph_patch_source(const Command *command, bool has_file, bool has_patch_text, const char *rewrite_text, ZProgramGraph *graph, ZProgramGraphPatchResult *result, char **inline_text, ZDiag *diag) {
+  if (rewrite_text) return z_program_graph_apply_patch_text("<rewrite>", rewrite_text, strlen(rewrite_text), graph, result, diag);
   if (has_file) return z_program_graph_apply_patch_file(command->patch_file, graph, result, diag);
   if (has_patch_text) return z_program_graph_apply_patch_text("<inline>", command->patch_text, strlen(command->patch_text), graph, result, diag);
   if (command->patch_replace_in_fn) {
@@ -14058,6 +14081,111 @@ static void free_graph_patch_state(char *inline_text, ZProgramGraphPatchResult *
   z_program_graph_free(graph);
 }
 
+static void append_json_escaped_or_null(ZBuf *buf, const char *value) {
+  if (!value) {
+    zbuf_append(buf, "null");
+    return;
+  }
+  append_json_string(buf, value);
+}
+
+/* Dry-run (and pre-apply) report for zero patch --rewrite. */
+static void print_graph_rewrite_report(const Command *command, const ZProgramGraphRewriteResult *rewrite) {
+  if (command->json) {
+    ZBuf json;
+    zbuf_init(&json);
+    zbuf_append(&json, "{\n  \"schemaVersion\": 1,\n  \"ok\": true,\n  \"rewrite\": {\"pattern\": ");
+    append_json_escaped_or_null(&json, command->patch_rewrite);
+    zbuf_append(&json, ", \"to\": ");
+    append_json_escaped_or_null(&json, command->patch_rewrite_to);
+    zbuf_append(&json, ", \"fn\": ");
+    append_json_escaped_or_null(&json, command->query_function);
+    zbuf_appendf(&json, ", \"apply\": %s},\n  \"matches\": [", command->apply ? "true" : "false");
+    for (size_t i = 0; i < rewrite->len; i++) {
+      const ZProgramGraphRewriteMatch *match = &rewrite->items[i];
+      if (i > 0) zbuf_append(&json, ", ");
+      zbuf_append(&json, "{\"node\": ");
+      append_json_escaped_or_null(&json, match->node_id);
+      zbuf_append(&json, ", \"handle\": ");
+      append_json_escaped_or_null(&json, match->short_handle);
+      zbuf_append(&json, ", \"fn\": ");
+      append_json_escaped_or_null(&json, match->function_name);
+      zbuf_append(&json, ", \"path\": ");
+      append_json_escaped_or_null(&json, match->path);
+      zbuf_append(&json, ", \"before\": ");
+      append_json_escaped_or_null(&json, match->before);
+      zbuf_append(&json, ", \"after\": ");
+      append_json_escaped_or_null(&json, match->after);
+      zbuf_append(&json, "}");
+    }
+    zbuf_appendf(&json, "],\n  \"matchCount\": %zu,\n  \"skippedSubtrees\": %zu\n}\n", rewrite->len, rewrite->skipped_unsupported);
+    fputs(json.data, stdout);
+    zbuf_free(&json);
+    return;
+  }
+  printf("rewrite: %s -> %s\n", command->patch_rewrite ? command->patch_rewrite : "", command->patch_rewrite_to ? command->patch_rewrite_to : "");
+  if (command->query_function) printf("scope: fn %s\n", command->query_function);
+  printf("matches: %zu\n", rewrite->len);
+  for (size_t i = 0; i < rewrite->len; i++) {
+    const ZProgramGraphRewriteMatch *match = &rewrite->items[i];
+    printf("  %s fn:%s %s\n", match->path && match->path[0] ? match->path : "<graph>", match->function_name && match->function_name[0] ? match->function_name : "?", match->short_handle);
+    printf("    - %s\n", match->before);
+    printf("    + %s\n", match->after);
+  }
+  if (rewrite->skipped_unsupported > 0) printf("%zu subtree%s skipped (unsupported kinds)\n", rewrite->skipped_unsupported, rewrite->skipped_unsupported == 1 ? "" : "s");
+  if (!command->apply) {
+    if (rewrite->len > 0) printf("dry run: pass --apply to rewrite %zu site%s in one batch\n", rewrite->len, rewrite->len == 1 ? "" : "s");
+    else printf("dry run: no matches\n");
+  }
+}
+
+static void print_graph_patch_failure_text(const Command *command, const ZProgramGraphPatchResult *result) {
+  fprintf(stderr, "program graph patch failed: %s\n", result->message);
+  if (result->line > 0 && result->actual && result->actual[0]) {
+    fprintf(stderr, "  %s:%d: %s\n", graph_patch_source_label(command), result->line, result->actual);
+  }
+  if (result->expected && result->expected[0]) fprintf(stderr, "  expected: %s\n", result->expected);
+  if (result->line <= 0 && result->actual && result->actual[0]) fprintf(stderr, "  actual: %s\n", result->actual);
+  if (command->patch_replace_in_fn && (strcmp(result->code, "GPH003") == 0 || strcmp(result->code, "GPH004") == 0)) {
+    fprintf(stderr, "  help: run zero view --fn %s to see the exact body text to match\n", command->patch_replace_in_fn);
+  } else if (strcmp(result->code, "GPH003") == 0 || strcmp(result->code, "GPH004") == 0) {
+    fprintf(stderr, "  help: run zero query --fn <name> --handles to list stmt and param patch handles, or zero query --find <text> for node ids\n");
+  }
+  if (result->format_error) {
+    fprintf(stderr, "  help: a minimal complete patch file looks exactly like this:\n");
+    fputs(z_program_graph_patch_minimal_file_example(), stderr);
+  }
+}
+
+/* Runs --rewrite matching before the patch pipeline. Returns -1 to continue
+ * with *rewrite_text set for apply, or an exit code when the command is done
+ * (dry run, no matches, or pattern errors). */
+static int prepare_graph_patch_rewrite(const Command *command, const ZProgramGraph *graph, char **rewrite_text, ZDiag *diag) {
+  *rewrite_text = NULL;
+  if (!command->patch_rewrite) return -1;
+  ZProgramGraphRewriteResult rewrite = {0};
+  if (!z_program_graph_rewrite_collect(graph, command->patch_rewrite, command->patch_rewrite_to, command->query_function, &rewrite, diag)) {
+    print_command_diag(command, diag->path ? diag->path : command->input, diag);
+    z_program_graph_rewrite_result_free(&rewrite);
+    return 1;
+  }
+  if (!command->apply) {
+    print_graph_rewrite_report(command, &rewrite);
+    z_program_graph_rewrite_result_free(&rewrite);
+    return 0;
+  }
+  if (rewrite.len == 0) {
+    if (command->json) print_graph_rewrite_report(command, &rewrite);
+    else fprintf(stderr, "graph rewrite matched 0 sites; store unchanged\n");
+    z_program_graph_rewrite_result_free(&rewrite);
+    return command->json ? 0 : 1;
+  }
+  if (!command->json) print_graph_rewrite_report(command, &rewrite);
+  *rewrite_text = z_program_graph_rewrite_build_patch_text(&rewrite);
+  z_program_graph_rewrite_result_free(&rewrite);
+  return -1;
+}
+
 static int run_graph_patch_command(const Command *command, const ZTargetInfo *target, ZDiag *diag) {
   if (graph_patch_help_requested(command)) {
     if (command->json) print_graph_patch_help_json();
@@ -14081,12 +14209,22 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     return 1;
   }
 
+  char *rewrite_text = NULL;
+  int rewrite_rc = prepare_graph_patch_rewrite(command, &graph, &rewrite_text, diag);
+  if (rewrite_rc >= 0) {
+    z_free_program(&program);
+    z_free_source(&input);
+    z_program_graph_free(&graph);
+    return rewrite_rc;
+  }
+
   char *original_hash = z_strdup(graph.graph_hash ? graph.graph_hash : "");
   size_t baseline_len = 0;
   GraphPatchNodeBaseline *baseline = command->json ? NULL : graph_patch_snapshot_baseline(&graph, &baseline_len);
   ZProgramGraphPatchResult result = {0};
   char *inline_text = NULL;
-  bool ok = apply_graph_patch_source(command, has_file, has_patch_text, &graph, &result, &inline_text, diag);
+  bool ok = apply_graph_patch_source(command, has_file, has_patch_text, rewrite_text, &graph, &result, &inline_text, diag);
+  free(rewrite_text);
   if (!ok && !result.message[0] && diag->code != 0) {
     print_command_diag(command, diag->path ? diag->path : graph_patch_source_label(command), diag);
     graph_patch_baseline_free(baseline, baseline_len);
@@ -14153,21 +14291,7 @@ static int run_graph_patch_command(const Command *command, const ZTargetInfo *ta
     fputs(dump.data ? dump.data : "", stdout);
     zbuf_free(&dump);
   } else if (result.message[0]) {
-    fprintf(stderr, "program graph patch failed: %s\n", result.message);
-    if (result.line > 0 && result.actual && result.actual[0]) {
-      fprintf(stderr, "  %s:%d: %s\n", graph_patch_source_label(command), result.line, result.actual);
-    }
-    if (result.expected && result.expected[0]) fprintf(stderr, "  expected: %s\n", result.expected);
-    if (result.line <= 0 && result.actual && result.actual[0]) fprintf(stderr, "  actual: %s\n", result.actual);
-    if (command->patch_replace_in_fn && (strcmp(result.code, "GPH003") == 0 || strcmp(result.code, "GPH004") == 0)) {
-      fprintf(stderr, "  help: run zero view --fn %s to see the exact body text to match\n", command->patch_replace_in_fn);
-    } else if (strcmp(result.code, "GPH003") == 0 || strcmp(result.code, "GPH004") == 0) {
-      fprintf(stderr, "  help: run zero query --fn <name> --handles to list stmt and param patch handles, or zero query --find <text> for node ids\n");
-    }
-    if (result.format_error) {
-      fprintf(stderr, "  help: a minimal complete patch file looks exactly like this:\n");
-      fputs(z_program_graph_patch_minimal_file_example(), stderr);
-    }
+    print_graph_patch_failure_text(command, &result);
   } else {
     print_diag(diag->path ? diag->path : graph_patch_source_label(command), diag);
   }

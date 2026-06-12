@@ -45,7 +45,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/http_listen_temp.h": { maxLines: 15, maxStrcmpCalls: 0 },
   "native/zero-c/src/init_template.c": { maxLines: 310, maxStrcmpCalls: 13 },
   "native/zero-c/src/init_template.h": { maxLines: 15, maxStrcmpCalls: 0 },
-  "native/zero-c/src/main.c": { maxLines: 16240, maxStrcmpCalls: 446, maxShellCalls: 0 },
+  "native/zero-c/src/main.c": { maxLines: 16400, maxStrcmpCalls: 446, maxShellCalls: 0 },
   "native/zero-c/src/ir.c": { maxLines: 5622, maxStrcmpCalls: 278 },
 
   "native/zero-c/src/llvm_backend_metadata.c": { maxLines: 80, maxStrcmpCalls: 0 },
@@ -213,6 +213,8 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_source_map.c": { maxLines: 460, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_source_map.h": { maxLines: 20, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_handle.c": { maxLines: 290, maxStrcmpCalls: 14 },
+  "native/zero-c/src/program_graph_rewrite.c": { maxLines: 760, maxStrcmpCalls: 40 },
+  "native/zero-c/src/program_graph_rewrite.h": { maxLines: 60, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_handle.h": { maxLines: 45, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_view.c": { maxLines: 935, maxStrcmpCalls: 1 },
   "native/zero-c/src/program_graph_view.h": { maxLines: 12, maxStrcmpCalls: 0 },
