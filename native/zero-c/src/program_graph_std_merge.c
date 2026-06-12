@@ -78,15 +78,136 @@ static const char *std_merge_basename(const char *path) {
   return slash ? slash + 1 : (path ? path : "");
 }
 
-static const ZProgramGraphNode *std_merge_find_node(const ZProgramGraph *graph, const char *id) {
-  for (size_t i = 0; graph && id && i < graph->node_len; i++) {
-    if (std_merge_text_eq(graph->nodes[i].id, id)) return &graph->nodes[i];
+/*
+ * Open-addressing string map used to keep the merge linear. Node and edge
+ * membership checks previously scanned the whole merged graph per lookup,
+ * which made merging the embedded stdlib quadratic in graph size.
+ */
+typedef struct {
+  uint64_t hash;
+  char *key;
+  size_t value;
+  bool used;
+} StdMergeMapEntry;
+
+typedef struct {
+  StdMergeMapEntry *entries;
+  size_t cap;
+  size_t len;
+} StdMergeMap;
+
+static uint64_t std_merge_hash_text(const char *text) {
+  uint64_t hash = 1469598103934665603ULL;
+  for (const unsigned char *p = (const unsigned char *)(text ? text : ""); *p; p++) {
+    hash ^= *p;
+    hash *= 1099511628211ULL;
   }
-  return NULL;
+  return hash;
 }
 
-static bool std_merge_has_node_id(const ZProgramGraph *graph, const char *id) {
-  return std_merge_find_node(graph, id) != NULL;
+static void std_merge_map_init(StdMergeMap *map, size_t expected) {
+  size_t cap = 16;
+  while (cap < expected * 2) cap *= 2;
+  map->entries = z_checked_calloc(cap, sizeof(StdMergeMapEntry));
+  map->cap = cap;
+  map->len = 0;
+}
+
+static void std_merge_map_free(StdMergeMap *map) {
+  for (size_t i = 0; map->entries && i < map->cap; i++) {
+    if (map->entries[i].used) free(map->entries[i].key);
+  }
+  free(map->entries);
+  *map = (StdMergeMap){0};
+}
+
+static StdMergeMapEntry *std_merge_map_slot(const StdMergeMap *map, uint64_t hash, const char *key) {
+  size_t index = (size_t)(hash & (map->cap - 1));
+  for (;;) {
+    StdMergeMapEntry *entry = &map->entries[index];
+    if (!entry->used) return entry;
+    if (entry->hash == hash && std_merge_text_eq(entry->key, key)) return entry;
+    index = (index + 1) & (map->cap - 1);
+  }
+}
+
+static StdMergeMapEntry *std_merge_map_find(const StdMergeMap *map, const char *key) {
+  if (!map->entries || map->len == 0) return NULL;
+  StdMergeMapEntry *entry = std_merge_map_slot(map, std_merge_hash_text(key), key);
+  return entry->used ? entry : NULL;
+}
+
+static void std_merge_map_grow(StdMergeMap *map) {
+  StdMergeMap grown;
+  std_merge_map_init(&grown, map->cap);
+  for (size_t i = 0; i < map->cap; i++) {
+    if (!map->entries[i].used) continue;
+    StdMergeMapEntry *slot = std_merge_map_slot(&grown, map->entries[i].hash, map->entries[i].key);
+    *slot = map->entries[i];
+    grown.len++;
+  }
+  free(map->entries);
+  *map = grown;
+}
+
+/* Inserts or updates; the map owns a copy of the key. */
+static StdMergeMapEntry *std_merge_map_put(StdMergeMap *map, const char *key, size_t value) {
+  if (map->len * 2 >= map->cap) std_merge_map_grow(map);
+  uint64_t hash = std_merge_hash_text(key);
+  StdMergeMapEntry *entry = std_merge_map_slot(map, hash, key);
+  if (!entry->used) {
+    *entry = (StdMergeMapEntry){.hash = hash, .key = z_strdup(key ? key : ""), .used = true};
+    map->len++;
+  }
+  entry->value = value;
+  return entry;
+}
+
+static char *std_merge_edge_identity_key(const ZProgramGraphEdge *edge, bool include_to, bool include_order) {
+  ZBuf key;
+  zbuf_init(&key);
+  zbuf_appendf(&key, "%d\x1f%s\x1f%s", (int)edge->target, edge->from ? edge->from : "", edge->kind ? edge->kind : "");
+  if (include_to) zbuf_appendf(&key, "\x1f%s", edge->to ? edge->to : "");
+  if (include_order) zbuf_appendf(&key, "\x1f%zu", edge->order);
+  return key.data ? key.data : z_strdup("");
+}
+
+/*
+ * Edge membership index: full identity for exact duplicates, slot identity
+ * (target+from+kind+order) for occupied-order checks, and a max-order map
+ * keyed by target+from+kind for append ordering.
+ */
+typedef struct {
+  StdMergeMap full;
+  StdMergeMap slot;
+  StdMergeMap next_order;
+} StdMergeEdgeIndex;
+
+static void std_merge_edge_index_add(StdMergeEdgeIndex *index, const ZProgramGraphEdge *edge) {
+  char *full_key = std_merge_edge_identity_key(edge, true, true);
+  char *slot_key = std_merge_edge_identity_key(edge, false, true);
+  char *order_key = std_merge_edge_identity_key(edge, false, false);
+  std_merge_map_put(&index->full, full_key, 0);
+  std_merge_map_put(&index->slot, slot_key, 0);
+  StdMergeMapEntry *order_entry = std_merge_map_find(&index->next_order, order_key);
+  if (!order_entry || order_entry->value <= edge->order) std_merge_map_put(&index->next_order, order_key, edge->order + 1);
+  free(full_key);
+  free(slot_key);
+  free(order_key);
+}
+
+static void std_merge_edge_index_init(StdMergeEdgeIndex *index, const ZProgramGraph *graph) {
+  size_t edge_len = graph ? graph->edge_len : 0;
+  std_merge_map_init(&index->full, edge_len);
+  std_merge_map_init(&index->slot, edge_len);
+  std_merge_map_init(&index->next_order, edge_len);
+  for (size_t i = 0; i < edge_len; i++) std_merge_edge_index_add(index, &graph->edges[i]);
+}
+
+static void std_merge_edge_index_free(StdMergeEdgeIndex *index) {
+  std_merge_map_free(&index->full);
+  std_merge_map_free(&index->slot);
+  std_merge_map_free(&index->next_order);
 }
 
 static bool std_merge_node_payload_equal(const ZProgramGraphNode *left, const ZProgramGraphNode *right) {
@@ -104,45 +225,6 @@ static bool std_merge_node_payload_equal(const ZProgramGraphNode *left, const ZP
          std_merge_text_eq(left->value, right->value) &&
          std_merge_text_eq(left->path, right->path) &&
          std_merge_text_eq(left->node_hash, right->node_hash);
-}
-
-static bool std_merge_edge_equal(const ZProgramGraphEdge *left, const ZProgramGraphEdge *right) {
-  return left && right &&
-         left->target == right->target &&
-         left->order == right->order &&
-         std_merge_text_eq(left->from, right->from) &&
-         std_merge_text_eq(left->to, right->to) &&
-         std_merge_text_eq(left->kind, right->kind);
-}
-
-static bool std_merge_has_edge(const ZProgramGraph *graph, const ZProgramGraphEdge *edge) {
-  for (size_t i = 0; graph && edge && i < graph->edge_len; i++) {
-    if (std_merge_edge_equal(&graph->edges[i], edge)) return true;
-  }
-  return false;
-}
-
-static bool std_merge_has_ordered_edge(const ZProgramGraph *graph, const ZProgramGraphEdge *edge) {
-  for (size_t i = 0; graph && edge && i < graph->edge_len; i++) {
-    const ZProgramGraphEdge *existing = &graph->edges[i];
-    if (existing->target == edge->target &&
-        existing->order == edge->order &&
-        std_merge_text_eq(existing->from, edge->from) &&
-        std_merge_text_eq(existing->kind, edge->kind)) return true;
-  }
-  return false;
-}
-
-static size_t std_merge_next_edge_order(const ZProgramGraph *graph, const ZProgramGraphEdge *edge) {
-  size_t order = 0;
-  for (size_t i = 0; graph && edge && i < graph->edge_len; i++) {
-    const ZProgramGraphEdge *existing = &graph->edges[i];
-    if (existing->target == edge->target &&
-        std_merge_text_eq(existing->from, edge->from) &&
-        std_merge_text_eq(existing->kind, edge->kind) &&
-        existing->order >= order) order = existing->order + 1;
-  }
-  return order;
 }
 
 static bool std_merge_edge_can_append(const char *kind) {
@@ -318,77 +400,104 @@ static void std_merge_append_edge_copy(ZProgramGraph *graph, const ZProgramGraph
   std_merge_copy_edge(edge, &graph->edges[graph->edge_len++]);
 }
 
-static char *std_merge_unique_node_id(const ZProgramGraph *graph, const char *base_id) {
+static char *std_merge_unique_node_id(const StdMergeMap *node_index, const char *base_id) {
   for (size_t suffix = 1; suffix < 1000000; suffix++) {
     ZBuf candidate;
     zbuf_init(&candidate);
     zbuf_append(&candidate, base_id && base_id[0] ? base_id : "#node");
     zbuf_appendf(&candidate, "-merge%zu", suffix);
-    if (!std_merge_has_node_id(graph, candidate.data)) return candidate.data ? candidate.data : std_merge_strdup("#node-merge");
+    if (!std_merge_map_find(node_index, candidate.data)) return candidate.data ? candidate.data : std_merge_strdup("#node-merge");
     zbuf_free(&candidate);
   }
   return std_merge_strdup(base_id && base_id[0] ? base_id : "#node");
 }
 
-static const char *std_merge_mapped_node_id(const ZProgramGraph *module_graph, char **mapped_ids, const char *id) {
-  for (size_t i = 0; module_graph && mapped_ids && id && i < module_graph->node_len; i++) {
-    if (std_merge_text_eq(module_graph->nodes[i].id, id)) return mapped_ids[i] ? mapped_ids[i] : id;
-  }
-  return id;
+static const char *std_merge_mapped_node_id(const StdMergeMap *mapped_index, char **mapped_ids, const char *id) {
+  const StdMergeMapEntry *entry = id ? std_merge_map_find(mapped_index, id) : NULL;
+  if (!entry) return id;
+  return mapped_ids[entry->value] ? mapped_ids[entry->value] : id;
 }
 
 static void std_merge_graph(ZProgramGraph *graph, const ZProgramGraph *module_graph, SourceInput *profile) {
-  char **mapped_ids = z_checked_calloc(module_graph && module_graph->node_len ? module_graph->node_len : 1, sizeof(char *));
+  size_t module_node_len = module_graph ? module_graph->node_len : 0;
+  char **mapped_ids = z_checked_calloc(module_node_len ? module_node_len : 1, sizeof(char *));
+  StdMergeMap node_index;
+  StdMergeMap mapped_index;
+  std_merge_map_init(&node_index, (graph ? graph->node_len : 0) + module_node_len);
+  std_merge_map_init(&mapped_index, module_node_len);
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    /* keep the first occurrence to mirror the previous linear scan */
+    if (!std_merge_map_find(&node_index, graph->nodes[i].id)) std_merge_map_put(&node_index, graph->nodes[i].id, i);
+  }
   long long node_started = std_merge_now_ms();
   for (size_t i = 0; graph && module_graph && i < module_graph->node_len; i++) {
     const ZProgramGraphNode *node = &module_graph->nodes[i];
-    const ZProgramGraphNode *existing = std_merge_find_node(graph, node->id);
+    if (!std_merge_map_find(&mapped_index, node->id)) std_merge_map_put(&mapped_index, node->id, i);
+    const StdMergeMapEntry *existing_entry = std_merge_map_find(&node_index, node->id);
+    const ZProgramGraphNode *existing = existing_entry ? &graph->nodes[existing_entry->value] : NULL;
     if (existing && std_merge_node_payload_equal(existing, node)) {
       mapped_ids[i] = std_merge_strdup(existing->id);
       continue;
     }
     if (existing) {
-      mapped_ids[i] = std_merge_unique_node_id(graph, node->id);
+      mapped_ids[i] = std_merge_unique_node_id(&node_index, node->id);
       std_merge_append_node_copy_with_id(graph, node, mapped_ids[i]);
+      std_merge_map_put(&node_index, mapped_ids[i], graph->node_len - 1);
       continue;
     }
     mapped_ids[i] = std_merge_strdup(node->id);
     std_merge_append_node_copy(graph, node);
+    std_merge_map_put(&node_index, node->id, graph->node_len - 1);
   }
   if (profile) {
     profile->graph_stdlib_node_merge_ms += std_merge_now_ms() - node_started;
     profile->graph_stdlib_nodes_merged += module_graph ? module_graph->node_len : 0;
   }
   long long edge_started = std_merge_now_ms();
+  StdMergeEdgeIndex edge_index;
+  std_merge_edge_index_init(&edge_index, graph);
   for (size_t i = 0; graph && module_graph && i < module_graph->edge_len; i++) {
     const ZProgramGraphEdge *edge = &module_graph->edges[i];
     ZProgramGraphEdge mapped = {
-      .from = std_merge_strdup(std_merge_mapped_node_id(module_graph, mapped_ids, edge->from)),
+      .from = std_merge_strdup(std_merge_mapped_node_id(&mapped_index, mapped_ids, edge->from)),
       .to = edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE ?
-              std_merge_strdup(std_merge_mapped_node_id(module_graph, mapped_ids, edge->to)) :
+              std_merge_strdup(std_merge_mapped_node_id(&mapped_index, mapped_ids, edge->to)) :
               std_merge_strdup(edge->to),
       .kind = std_merge_strdup(edge->kind),
       .target = edge->target,
       .order = edge->order,
     };
-    if (std_merge_has_edge(graph, &mapped)) {
+    char *full_key = std_merge_edge_identity_key(&mapped, true, true);
+    if (std_merge_map_find(&edge_index.full, full_key)) {
+      free(full_key);
       std_merge_free_edge_fields(&mapped);
       continue;
     }
-    if (std_merge_has_ordered_edge(graph, &mapped)) {
+    free(full_key);
+    char *slot_key = std_merge_edge_identity_key(&mapped, false, true);
+    bool slot_taken = std_merge_map_find(&edge_index.slot, slot_key) != NULL;
+    free(slot_key);
+    if (slot_taken) {
       if (!std_merge_edge_can_append(mapped.kind)) {
         std_merge_free_edge_fields(&mapped);
         continue;
       }
-      mapped.order = std_merge_next_edge_order(graph, &mapped);
+      char *order_key = std_merge_edge_identity_key(&mapped, false, false);
+      const StdMergeMapEntry *order_entry = std_merge_map_find(&edge_index.next_order, order_key);
+      free(order_key);
+      mapped.order = order_entry ? order_entry->value : 0;
     }
+    std_merge_edge_index_add(&edge_index, &mapped);
     std_merge_append_edge_copy(graph, &mapped);
     std_merge_free_edge_fields(&mapped);
   }
+  std_merge_edge_index_free(&edge_index);
   if (profile) {
     profile->graph_stdlib_edge_merge_ms += std_merge_now_ms() - edge_started;
     profile->graph_stdlib_edges_merged += module_graph ? module_graph->edge_len : 0;
   }
+  std_merge_map_free(&node_index);
+  std_merge_map_free(&mapped_index);
   for (size_t i = 0; module_graph && i < module_graph->node_len; i++) free(mapped_ids[i]);
   free(mapped_ids);
 }
