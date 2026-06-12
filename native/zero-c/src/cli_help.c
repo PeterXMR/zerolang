@@ -50,7 +50,10 @@ void z_cli_print_graph_patch_help_text(void) {
   const char *const *node_ops = z_program_graph_patch_node_operation_examples();
   for (size_t i = 0; node_ops[i]; i++) printf("  %s\n", node_ops[i]);
   printf("\nNode handles come from zero view --fn <name> --handles or zero query --fn <name> --handles;\n");
-  printf("short forms (#55ae, #8b..a5) and full ids both work.\n");
+  printf("short forms (#55ae, #8b..a5) and full ids both work. replaceExpr swaps one expression subtree:\n");
+  printf("aimed at a statement handle it replaces that statement's expression (a let initializer, condition,\n");
+  printf("or return value), so changing a value, operator, or condition is a one-line --op. Multiple --op\n");
+  printf("flags batch into one patch with a single revalidation pass.\n");
 }
 
 void z_cli_print_command_help(const char *command) {

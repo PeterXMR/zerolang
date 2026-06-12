@@ -892,3 +892,269 @@ bool z_program_graph_patch_apply_replace_block_body(ZProgramGraph *graph, ZProgr
   return true;
 }
 
+// ---- replaceExpr ----
+
+static bool body_node_kind_is_expression(ZProgramGraphNodeKind kind) {
+  switch (kind) {
+    case Z_PROGRAM_GRAPH_NODE_IDENTIFIER:
+    case Z_PROGRAM_GRAPH_NODE_LITERAL:
+    case Z_PROGRAM_GRAPH_NODE_FIELD_ACCESS:
+    case Z_PROGRAM_GRAPH_NODE_INDEX_ACCESS:
+    case Z_PROGRAM_GRAPH_NODE_SLICE:
+    case Z_PROGRAM_GRAPH_NODE_CALL:
+    case Z_PROGRAM_GRAPH_NODE_METHOD_CALL:
+    case Z_PROGRAM_GRAPH_NODE_CAST:
+    case Z_PROGRAM_GRAPH_NODE_BORROW:
+    case Z_PROGRAM_GRAPH_NODE_CHECK:
+    case Z_PROGRAM_GRAPH_NODE_RESCUE:
+    case Z_PROGRAM_GRAPH_NODE_META:
+    case Z_PROGRAM_GRAPH_NODE_SHAPE_LITERAL:
+    case Z_PROGRAM_GRAPH_NODE_ARRAY_LITERAL:
+    case Z_PROGRAM_GRAPH_NODE_EXPRESSION:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/* Statements whose primary expression lives behind an "expr" edge; a
+ * replaceExpr aimed at the statement handle replaces that child. */
+static bool body_statement_owns_expr(ZProgramGraphNodeKind kind) {
+  switch (kind) {
+    case Z_PROGRAM_GRAPH_NODE_LET:
+    case Z_PROGRAM_GRAPH_NODE_ASSIGNMENT:
+    case Z_PROGRAM_GRAPH_NODE_DEFER:
+    case Z_PROGRAM_GRAPH_NODE_CHECK:
+    case Z_PROGRAM_GRAPH_NODE_RETURN:
+    case Z_PROGRAM_GRAPH_NODE_EXPRESSION_STATEMENT:
+    case Z_PROGRAM_GRAPH_NODE_IF:
+    case Z_PROGRAM_GRAPH_NODE_WHILE:
+    case Z_PROGRAM_GRAPH_NODE_FOR:
+    case Z_PROGRAM_GRAPH_NODE_MATCH:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static ZProgramGraphNode *body_expr_child(ZProgramGraph *graph, const char *from) {
+  for (size_t i = 0; graph && from && i < graph->edge_len; i++) {
+    ZProgramGraphEdge *edge = &graph->edges[i];
+    if (edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE && edge->order == 0 && body_text_eq(edge->from, from) && body_text_eq(edge->kind, "expr")) {
+      return body_find_node(graph, edge->to);
+    }
+  }
+  return NULL;
+}
+
+/* Builds an expression-only ProgramGraph by parsing `return <expr>` inside a
+ * synthetic function; on success *out_root_id names the expression root. */
+static bool body_parse_expression_graph(const char *expr_text, ZProgramGraph *out_graph, char **out_root_id, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  ZBuf source;
+  zbuf_init(&source);
+  zbuf_append(&source, "fn __zero_patch_expr() -> Void raises {\n    return ");
+  zbuf_append(&source, expr_text ? expr_text : "");
+  zbuf_append(&source, "\n}\n");
+  Program program = {0};
+  ZDiag parse_diag = {0};
+  if (!z_parse_canonical_text_program_source(source.data ? source.data : "", &program, &parse_diag)) {
+    body_fail(result, op, "GPH001", "replaceExpr text did not parse as a Zero expression",
+              parse_diag.expected[0] ? parse_diag.expected : "an expression in zero view syntax",
+              parse_diag.message[0] ? parse_diag.message : (expr_text ? expr_text : ""));
+    z_free_program(&program);
+    zbuf_free(&source);
+    return false;
+  }
+  SourceInput input = {0};
+  input.source_file = z_strdup("src/main.0");
+  input.source = z_strdup(source.data ? source.data : "");
+  input.canonical_text_source = true;
+  bool ok = z_program_graph_from_program(&input, &program, out_graph);
+  char *root_id = NULL;
+  if (ok) {
+    ZProgramGraphNode *fn = body_find_function(out_graph, "__zero_patch_expr", NULL);
+    ZProgramGraphNode *body = fn ? body_child(out_graph, fn->id, "body") : NULL;
+    ZProgramGraphNode *ret = NULL;
+    for (size_t i = 0; body && i < out_graph->edge_len; i++) {
+      ZProgramGraphEdge *edge = &out_graph->edges[i];
+      if (edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE && body_text_eq(edge->from, body->id) && body_text_eq(edge->kind, "statement")) {
+        ret = body_find_node(out_graph, edge->to);
+        break;
+      }
+    }
+    ZProgramGraphNode *root = ret ? body_expr_child(out_graph, ret->id) : NULL;
+    if (root) root_id = z_strdup(root->id);
+    else ok = false;
+  }
+  if (!ok) {
+    body_fail(result, op, "GPH006", "replaceExpr could not build an expression subtree", "lowerable Zero expression", expr_text ? expr_text : "");
+    z_free_source(&input);
+    z_free_program(&program);
+    zbuf_free(&source);
+    free(root_id);
+    return false;
+  }
+  z_free_source(&input);
+  z_free_program(&program);
+  zbuf_free(&source);
+  *out_root_id = root_id;
+  return true;
+}
+
+/* Copies the source expression subtree into the target graph and returns the
+ * new root id (unique-id mapped). */
+static char *body_splice_expression(ZProgramGraph *target, ZProgramGraph *source, const char *source_root_id, const char *target_path, int line, int column) {
+  bool *copy = z_checked_calloc(source->node_len ? source->node_len : 1, sizeof(bool));
+  body_mark_reachable(source, source_root_id, copy);
+  BodyIdMap *map = z_checked_calloc(source->node_len ? source->node_len : 1, sizeof(BodyIdMap));
+  size_t map_len = 0;
+  char *new_root = NULL;
+  for (size_t i = 0; i < source->node_len; i++) {
+    if (!copy[i]) continue;
+    map[map_len].from = source->nodes[i].id;
+    map[map_len].to = body_unique_id(target, source->nodes[i].id);
+    body_copy_node(target, &source->nodes[i], map[map_len].to, target_path);
+    /* keep the replaced node's source position so ordered (let) bindings
+     * stay visible to the spliced references */
+    target->nodes[target->node_len - 1].line = line > 0 ? line : 1;
+    target->nodes[target->node_len - 1].column = column > 0 ? column : 1;
+    if (body_text_eq(source->nodes[i].id, source_root_id)) new_root = z_strdup(map[map_len].to);
+    map_len++;
+  }
+  for (size_t i = 0; i < source->edge_len; i++) {
+    ZProgramGraphEdge *edge = &source->edges[i];
+    if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE) continue;
+    if (!body_node_marked(source, copy, edge->from) || !body_node_marked(source, copy, edge->to)) continue;
+    body_copy_edge(target, edge, body_mapped_id(map, map_len, edge->from), body_mapped_id(map, map_len, edge->to));
+  }
+  for (size_t i = 0; i < map_len; i++) free(map[i].to);
+  free(map);
+  free(copy);
+  return new_root;
+}
+
+/* Removes the old expression subtree (nodes plus edges touching them). */
+static void body_remove_subtree(ZProgramGraph *graph, const char *root_id) {
+  bool *remove = z_checked_calloc(graph->node_len ? graph->node_len : 1, sizeof(bool));
+  body_mark_reachable(graph, root_id, remove);
+  size_t edge_out = 0;
+  for (size_t i = 0; i < graph->edge_len; i++) {
+    ZProgramGraphEdge edge = graph->edges[i];
+    bool drop = body_node_marked(graph, remove, edge.from) ||
+                (edge.target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE && body_node_marked(graph, remove, edge.to));
+    if (drop) body_free_edge(&edge);
+    else graph->edges[edge_out++] = edge;
+  }
+  graph->edge_len = edge_out;
+  size_t node_out = 0;
+  for (size_t i = 0; i < graph->node_len; i++) {
+    if (remove[i]) body_free_node(&graph->nodes[i]);
+    else graph->nodes[node_out++] = graph->nodes[i];
+  }
+  graph->node_len = node_out;
+  free(remove);
+}
+
+bool z_program_graph_patch_apply_replace_expr(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  const char *handle = op && op->node && op->node[0] ? op->node : "";
+  bool ambiguous = false;
+  ZProgramGraphNode *target = (ZProgramGraphNode *)z_program_graph_resolve_handle(graph, handle, &ambiguous);
+  if (!target) {
+    if (ambiguous) {
+      body_fail(result, op, "GPH003", "replaceExpr handle is ambiguous", "a unique node id or handle prefix", handle);
+      return false;
+    }
+    const char *nearest = z_program_graph_nearest_handle(graph, handle);
+    char message[160];
+    if (nearest) snprintf(message, sizeof(message), "replaceExpr node was not found; nearest: %s", nearest);
+    else snprintf(message, sizeof(message), "replaceExpr node was not found");
+    body_fail(result, op, "GPH004", message, "an expression or statement handle; zero view --fn <name> --handles prints them", handle);
+    return false;
+  }
+  if (!body_node_kind_is_expression(target->kind)) {
+    if (!body_statement_owns_expr(target->kind)) {
+      body_fail(result, op, "GPH003", "replaceExpr target must be an expression or a statement that owns one", "expression node, or Let/Assignment/Check/Return/If/While/For/Match statement", z_program_graph_node_kind_name(target->kind));
+      return false;
+    }
+    ZProgramGraphNode *child = body_expr_child(graph, target->id);
+    if (!child) {
+      body_fail(result, op, "GPH004", "replaceExpr statement has no expression child", "statement with an expr edge", target->id ? target->id : handle);
+      return false;
+    }
+    target = child;
+  }
+  body_replace(&op->actual, target->node_hash ? target->node_hash : "");
+  if (op->has_expected && !body_text_eq(op->expected, op->actual)) {
+    body_fail(result, op, "GPH005", "replaceExpr node hash precondition failed", op->expected, op->actual);
+    return false;
+  }
+  /* the expression must have exactly one owning edge to repoint */
+  size_t owner_index = (size_t)-1;
+  size_t owner_count = 0;
+  for (size_t i = 0; i < graph->edge_len; i++) {
+    ZProgramGraphEdge *edge = &graph->edges[i];
+    if (edge->target != Z_PROGRAM_GRAPH_EDGE_TARGET_NODE || !body_text_eq(edge->to, target->id)) continue;
+    owner_index = i;
+    owner_count++;
+  }
+  if (owner_count != 1) {
+    body_fail(result, op, "GPH003", "replaceExpr target must have exactly one owning edge", "an expression owned by one parent", target->id ? target->id : handle);
+    return false;
+  }
+  char *old_root_id = z_strdup(target->id ? target->id : "");
+  char *target_path = z_strdup(target->path && target->path[0] ? target->path : "src/main.0");
+  /* Anchor spliced nodes at the enclosing statement's position so ordered
+   * (let) bindings declared above stay visible to the new references. */
+  int target_line = target->line;
+  int target_column = target->column;
+  const char *position_cursor = target->id;
+  for (size_t depth = 0; position_cursor && depth < graph->node_len; depth++) {
+    const ZProgramGraphEdge *owner_edge = NULL;
+    for (size_t i = 0; i < graph->edge_len; i++) {
+      ZProgramGraphEdge *edge = &graph->edges[i];
+      if (edge->target == Z_PROGRAM_GRAPH_EDGE_TARGET_NODE && body_text_eq(edge->to, position_cursor)) {
+        owner_edge = edge;
+        break;
+      }
+    }
+    if (!owner_edge) break;
+    ZProgramGraphNode *owner_node = body_find_node(graph, owner_edge->from);
+    if (!owner_node) break;
+    if (body_text_eq(owner_edge->kind, "statement")) {
+      ZProgramGraphNode *statement = body_find_node(graph, position_cursor);
+      if (statement && statement->line > target_line) {
+        target_line = statement->line;
+        target_column = statement->column;
+      }
+      break;
+    }
+    if (owner_node->line > target_line) {
+      target_line = owner_node->line;
+      target_column = owner_node->column;
+    }
+    if (owner_node->kind == Z_PROGRAM_GRAPH_NODE_FUNCTION || owner_node->kind == Z_PROGRAM_GRAPH_NODE_MODULE) break;
+    position_cursor = owner_node->id;
+  }
+  ZProgramGraph expr_graph = {0};
+  char *source_root_id = NULL;
+  bool ok = body_parse_expression_graph(op ? op->value : "", &expr_graph, &source_root_id, result, op);
+  char *new_root_id = NULL;
+  if (ok) {
+    new_root_id = body_splice_expression(graph, &expr_graph, source_root_id, target_path, target_line, target_column);
+    ok = new_root_id != NULL;
+    if (!ok) body_fail(result, op, "GPH006", "replaceExpr could not splice the expression subtree", "lowerable Zero expression", op && op->value ? op->value : "");
+  }
+  if (ok) {
+    ZProgramGraphEdge *owner = &graph->edges[owner_index];
+    body_replace(&owner->to, new_root_id);
+    body_remove_subtree(graph, old_root_id);
+  }
+  z_program_graph_free(&expr_graph);
+  free(source_root_id);
+  free(new_root_id);
+  free(old_root_id);
+  free(target_path);
+  if (!ok) return false;
+  op->ok = true;
+  return true;
+}

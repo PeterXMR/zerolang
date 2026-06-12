@@ -364,6 +364,7 @@ static bool patch_parse_structural_attrs(const char *line, const char *verb, ZPr
         op->has_expected = true;
       }
     } else if (strcmp(key, "value") == 0) ok = patch_assign_attr(&op->value, value);
+    else if (strcmp(key, "with") == 0) ok = patch_assign_attr(&op->value, value);
     else if (strcmp(key, "name") == 0) ok = patch_assign_attr(&op->name, value);
     else if (strcmp(key, "type") == 0) ok = patch_assign_attr(&op->type, value);
     else if (strcmp(key, "ret") == 0) ok = patch_assign_attr(&op->type, value);
@@ -479,6 +480,25 @@ static bool patch_parse_replace(const char *line, int line_number, ZProgramGraph
   if (!patch_reject_attrs(op, result, line, true, false, false, false, true, false, false, true, true, false)) return false;
   if (!op->node) {
     patch_op_fail(result, op, "GPH001", "replace operation is missing required attributes", "node", line);
+    return false;
+  }
+  return true;
+}
+
+static bool patch_parse_replace_expr(const char *line, int line_number, ZProgramGraphPatchResult *result) {
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup("replaceExpr");
+  if (!patch_parse_structural_attrs(line, "replaceExpr", result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, true, false, false, false, false, false, false, true, true, false)) return false;
+  if (op->name || op->type || op->path || op->has_line_value || op->has_column_value ||
+      op->has_public_value || op->has_mutable_value || op->has_static_value || op->has_fallible_value ||
+      op->has_export_c_value) {
+    patch_op_fail(result, op, "GPH001", "replaceExpr operation has unsupported attributes", "node, expect, and with", line);
+    return false;
+  }
+  if (!op->node || !op->value) {
+    patch_op_fail(result, op, "GPH001", "replaceExpr operation is missing required attributes", "node and with", line);
     return false;
   }
   return true;
@@ -735,6 +755,8 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
       if (!patch_parse_insert_edge(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "insert", strlen("insert")) == 0 && isspace((unsigned char)trimmed[strlen("insert")])) {
       if (!patch_parse_insert(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "replaceExpr", strlen("replaceExpr")) == 0 && isspace((unsigned char)trimmed[strlen("replaceExpr")])) {
+      if (!patch_parse_replace_expr(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "replace", strlen("replace")) == 0 && isspace((unsigned char)trimmed[strlen("replace")])) {
       if (!patch_parse_replace(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "delete", strlen("delete")) == 0 && isspace((unsigned char)trimmed[strlen("delete")])) {
@@ -768,7 +790,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
       if (!patch_parse_replace_body_rows(trimmed, &line_number, &cursor, true, result)) return false;
     } else {
-      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
+      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, replaceExpr, delete, rename, addFunction, addMain, addParam, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addCheckWriteValue, addCheckWrite, addTest, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
       return false;
     }
   }

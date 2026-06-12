@@ -148,6 +148,7 @@ set node="#id" field="value" expect="old" value="new"
 insert node="#id" kind="Literal" parent="#parent" edge="arg" order="0" type="String" value="text"
 insertEdge from="#from" to="#to" edge="arg" target="node" order="0"
 replace node="#id" expect="nodehash:abc123" kind="Literal" type="String" value="text"
+replaceExpr node="#id" with="left + 1"
 delete node="#id" expect="nodehash:abc123"
 rename node="#id" expect="old" value="new"
 ```

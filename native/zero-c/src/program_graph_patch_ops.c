@@ -1219,6 +1219,7 @@ static bool patch_apply_delete(ZProgramGraph *graph, ZProgramGraphPatchResult *r
 bool z_program_graph_patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
   if (patch_text_eq(op->op, "insert")) return patch_apply_insert(graph, result, op);
   if (patch_text_eq(op->op, "insertEdge")) return patch_apply_insert_edge(graph, result, op);
+  if (patch_text_eq(op->op, "replaceExpr")) return z_program_graph_patch_apply_replace_expr(graph, result, op);
   if (patch_text_eq(op->op, "replace")) return patch_apply_replace(graph, result, op);
   if (patch_text_eq(op->op, "delete")) return patch_apply_delete(graph, result, op);
   if (patch_text_eq(op->op, "rename")) return patch_apply_rename(graph, result, op);

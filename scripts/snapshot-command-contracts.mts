@@ -1068,6 +1068,7 @@ assert.match(graphPatchHelp, /--replace-in-fn/);
 assert.match(graphPatchHelp, /zero patch \. --replace-in-fn greet --old 'return 1' --new 'return 2'/);
 assert.match(graphPatchHelp, /--old must match the body text zero view --fn <name> prints exactly once/);
 assert.match(graphPatchHelp, /advanced: node-level ops \(see zero view --fn <name> --handles\)/);
+assert.match(graphPatchHelp, /replaceExpr node="#id" with="left \+ 1"/);
 const patchHelpInFnIdx = graphPatchHelp.indexOf("--replace-in-fn greet");
 const patchHelpReplaceFnIdx = graphPatchHelp.indexOf("--replace-fn greet --body-file - <<'EOF'");
 const patchHelpGrammarIdx = graphPatchHelp.indexOf("zero-program-graph-patch v1 files");
@@ -1307,6 +1308,33 @@ assert(ifClause, "if header carries stmt and clause block handles");
 const clausePatch = zero(["patch", queryScopeRoot, "--patch-text", `zero-program-graph-patch v1\nreplaceBlockBody ${ifClause[2]}\n  check world.out.write "clause by handle\\n"\nend\n`]);
 assert.equal(clausePatch.code, 0);
 assert.match(zero(["view", "--fn", "main", queryScopeRoot]).stdout, /clause by handle/, "replaceBlockBody accepts the clause handle printed by --handles");
+
+// replaceExpr: one-line micro edits by handle (value, condition, subexpression)
+const viewDealsHandles = zero(["view", "--fn", "dealsTotal", "--handles", queryScopeRoot]).stdout;
+const returnHandle = viewDealsHandles.match(/return amount \+ 1  \/\/ (#\S+)$/m)?.[1];
+assert(returnHandle, "return statement carries a handle");
+const exprBadText = zero(["patch", queryScopeRoot, "--op", `replaceExpr node="${returnHandle}" with="amount ) 2"`], { allowFailure: true });
+assert.notEqual(exprBadText.code, 0);
+assert.match(exprBadText.stderr, /replaceExpr text did not parse as a Zero expression/);
+const exprEdit = zero(["patch", queryScopeRoot, "--op", `replaceExpr node="${returnHandle}" with="amount * 2 + 1"`]);
+assert.equal(exprEdit.code, 0);
+assert.match(zero(["view", "--fn", "dealsTotal", queryScopeRoot]).stdout, /return amount \* 2 \+ 1/, "replaceExpr on a statement handle replaces its expression");
+
+// micro-op batch: three --op edits, one patch, one revalidation pass
+const viewMainBatch = zero(["view", "--fn", "main", "--handles", queryScopeRoot]).stdout;
+const batchLetHandle = viewMainBatch.match(/let total[^\n]*  \/\/ (#\S+)$/m)?.[1];
+const batchIfHandle = viewMainBatch.match(/if total == 42 \{  \/\/ (#\S+) #\S+$/m)?.[1];
+assert(batchLetHandle && batchIfHandle, "main handles for batch edit");
+const batchPatch = zero(["patch", queryScopeRoot,
+  "--op", `replaceExpr node="${batchLetHandle}" with="dealsTotal(20) + 1"`,
+  "--op", `replaceExpr node="${batchIfHandle}" with="total != 0"`,
+  "--op", `set node="${batchLetHandle}" field="mutable" value="true"`,
+]);
+assert.equal(batchPatch.code, 0);
+assert.match(batchPatch.stdout, /applied: 3 ops/, "batched --op edits apply as one patch");
+const viewMainAfterBatch = zero(["view", "--fn", "main", queryScopeRoot]).stdout;
+assert.match(viewMainAfterBatch, /var total: usize = dealsTotal\(20\) \+ 1/);
+assert.match(viewMainAfterBatch, /if total != 0 \{/);
 
 // GPH004 with a near-miss handle names the nearest existing handle
 const nearMiss = `${letHandle.slice(0, -1)}${letHandle.endsWith("z") ? "y" : "z"}`;
@@ -3798,7 +3826,7 @@ assert.notEqual(genericUnknownOp.code, 0);
 assert.equal(genericUnknownOp.body.diagnostic.code, "GPH001");
 assert.match(genericUnknownOp.body.diagnostic.message, /unknown program graph patch operation/);
 assert.match(genericUnknownOp.body.diagnostic.message, /zero patch --op help/);
-assert.match(genericUnknownOp.body.diagnostic.expected, /set, insert, insertEdge, replace, delete, rename/);
+assert.match(genericUnknownOp.body.diagnostic.expected, /set, insert, insertEdge, replace, replaceExpr, delete, rename/);
 assert.match(genericUnknownOp.body.diagnostic.expected, /replaceFunctionBody/);
 assert.equal(genericUnknownOp.body.diagnostic.line, 2);
 const genericUnknownOpText = zero(["patch", "--check-only", genericPatchRoot, genericUnknownOpPatchPath], { allowFailure: true });
