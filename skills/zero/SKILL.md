@@ -5,8 +5,7 @@ description: Install Zero and load version-matched workflows with zero skills.
 
 # Zero
 
-Zero is an agent-first programming language where the graph is the program
-database and `.0` files are human-readable projections.
+Zero is an agent-first programming language. zero.graph is the program; `.0` files are projections of it. Edit through `zero patch`.
 
 Install this skill once in an agent's skill manager. Keep it thin; Zero's own CLI serves the version-matched workflow for each installed compiler.
 
