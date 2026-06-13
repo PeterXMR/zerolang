@@ -70,6 +70,7 @@ const char *const *z_program_graph_patch_operation_examples(void);
 const char *const *z_program_graph_patch_authoring_operation_examples(void);
 const char *const *z_program_graph_patch_node_operation_examples(void);
 const char *z_program_graph_patch_minimal_file_example(void);
+char *z_graph_patch_read_patch_text_source(size_t *out_len, ZDiag *diag);
 bool z_program_graph_apply_patch_text(const char *label, const char *text, size_t text_len, ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZDiag *diag);
 bool z_program_graph_apply_patch_file(const char *path, ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZDiag *diag);
 bool z_program_graph_apply_replace_fn_body_file(const char *function_name, const char *path, const char *expect_graph_hash, ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZDiag *diag);

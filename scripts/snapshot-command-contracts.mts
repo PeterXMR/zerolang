@@ -936,7 +936,7 @@ for (const [command, expected] of [
   [["targets", "--help"], /Usage: zero targets/],
   [["tokens", "--help"], /Usage: zero tokens/],
   [["parse", "--help"], /Usage: zero parse/],
-  [["query", "--help"], /Usage: zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[graph-input\|name\]/],
+  [["query", "--help"], /Usage: zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[--no-help\] \[graph-input\|name\]/],
   [["inspect", "--help"], /Usage: zero init \[--template cli\|lib\|package\] \[project-path\]; zero query\|view\|diff\|dump\|inspect\|validate\|source-map\|roundtrip \[--json\] \[graph-input\]/],
   [["diff", "--help"], /Usage: zero diff \[--fn <name>\] \[graph-input\]/],
   [["size", "--help"], /Usage: zero size/],
@@ -1006,7 +1006,7 @@ assert.match(graphHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format te
 assert.match(graphHelp, /zero view \[--json\] \[--fn <name> \[--around <text>\|--handles\]\] \[--outline <module-or-file>\] \[--out <file\.0>\] \[graph-input\]/);
 assert.match(graphHelp, /zero diff \[--fn <name>\] \[graph-input\]/);
 assert.match(graphHelp, /zero source-map \[--json\] \[graph-input\]/);
-assert.match(graphHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[graph-input\|name\]/);
+assert.match(graphHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[--no-help\] \[graph-input\|name\]/);
 assert.match(graphHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
 assert.match(graphHelp, /zero status\|verify-projection \[--json\] \[project\|zero\.toml\|zero\.json\|file\.0\|zero\.graph\]/);
 assert.match(graphHelp, /zero import \[--json\] \[--format text\|binary\] \[project\|zero\.toml\|zero\.json\|file\.0\]/);
@@ -1025,6 +1025,8 @@ assert.match(graphHelp, /addLetBinary fn="add" name="sum" type="i32" operator="\
 assert.match(graphHelp, /addReturnExpr fn="maybe" expr="null"/);
 assert.match(graphHelp, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
 assert.match(graphHelp, /addTestBody name="api add"/);
+assert.match(graphHelp, /renameTest name="api add" value="api add route"/);
+assert.match(graphHelp, /deleteTest name="api add"/);
 assert.match(graphHelp, /upsertFunction handle/);
 assert.match(graphHelp, /zero build \[--json\] \[--emit exe\|obj\|llvm-ir\].*\[graph-input\]/);
 assert.match(graphHelp, /zero run \[--target <host-target>\].*\[graph-input\] \[-- args\.\.\.\]/);
@@ -1045,7 +1047,7 @@ assert.match(rootHelp, /zero dump\|validate\|roundtrip \[--json\] \[--format tex
 assert.match(rootHelp, /zero view \[--json\] \[--fn <name> \[--around <text>\|--handles\]\] \[--outline <module-or-file>\] \[--out <file\.0>\] \[graph-input\]/);
 assert.match(rootHelp, /zero diff \[--fn <name>\] \[graph-input\]/);
 assert.match(rootHelp, /zero source-map \[--json\] \[graph-input\]/);
-assert.match(rootHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[graph-input\|name\]/);
+assert.match(rootHelp, /zero query \[--json\] \[--fn <name>\] \[--find <text>\] \[--refs <name>\] \[--calls <name>\] \[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[--no-help\] \[graph-input\|name\]/);
 assert.match(rootHelp, /zero reconcile \[--json\] <base-graph-input> --source <edited-file\.0\|project\|zero\.toml\|zero\.json>/);
 assert.match(rootHelp, /zero status\|verify-projection \[--json\] \[project\|zero\.toml\|zero\.json\|file\.0\|zero\.graph\]/);
 assert.match(rootHelp, /zero import \[--json\] \[--format text\|binary\] \[--out <program-graph-artifact>\] \[project\|zero\.toml\|zero\.json\|file\.0\]/);
@@ -1073,6 +1075,7 @@ assert.match(graphPatchHelp, /zero patch \. --replace-in-fn greet --old 'return 
 assert.match(graphPatchHelp, /--old must match the body text zero view --fn <name> prints exactly once/);
 assert.match(graphPatchHelp, /advanced: node-level ops \(see zero view --fn <name> --handles\)/);
 assert.match(graphPatchHelp, /replaceExpr node="#id" with="left \+ 1"/);
+assert.match(graphPatchHelp, /--patch-text - reads a complete patch from stdin/);
 const patchHelpInFnIdx = graphPatchHelp.indexOf("--replace-in-fn greet");
 const patchHelpReplaceFnIdx = graphPatchHelp.indexOf("--replace-fn greet --body-file - <<'EOF'");
 const patchHelpGrammarIdx = graphPatchHelp.indexOf("zero-program-graph-patch v1 files");
@@ -1087,6 +1090,8 @@ assert.match(graphPatchHelp, /addReturnValue fn="identity" value="input" type="i
 assert.match(graphPatchHelp, /addReturnExpr fn="maybe" expr="null"/);
 assert.match(graphPatchHelp, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
 assert.match(graphPatchHelp, /addTestBody name="api add"/);
+assert.match(graphPatchHelp, /renameTest name="api add" value="api add route"/);
+assert.match(graphPatchHelp, /deleteTest name="api add"/);
 assert.match(graphPatchHelp, /upsertFunction handle/);
 const graphPatchHelpJson = json(["patch", "--op", "help", "--json"]).body;
 assert.equal(graphPatchHelpJson.ok, true);
@@ -1102,6 +1107,8 @@ assert.equal(graphPatchHelpJson.operations.includes("addCheckWriteValue fn=\"mai
 assert.equal(graphPatchHelpJson.operations.includes("addReturnExpr fn=\"maybe\" expr=\"null\""), true);
 assert.equal(graphPatchHelpJson.operations.includes("appendStmt fn=\"main\" stmt=\"check std.http.listen(world, 3000_u16)\""), true);
 assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("addTestBody name=\"api add\"\n")), true);
+assert.equal(graphPatchHelpJson.operations.includes("renameTest name=\"api add\" value=\"api add route\""), true);
+assert.equal(graphPatchHelpJson.operations.includes("deleteTest name=\"api add\""), true);
 assert.equal(graphPatchHelpJson.operations.some((op) => op.startsWith("upsertFunction handle\n")), true);
 const retiredGraphCheckJson = json(["graph", "check", "--json", "examples/hello.0"], { allowFailure: true });
 assert.equal(retiredGraphCheckJson.code, 1);
@@ -1219,6 +1226,10 @@ const queryFnHandlesText = execFileSync(zeroBin, ["query", "--fn", "dealsTotal",
 assert.match(queryFnHandlesText, /param\[0\] amount: usize #param_/);
 assert.match(queryFnHandlesText, /stmt\[0\] Return #stmt_/);
 assert.match(queryFnHandlesText, /patch help:/);
+const queryFnHandlesNoHelpText = execFileSync(zeroBin, ["query", "--fn", "dealsTotal", "--handles", "--no-help"], { cwd: queryScopeRoot, encoding: "utf8", maxBuffer: execMaxBuffer });
+assert.match(queryFnHandlesNoHelpText, /param\[0\] amount: usize #param_/);
+assert.match(queryFnHandlesNoHelpText, /stmt\[0\] Return #stmt_/);
+assert.doesNotMatch(queryFnHandlesNoHelpText, /patch help:/, "--handles --no-help keeps handles without the operation footer");
 assert(queryFnText.length < queryFnHandlesText.length, "default --fn output must be smaller than the --handles report");
 const queryMissingPathInput = zero(["query", "no-such-dir/no-such-input"], { allowFailure: true });
 assert.notEqual(queryMissingPathInput.code, 0, "path-shaped query arguments must keep file input semantics");
@@ -1264,8 +1275,9 @@ assert.match(diffHelp, /Usage: zero diff \[--fn <name>\] \[graph-input\]/);
 assert.match(diffHelp, /zero diff --fn handleLine \./);
 assert.doesNotMatch(diffHelp, /Patch usage:/);
 const queryHelp = zero(["query", "--help"]).stdout;
-assert.match(queryHelp, /Usage: zero query .*\[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[graph-input\|name\]/);
+assert.match(queryHelp, /Usage: zero query .*\[--node <id>\] \[--depth <n>\] \[--full\] \[--handles\] \[--no-help\] \[graph-input\|name\]/);
 assert.match(queryHelp, /--handles adds stmt and param patch handles/);
+assert.match(queryHelp, /--no-help suppresses the long patch-operation footer/);
 assert.match(queryHelp, /zero query userTotals/);
 assert.match(queryHelp, /zero query --json --node '#decl_12ab34cd' --depth 2/);
 assert.match(queryHelp, /zero view --fn <name>/);
@@ -3641,6 +3653,8 @@ assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnValue fn
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("addReturnExpr fn=\"maybe\" expr=\"null\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.includes("appendStmt fn=\"main\" stmt=\"check std.http.listen(world, 3000_u16)\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("addTestBody name=\"api add\"\n")), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("renameTest name=\"api add\" value=\"api add route\""), true);
+assert.equal(checkedInGraphQueryJson.patchOperations.includes("deleteTest name=\"api add\""), true);
 assert.equal(checkedInGraphQueryJson.patchOperations.some((op) => op.startsWith("upsertFunction handle\n")), true);
 rmSync(graphRepositoryNewOpsPackageDir, { recursive: true, force: true });
 mkdirSync(graphRepositoryNewOpsPackageDir, { recursive: true });
@@ -3678,6 +3692,34 @@ assert.match(zero(["view", "--fn", "answer", graphRepositoryNewOpsPackageDir]).s
 assert.equal(zero(["check", graphRepositoryNewOpsPackageDir]).stdout, "ok\n");
 assert.equal(zero(["run", graphRepositoryNewOpsPackageDir]).stdout, "new ops ok");
 assert.equal(zero(["test", graphRepositoryNewOpsPackageDir]).stdout, "1 test(s) ok\n");
+const repositoryRenameTestJson = json(["patch", "--json", graphRepositoryNewOpsPackageDir, "--op", 'renameTest name="answer works" value="answer route works"']).body;
+assert.equal(repositoryRenameTestJson.ok, true);
+assert.equal(repositoryRenameTestJson.operations[0].op, "renameTest");
+assert.equal(repositoryRenameTestJson.operations[0].actual, "answer works");
+assert.equal(zero(["test", graphRepositoryNewOpsPackageDir]).stdout, "1 test(s) ok\n");
+const repositoryUnsupportedTestPatch = zeroWithInput(["patch", graphRepositoryNewOpsPackageDir, "--patch-text", "-"], [
+  "zero-program-graph-patch v1",
+  'addTestBody name="unsupported buffer test"',
+  "  var response: [16]u8 = [0_u8; 16]",
+  "  expect true",
+  "end",
+  "",
+].join("\n"));
+assertPatchOkOutput(repositoryUnsupportedTestPatch.stdout, join(graphRepositoryNewOpsPackageDir, "zero.graph"));
+const repositoryUnsupportedTestRun = zero(["test", graphRepositoryNewOpsPackageDir], { allowFailure: true });
+assert.notEqual(repositoryUnsupportedTestRun.code, 0);
+assert.match(repositoryUnsupportedTestRun.stderr, /zero graph test runner does not support .* expression yet/);
+assert.match(repositoryUnsupportedTestRun.stderr, /supported graph tests are pure locals/);
+const repositoryDeleteUnsupportedTestJson = json(["patch", "--json", graphRepositoryNewOpsPackageDir, "--op", 'deleteTest name="unsupported buffer test"']).body;
+assert.equal(repositoryDeleteUnsupportedTestJson.ok, true);
+assert.equal(repositoryDeleteUnsupportedTestJson.operations[0].op, "deleteTest");
+assert.equal(zero(["test", graphRepositoryNewOpsPackageDir]).stdout, "1 test(s) ok\n");
+const repositoryDeleteTestJson = json(["patch", "--json", graphRepositoryNewOpsPackageDir, "--op", 'deleteTest name="answer route works"']).body;
+assert.equal(repositoryDeleteTestJson.ok, true);
+assert.equal(repositoryDeleteTestJson.operations[0].op, "deleteTest");
+const repositoryNoTests = zero(["test", graphRepositoryNewOpsPackageDir]).stdout;
+assert.match(repositoryNoTests, /0 test\(s\) ok/);
+assert.match(repositoryNoTests, /note: no test blocks found/);
 assert.match(zero(["export", graphRepositoryNewOpsPackageDir]).stdout, /repository graph export ok/);
 assert.equal(zero(["verify-projection", graphRepositoryNewOpsPackageDir]).stdout, "repository graph verify-projection ok\n");
 rmSync(graphRepositoryPatchPackageDir, { recursive: true, force: true });
@@ -5964,6 +6006,9 @@ assert.match(agentSkill.data[0].content, /upsertFunction handle/);
 assert.match(agentSkill.data[0].content, /addReturnExpr fn="maybe" expr="null"/);
 assert.match(agentSkill.data[0].content, /appendStmt fn="main" stmt="check std\.http\.listen\(world, 3000_u16\)"/);
 assert.match(agentSkill.data[0].content, /addTestBody name="api add"/);
+assert.match(agentSkill.data[0].content, /deleteTest name="api add"/);
+assert.match(agentSkill.data[0].content, /--patch-text -/);
+assert.match(agentSkill.data[0].content, /--no-help/);
 assert.match(agentSkill.data[0].content, /validated: check-equivalent/);
 assert.match(agentSkill.data[0].content, /zero skills get graph/);
 assert.doesNotMatch(agentSkill.data[0].content, /--rewrite/);

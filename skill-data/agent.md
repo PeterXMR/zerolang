@@ -9,17 +9,17 @@ Use this when editing Zero code, examples, tests, docs, or a package. `zero.grap
 
 ## Edit Through Patch
 
-Anchored small edits win. Do not retype a function to change one line or rewrite a `.0` file for one declaration.
+Anchored edits win. Do not retype a function to change one line or rewrite a `.0` file for one declaration.
 
-1. `--replace-in-fn`: Edit semantics on one function's canonical body text.
+1. `--replace-in-fn`: edit one function's canonical body text.
 
 ```sh
 zero patch . --replace-in-fn handleLine --old 'limit + 1' --new 'limit + 2'
 ```
 
-`--old` must match the text `zero view --fn <name>` prints exactly once; misses fail with the occurrence count.
+`--old` must match `zero view --fn <name>` output exactly once.
 
-2. `--replace-fn` with a heredoc for one whole body:
+2. `--replace-fn` for one whole body:
 
 ```sh
 zero patch . --replace-fn greet --body-file - <<'EOF'
@@ -27,7 +27,7 @@ check world.out.write("hello agent\n")
 EOF
 ```
 
-3. Declaration work stays in ops, call sites updated for you:
+3. Declaration work stays in ops; call sites update for you:
 
 ```sh
 zero patch . --op 'setConst name="limit" value="64"'
@@ -46,15 +46,17 @@ fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
 end
 ```
 
-Use `addReturnExpr fn="maybe" expr="null"` for non-identifier returns, `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` for one statement, and `addTestBody name="api add" ... end` for a test block.
+Pass a patch file, or stream full `zero-program-graph-patch v1` text with `zero patch . --patch-text -`.
 
-A successful patch prints `validated: check-equivalent`: it already validated and saved the graph. Go straight to `zero run . -- <args>` / `zero test`. Repeat `--op` to batch edits into one revalidation. For expression rewrites and node-handle micro-edits, see `zero skills get graph`.
+Use `addReturnExpr fn="maybe" expr="null"` for non-identifier returns, `appendStmt fn="main" stmt="check std.http.listen(world, 3000_u16)"` for one statement, and `addTestBody name="api add" ... end` for a test block. If a test shape is unsupported, remove or rename it by name: `deleteTest name="api add"` or `renameTest name="api add" value="api add route"`.
+
+A successful patch prints `validated: check-equivalent`: it validated and saved the graph. Run `zero run . -- <args>` / `zero test`. Repeat `--op` to batch edits. For expression rewrites and node-handle micro-edits, see `zero skills get graph`.
 
 Scoped reads; never read a whole `.0` file for one function:
 
-- `zero view --fn <name>`: one function's source; misses fail with close matches.
-- `zero view --fn <name> --around <text>`: only the enclosing block containing the text.
-- `zero view --outline <module-or-file>`: signatures plus one-line docs, no bodies.
+- `zero view --fn <name>`: one function's source; misses show close matches.
+- `zero view --fn <name> --around <text>`: enclosing block only.
+- `zero view --outline <module-or-file>`: signatures plus one-line docs.
 
 For a new agent-authored package: `zero init`, then `zero patch --op 'addMain'`.
 
@@ -62,20 +64,21 @@ For a new agent-authored package: `zero init`, then `zero patch --op 'addMain'`.
 
 ```text
 zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>]
-           [--node <id>] [--depth <n>] [--full] [--handles] [graph-input|name]
+           [--node <id>] [--depth <n>] [--full] [--handles] [--no-help] [graph-input|name]
 ```
 
 - bare name that is not an existing path: runs `--find` against the current package
 - `zero query --fn <name> --handles`: patch handles for one function
+- add `--no-help` when you need handles without the patch-operation footer
 - `--find <text>`: search names, ids, types, values, and node kinds; prints matches with spans
 - `--calls <name>` / `--refs <name>`: resolved calls and semantic references
 - `--node <id>`: one node's span, parents, and children; short handles resolve here too
 
-Import/export, identity recovery, structural rewrites, and merge live in the `graph` topic. Direct `.0` edits are a last resort; never delete `zero.graph`.
+Import/export, identity recovery, structural edits, and merge live in `graph`. Direct `.0` edits are a last resort; never delete `zero.graph`.
 
 ## Verify Before Done
 
-After a fix works on the changed path, exercise typical and boundary inputs. Zero inserts runtime checks, so a checked program can still trap on untested inputs.
+After a fix works, exercise typical and boundary inputs. Checked programs can still trap on untested inputs.
 
 ```sh
 zero run . -- <typical input>
@@ -83,7 +86,7 @@ zero run . -- <empty or boundary input>
 zero test
 ```
 
-If behavior changed, add or update a `test` block. On a diagnostic, run `zero explain <code>` before broad refactors.
+If behavior changed, add or update a `test` block. On a diagnostic, run `zero explain <code>`.
 
 ## Rules
 

@@ -170,9 +170,9 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_patch_body.c": { maxLines: 1780, maxStrcmpCalls: 22 },
   "native/zero-c/src/program_graph_patch_body.h": { maxLines: 16, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_patch_examples.c": { maxLines: 65, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1330, maxStrcmpCalls: 13 },
+  "native/zero-c/src/program_graph_patch_ops.c": { maxLines: 1350, maxStrcmpCalls: 13 },
   // The --body-file - stdin reader lives beside the file reader it falls back to.
-  "native/zero-c/src/program_graph_patch.c": { maxLines: 1050, maxStrcmpCalls: 54 },
+  "native/zero-c/src/program_graph_patch.c": { maxLines: 1080, maxStrcmpCalls: 54 },
   "native/zero-c/src/program_graph_patch.h": { maxLines: 80, maxStrcmpCalls: 0 },
   // Projection safety memoizes realpath resolutions so warm status/check stay fast.
   "native/zero-c/src/program_graph_projection.c": { maxLines: 680, maxStrcmpCalls: 1 },
@@ -198,7 +198,7 @@ const fileBudgets: Record<string, FileBudget> = {
   "native/zero-c/src/program_graph_store_tables.c": { maxLines: 220, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store_tables.h": { maxLines: 40, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_store.h": { maxLines: 65, maxStrcmpCalls: 0 },
-  "native/zero-c/src/program_graph_test.c": { maxLines: 730, maxStrcmpCalls: 0 },
+  "native/zero-c/src/program_graph_test.c": { maxLines: 735, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.c": { maxLines: 230, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test_caps.h": { maxLines: 10, maxStrcmpCalls: 0 },
   "native/zero-c/src/program_graph_test.h": { maxLines: 20, maxStrcmpCalls: 0 },

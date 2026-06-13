@@ -109,6 +109,7 @@ typedef struct {
   const char *view_around;
   bool query_full;
   bool query_handles;
+  bool query_no_help;
   const char **patch_ops;
   size_t patch_op_len;
   size_t patch_op_cap;
@@ -4507,9 +4508,10 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
   const bool depth_selector = cli_arg_is(arg, "--depth");
   const bool full_selector = cli_arg_is(arg, "--full");
   const bool handles_selector = cli_arg_is(arg, "--handles");
+  const bool no_help_selector = cli_arg_is(arg, "--no-help");
   const bool outline_selector = cli_arg_is(arg, "--outline");
   const bool around_selector = cli_arg_is(arg, "--around");
-  if (!function_selector && !find_selector && !node_selector && !refs_selector && !calls_selector && !depth_selector && !full_selector && !handles_selector && !outline_selector && !around_selector) return false;
+  if (!function_selector && !find_selector && !node_selector && !refs_selector && !calls_selector && !depth_selector && !full_selector && !handles_selector && !no_help_selector && !outline_selector && !around_selector) return false;
   const bool query_command = command_is_program_graph_command(command) && cli_arg_is(command->kind, "query");
   const bool view_command = command_is_program_graph_command(command) && (cli_arg_is(command->kind, "view") || cli_arg_is(command->kind, "diff"));
   if (function_selector && view_command) {
@@ -4552,6 +4554,10 @@ static bool parse_graph_query_option(int argc, char **argv, int *index, Command 
   }
   if (handles_selector) {
     command->query_handles = true;
+    return true;
+  }
+  if (no_help_selector) {
+    command->query_no_help = true;
     return true;
   }
   if (outline_selector || around_selector) {
@@ -5992,7 +5998,7 @@ static void init_executable_finalize_diag(ZDiag *diag, const char *path) {
   snprintf(diag->message, sizeof(diag->message), "failed to finalize executable artifact");
   snprintf(diag->expected, sizeof(diag->expected), "regular non-empty executable artifact with executable permissions");
   snprintf(diag->actual, sizeof(diag->actual), "%s", path && path[0] ? path : "missing artifact path");
-  snprintf(diag->help, sizeof(diag->help), "check output path permissions and ensure the artifact path is not a directory or symlink");
+  snprintf(diag->help, sizeof(diag->help), "check output path permissions, ensure the artifact path is not a directory or symlink, and pass --out <path> when running builds concurrently");
 }
 
 static int run_executable_artifact(const char *exe_file, const Command *command) {
@@ -7548,6 +7554,29 @@ static char *command_default_out_path(const Command *command, const SourceInput 
   char *out_path = z_default_out_path(source_path);
   free(source_path);
   return out_path;
+}
+
+static bool command_uses_ephemeral_run_artifact(const Command *command) {
+  return command && cli_arg_is(command->command, "run") && !command->out;
+}
+
+static char *command_default_exe_base_path(const Command *command, const SourceInput *input) {
+  char *base = command_default_out_path(command, input);
+  if (!command_uses_ephemeral_run_artifact(command)) return base;
+  ZBuf out;
+  zbuf_init(&out);
+#if defined(_WIN32)
+  long pid = (long)_getpid();
+#else
+  long pid = (long)getpid();
+#endif
+  zbuf_appendf(&out, "%s.run-%ld", base ? base : ".zero/out/main", pid);
+  free(base);
+  return out.data ? out.data : z_strdup("");
+}
+
+static void command_remove_ephemeral_run_artifact(const Command *command, const char *exe_file) {
+  if (command_uses_ephemeral_run_artifact(command)) (void)z_process_remove_regular_file(exe_file);
 }
 
 static int print_version_command(bool json) {
@@ -13317,6 +13346,7 @@ static const char *graph_patch_source_label(const Command *command) {
   if (command && command->patch_file) return command->patch_file;
   if (command && command->patch_replace_in_fn) return "<replace-in-fn>";
   if (command && command->patch_body_file) return strcmp(command->patch_body_file, "-") == 0 ? "<stdin>" : command->patch_body_file;
+  if (command && command->patch_text && strcmp(command->patch_text, "-") == 0) return "<stdin>";
   if (command && (command->patch_text || command->patch_op_len > 0)) return "<inline>";
   return "<patch>";
 }
@@ -13729,6 +13759,7 @@ static int run_graph_query_command(const Command *command, const ZTargetInfo *ta
   request.node = command->query_node;
   request.full_module = command->query_full;
   request.handles = command->query_handles;
+  request.no_help = command->query_no_help;
   request.bare_argument = command->query_bare_argument;
   if (!parse_graph_query_depth(command, &request, diag)) {
     print_command_diag(command, command->input, diag);
@@ -14012,7 +14043,14 @@ static bool validate_graph_patch_sources(const Command *command, bool *has_file,
 static bool apply_graph_patch_source(const Command *command, bool has_file, bool has_patch_text, const char *rewrite_text, ZProgramGraph *graph, ZProgramGraphPatchResult *result, char **inline_text, ZDiag *diag) {
   if (rewrite_text) return z_program_graph_apply_patch_text("<rewrite>", rewrite_text, strlen(rewrite_text), graph, result, diag);
   if (has_file) return z_program_graph_apply_patch_file(command->patch_file, graph, result, diag);
-  if (has_patch_text) return z_program_graph_apply_patch_text("<inline>", command->patch_text, strlen(command->patch_text), graph, result, diag);
+  if (has_patch_text) {
+    if (cli_arg_is(command->patch_text, "-")) {
+      size_t text_len = 0;
+      *inline_text = z_graph_patch_read_patch_text_source(&text_len, diag);
+      return *inline_text && z_program_graph_apply_patch_text("<stdin>", *inline_text, text_len, graph, result, diag);
+    }
+    return z_program_graph_apply_patch_text("<inline>", command->patch_text, strlen(command->patch_text), graph, result, diag);
+  }
   if (command->patch_replace_in_fn) {
     return graph_patch_expect_hash_ok(command, diag) &&
            z_program_graph_apply_replace_in_fn(command->patch_replace_in_fn, command->patch_old_text, command->patch_old_file, command->patch_new_text, command->patch_new_file, command->patch_expect_graph_hash, graph, result, diag);
@@ -15182,7 +15220,7 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
     int rc = return_buildability_error(command, input, &diag, ir, program); z_free_source(input); return rc;
   }
 
-  char *base_exe_file = command->out ? z_strdup(command->out) : command_default_out_path(command, input);
+  char *base_exe_file = command->out ? z_strdup(command->out) : command_default_exe_base_path(command, input);
   char *exe_file = apply_target_suffix(base_exe_file, target);
   free(base_exe_file);
   char *llvm_file = path_with_suffix(exe_file, ".ll");
@@ -15218,6 +15256,7 @@ static int run_llvm_native_artifact_command(const Command *command, SourceInput 
 
   if (run_command) {
     int rc = run_executable_artifact(exe_file, command);
+    command_remove_ephemeral_run_artifact(command, exe_file);
     free(runtime_object_file); free(llvm_file); free(exe_file); zbuf_free(&llvm_ir); z_free_ir_program(ir); z_free_program(program); z_free_source(input);
     return rc;
   }
@@ -16148,7 +16187,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
+    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_exe_base_path(&command, &input);
     char *exe_file = apply_target_suffix(base_exe_file, target);
     free(base_exe_file);
     char *object_file = path_with_suffix(exe_file, ".zero.o");
@@ -16202,6 +16241,7 @@ int main(int argc, char **argv) {
 
     if (run_command) {
       int rc = run_executable_artifact(exe_file, &command);
+      command_remove_ephemeral_run_artifact(&command, exe_file);
       free(http_object_file);
       free(runtime_object_file);
       free(object_file);
@@ -16261,7 +16301,7 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_out_path(&command, &input);
+    char *base_exe_file = command.out ? z_strdup(command.out) : command_default_exe_base_path(&command, &input);
     char *exe_file = apply_target_suffix(base_exe_file, target);
     free(base_exe_file);
     phase_started = now_ms();
@@ -16285,6 +16325,7 @@ int main(int argc, char **argv) {
 
     if (run_command) {
       int rc = run_executable_artifact(exe_file, &command);
+      command_remove_ephemeral_run_artifact(&command, exe_file);
       free(exe_file);
       zbuf_free(&exe);
       z_free_ir_program(&ir);

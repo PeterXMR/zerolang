@@ -328,12 +328,12 @@ void z_program_graph_print_query_text(const ZProgramGraph *graph, const char *in
     }
     if (query_function || query_find) {
       size_t printed = query_print_functions_section(graph, &resolution, request, show_handles);
-      if (query_function && printed > 0 && !show_handles) printf("\ntip: add --handles to list stmt and param patch handles; patch ops: zero patch --op help\n");
+      if (query_function && printed > 0 && !show_handles && !request->no_help) printf("\ntip: add --handles to list stmt and param patch handles; patch ops: zero patch --op help\n");
     }
     if (query_find && query_find[0]) query_print_matches_section(graph, query_find, show_handles);
     z_program_graph_query_print_reference_section_text(graph, &resolution, "calls", query_calls, true, query_function, show_handles);
     z_program_graph_query_print_reference_section_text(graph, &resolution, "references", query_refs, false, query_function, show_handles);
-    if (show_handles && request->handles) query_print_patch_footer();
+    if (show_handles && request->handles && !request->no_help) query_print_patch_footer();
     z_program_graph_resolution_facts_free(&resolution);
     return;
   }
@@ -365,7 +365,10 @@ void z_program_graph_print_query_text(const ZProgramGraph *graph, const char *in
   z_program_graph_query_print_reference_section_text(graph, &resolution, "calls", query_calls, true, query_function, show_handles);
   z_program_graph_query_print_reference_section_text(graph, &resolution, "references", query_refs, false, query_function, show_handles);
   query_print_node_neighborhood(graph, query_node, request->node_depth ? request->node_depth : 1);
-  if (show_handles) query_print_patch_footer();
-  else printf("\ntips: zero query --fn <name> for one function's facts, --handles for stmt and param patch handles, zero view --fn <name> for source; patch ops: zero patch --op help\n");
+  if (show_handles) {
+    if (!request->no_help) query_print_patch_footer();
+  } else if (!request->no_help) {
+    printf("\ntips: zero query --fn <name> for one function's facts, --handles for stmt and param patch handles, zero view --fn <name> for source; patch ops: zero patch --op help\n");
+  }
   z_program_graph_resolution_facts_free(&resolution);
 }

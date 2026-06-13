@@ -19,6 +19,8 @@ static const char *const graph_patch_authoring_operation_examples[] = {
   "addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"",
   "addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"",
   "addTestBody name=\"api add\"\n  expect apiAddOk()\nend",
+  "renameTest name=\"api add\" value=\"api add route\"",
+  "deleteTest name=\"api add\"",
   "upsertFunction handle\nfn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {\n    return null\n}\nend",
   "replaceFunctionBody main\n  let name Maybe<String> = std.args.get 1\n  if name.has\n    check world.out.write \"hello \"\n    check world.out.write name.value\n    check world.out.write \"\\n\"\n  else\n    check world.out.write \"hello anonymous\\n\"\nend",
   "replaceBlockBody #block_id\n  check world.out.write \"updated\\n\"\nend",

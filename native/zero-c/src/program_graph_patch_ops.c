@@ -1026,6 +1026,32 @@ static bool patch_apply_rename(ZProgramGraph *graph, ZProgramGraphPatchResult *r
   return true;
 }
 
+static ZProgramGraphNode *patch_require_test_by_display_name(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  const char *name = op && op->name ? op->name : "";
+  const char *prefix = "__zero_test_";
+  ZProgramGraphNode *match = NULL;
+  size_t count = 0;
+  for (size_t i = 0; graph && i < graph->node_len; i++) {
+    ZProgramGraphNode *node = &graph->nodes[i];
+    if (node->kind != Z_PROGRAM_GRAPH_NODE_FUNCTION || !node->name || strncmp(node->name, prefix, strlen(prefix)) != 0 || !patch_text_eq(node->value, name)) continue;
+    match = node;
+    count++;
+  }
+  if (count == 1) return match;
+  patch_op_fail(result, op, count == 0 ? "GPH004" : "GPH005", count == 0 ? "patch test was not found" : "patch test name is ambiguous", count == 0 ? "existing test display name" : "unique test display name", name);
+  return NULL;
+}
+
+static bool patch_apply_rename_test(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  ZProgramGraphNode *node = patch_require_test_by_display_name(graph, result, op);
+  if (!node) return false;
+  patch_replace_text(&op->actual, node->value);
+  if (!patch_validate_text_field(node, result, op, "value", op->value)) return false;
+  patch_replace_text(&node->value, op->value);
+  op->ok = true;
+  return true;
+}
+
 static size_t patch_node_index(const ZProgramGraph *graph, const char *node_id) {
   for (size_t i = 0; graph && i < graph->node_len; i++) {
     if (patch_text_eq(graph->nodes[i].id, node_id)) return i;
@@ -1245,6 +1271,13 @@ static bool patch_apply_delete(ZProgramGraph *graph, ZProgramGraphPatchResult *r
   return true;
 }
 
+static bool patch_apply_delete_test(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
+  ZProgramGraphNode *node = patch_require_test_by_display_name(graph, result, op);
+  if (!node) return false;
+  patch_replace_text(&op->node, node->id);
+  return patch_apply_delete(graph, result, op);
+}
+
 bool z_program_graph_patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPatchResult *result, ZProgramGraphPatchOpResult *op) {
   if (patch_text_eq(op->op, "insert")) return patch_apply_insert(graph, result, op);
   if (patch_text_eq(op->op, "insertEdge")) return patch_apply_insert_edge(graph, result, op);
@@ -1252,6 +1285,8 @@ bool z_program_graph_patch_apply_operation(ZProgramGraph *graph, ZProgramGraphPa
   if (patch_text_eq(op->op, "replace")) return patch_apply_replace(graph, result, op);
   if (patch_text_eq(op->op, "delete")) return patch_apply_delete(graph, result, op);
   if (patch_text_eq(op->op, "rename")) return patch_apply_rename(graph, result, op);
+  if (patch_text_eq(op->op, "deleteTest")) return patch_apply_delete_test(graph, result, op);
+  if (patch_text_eq(op->op, "renameTest")) return patch_apply_rename_test(graph, result, op);
   if (patch_text_eq(op->op, "addFunction")) return patch_apply_add_function(graph, result, op);
   if (patch_text_eq(op->op, "addMain")) return patch_apply_add_main(graph, result, op);
   if (patch_text_eq(op->op, "addParamTo")) return z_program_graph_patch_apply_add_param_to(graph, result, op);

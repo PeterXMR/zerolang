@@ -170,6 +170,8 @@ addTest name="addition works" call="add" arg0="40" arg1="2" expect="42" type="i3
 addTestBody name="api add"
   expect apiAddOk()
 end
+renameTest name="api add" value="api add route"
+deleteTest name="api add"
 upsertFunction handle
 fn handle(request: Span<u8>, response: MutSpan<u8>) -> Maybe<Span<u8>> {
     return null
@@ -206,7 +208,7 @@ zero patch \
   --op 'set node="#expr_653eeb6e" field="value" expect="hello from zero\n" value="hello agent\n"'
 ```
 
-For larger edits, write a patch file under `/tmp` or pass `--patch-text`. Always include `expect graphHash` when a patch is carried across tool calls.
+For larger edits, write a patch file under `/tmp` or pass `--patch-text`; `--patch-text -` reads a complete `zero-program-graph-patch v1` patch from stdin. Always include `expect graphHash` when a patch is carried across tool calls.
 
 ## Artifacts, Reconcile, And Diff
 

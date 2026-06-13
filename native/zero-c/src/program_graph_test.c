@@ -301,6 +301,12 @@ static void pgt_fail(PgtFailure *failure, const ZProgramGraphNode *node, const c
   snprintf(failure->message, sizeof(failure->message), "%s%s%s", message ? message : "zero test expectation failed", failure->current_test ? ": " : "", failure->current_test ? failure->current_test : "");
 }
 
+static void pgt_fail_unsupported(PgtFailure *failure, const ZProgramGraphNode *node, const char *subject) {
+  char message[256];
+  snprintf(message, sizeof(message), "zero graph test runner does not support %s %s yet; supported graph tests are pure locals, literals, calls, field access, control flow, comparisons, and std.testing helpers; use live smoke tests for hosted IO/HTTP", node ? z_program_graph_node_kind_name(node->kind) : "unknown", subject ? subject : "node");
+  pgt_fail(failure, node, message);
+}
+
 static bool pgt_expr_name(const ZProgramGraph *graph, const ZProgramGraphNode *expr, ZBuf *out) {
   if (!expr) return false;
   if (expr->kind == Z_PROGRAM_GRAPH_NODE_IDENTIFIER) { zbuf_append(out, expr->name ? expr->name : ""); return true; }
@@ -384,7 +390,7 @@ static bool pgt_eval_block(const ZProgramGraph *graph, PgtEnv *env, const ZProgr
       *loop_signal = stmt->kind == Z_PROGRAM_GRAPH_NODE_BREAK ? PGT_LOOP_BREAK : PGT_LOOP_CONTINUE;
       return true;
     } else {
-      pgt_fail(failure, stmt, "zero graph test runner does not support this statement yet");
+      pgt_fail_unsupported(failure, stmt, "statement");
       return false;
     }
   }
@@ -499,7 +505,7 @@ static bool pgt_eval_expr(const ZProgramGraph *graph, PgtEnv *env, const ZProgra
     return false;
   }
   if (expr->kind == Z_PROGRAM_GRAPH_NODE_CALL || expr->kind == Z_PROGRAM_GRAPH_NODE_METHOD_CALL) return pgt_eval_call(graph, env, expr, out, failure);
-  pgt_fail(failure, expr, "zero graph test runner does not support this expression yet");
+  pgt_fail_unsupported(failure, expr, "expression");
   return false;
 }
 

@@ -71,7 +71,7 @@ static char *patch_read_file(const char *path, size_t *out_len, ZDiag *diag) {
   return (char *)bytes;
 }
 
-static char *patch_read_stdin(size_t *out_len, ZDiag *diag) {
+static char *patch_read_stdin(size_t *out_len, ZDiag *diag, const char *message, const char *expected) {
   size_t cap = 4096;
   size_t len = 0;
   char *data = z_checked_malloc(cap);
@@ -91,8 +91,8 @@ static char *patch_read_stdin(size_t *out_len, ZDiag *diag) {
           diag->line = 1;
           diag->column = 1;
           diag->length = 1;
-          snprintf(diag->message, sizeof(diag->message), "failed to read function body rows from stdin");
-          snprintf(diag->expected, sizeof(diag->expected), "body rows on stdin terminated by EOF");
+          snprintf(diag->message, sizeof(diag->message), "%s", message ? message : "failed to read stdin");
+          snprintf(diag->expected, sizeof(diag->expected), "%s", expected ? expected : "stdin bytes terminated by EOF");
           snprintf(diag->actual, sizeof(diag->actual), "stdin read error");
         }
         return NULL;
@@ -107,8 +107,12 @@ static char *patch_read_stdin(size_t *out_len, ZDiag *diag) {
 }
 
 char *z_graph_patch_read_body_source(const char *path, size_t *out_len, ZDiag *diag) {
-  if (path && strcmp(path, "-") == 0) return patch_read_stdin(out_len, diag);
+  if (path && strcmp(path, "-") == 0) return patch_read_stdin(out_len, diag, "failed to read function body rows from stdin", "body rows on stdin terminated by EOF");
   return patch_read_file(path, out_len, diag);
+}
+
+char *z_graph_patch_read_patch_text_source(size_t *out_len, ZDiag *diag) {
+  return patch_read_stdin(out_len, diag, "failed to read graph patch text from stdin", "zero-program-graph-patch v1 text on stdin terminated by EOF");
 }
 
 static char *patch_trim(char *line) {
@@ -539,6 +543,25 @@ static bool patch_parse_rename(const char *line, int line_number, ZProgramGraphP
   return true;
 }
 
+static bool patch_parse_test_name_op(const char *line, int line_number, ZProgramGraphPatchResult *result, const char *verb, bool needs_value) {
+  ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
+  op->line = line_number;
+  op->op = z_strdup(verb);
+  if (!patch_parse_structural_attrs(line, verb, result, op)) return false;
+  if (!patch_reject_attrs(op, result, line, false, false, false, false, false, false, false, false, true, false)) return false;
+  if ((!needs_value && op->value) || op->type || op->path || op->has_line_value || op->has_column_value ||
+      op->has_public_value || op->has_mutable_value || op->has_static_value || op->has_fallible_value ||
+      op->has_export_c_value) {
+    patch_op_fail(result, op, "GPH001", needs_value ? "renameTest operation has unsupported attributes" : "deleteTest operation has unsupported attributes", needs_value ? "name and value" : "name", line);
+    return false;
+  }
+  if (!op->name || (needs_value && !op->value)) {
+    patch_op_fail(result, op, "GPH001", needs_value ? "renameTest operation is missing required attributes" : "deleteTest operation is missing required attributes", needs_value ? "name and value" : "name", line);
+    return false;
+  }
+  return true;
+}
+
 static bool patch_parse_add_function(const char *line, int line_number, ZProgramGraphPatchResult *result) {
   ZProgramGraphPatchOpResult *op = z_graph_patch_push_operation(result);
   op->line = line_number;
@@ -893,8 +916,12 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
       if (!patch_parse_replace_expr(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "replace", strlen("replace")) == 0 && isspace((unsigned char)trimmed[strlen("replace")])) {
       if (!patch_parse_replace(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "deleteTest", strlen("deleteTest")) == 0 && isspace((unsigned char)trimmed[strlen("deleteTest")])) {
+      if (!patch_parse_test_name_op(trimmed, line_number, result, "deleteTest", false)) return false;
     } else if (strncmp(trimmed, "delete", strlen("delete")) == 0 && isspace((unsigned char)trimmed[strlen("delete")])) {
       if (!patch_parse_delete(trimmed, line_number, result)) return false;
+    } else if (strncmp(trimmed, "renameTest", strlen("renameTest")) == 0 && isspace((unsigned char)trimmed[strlen("renameTest")])) {
+      if (!patch_parse_test_name_op(trimmed, line_number, result, "renameTest", true)) return false;
     } else if (strncmp(trimmed, "rename", strlen("rename")) == 0 && isspace((unsigned char)trimmed[strlen("rename")])) {
       if (!patch_parse_rename(trimmed, line_number, result)) return false;
     } else if (strncmp(trimmed, "addFunction", strlen("addFunction")) == 0 && isspace((unsigned char)trimmed[strlen("addFunction")])) {
@@ -934,7 +961,7 @@ static bool patch_parse_text(char *text, ZProgramGraphPatchResult *result) {
     } else if (strncmp(trimmed, "replaceBlockBody", strlen("replaceBlockBody")) == 0 && isspace((unsigned char)trimmed[strlen("replaceBlockBody")])) {
       if (!patch_parse_body_rows(trimmed, &line_number, &cursor, "replaceBlockBody", result)) return false;
     } else {
-      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, replaceExpr, delete, rename, setConst, setReturnType, addFunction, addMain, addParam, addParamTo, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addReturnExpr, appendStmt, addCheckWriteValue, addCheckWrite, addTest, addTestBody, upsertFunction, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
+      patch_format_fail(result, "GPH001", "unknown program graph patch operation; run `zero patch --op help` for working examples of every operation", "expect, set, insert, insertEdge, replace, replaceExpr, delete, rename, deleteTest, renameTest, setConst, setReturnType, addFunction, addMain, addParam, addParamTo, addReturnBinary, addLetLiteral, addLetBinary, addReturnValue, addReturnExpr, appendStmt, addCheckWriteValue, addCheckWrite, addTest, addTestBody, upsertFunction, replaceFunctionBody, or replaceBlockBody", trimmed, line_number);
       return false;
     }
   }

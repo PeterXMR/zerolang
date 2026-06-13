@@ -33,7 +33,7 @@ static const ZProgramGraphCommandKind z_graph_command_kinds[] = {
     Z_PROGRAM_GRAPH_INPUT_SOURCE_OR_ARTIFACT,
     true,
     "query does not support --out",
-    "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [--depth <n>] [--full] [--handles] [graph-input|name]",
+    "zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [--depth <n>] [--full] [--handles] [--no-help] [graph-input|name]",
     "zero query --out",
     "queries are reported on stdout; remove --out"
   ),
@@ -124,7 +124,7 @@ void z_program_graph_print_command_help(void) {
   printf("View output usage: zero view [--json] [--fn <name> [--around <text>|--handles]] [--outline <module-or-file>] [--out <file.0>] [graph-input]\n");
   printf("Diff textconv usage: zero diff [--fn <name>] [graph-input]\n");
   printf("Source map usage: zero source-map [--json] [graph-input]\n");
-  printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [--depth <n>] [--full] [--handles] [graph-input|name]\n");
+  printf("Query usage: zero query [--json] [--fn <name>] [--find <text>] [--refs <name>] [--calls <name>] [--node <id>] [--depth <n>] [--full] [--handles] [--no-help] [graph-input|name]\n");
   printf("Reconcile usage: zero reconcile [--json] <base-graph-input> --source <edited-file.0|project|zero.toml|zero.json>\n");
   printf("Repository projection usage: zero status|verify-projection [--json] [project|zero.toml|zero.json|file.0|zero.graph]; zero import [--json] [--format text|binary] [project|zero.toml|zero.json|file.0]; zero export [--json] [project|zero.toml|zero.json|file.0]; zero merge --base <base-zero.graph> --left <left-zero.graph> --right <right-zero.graph> [--json] [project|zero.toml|zero.json|file.0]\n");
   printf("Size usage: zero size [--json] [--target <target>] [--out <artifact>] [graph-input]\n");
@@ -172,6 +172,8 @@ void z_program_graph_print_command_help(void) {
   printf("  addCheckWriteValue fn=\"main\" value=\"message\" type=\"String\"\n");
   printf("  addTest name=\"addition works\" call=\"add\" arg0=\"40\" arg1=\"2\" expect=\"42\" type=\"i32\"\n");
   printf("  addTestBody name=\"api add\" ... end\n");
+  printf("  renameTest name=\"api add\" value=\"api add route\"\n");
+  printf("  deleteTest name=\"api add\"\n");
   printf("  upsertFunction handle ... end\n");
   printf("  replaceFunctionBody main ... end\n");
   printf("  replaceBlockBody #block_id ... end\n");

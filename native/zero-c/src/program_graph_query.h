@@ -13,6 +13,7 @@ typedef struct {
   size_t node_depth;
   bool full_module;
   bool handles;
+  bool no_help;
   const char *bare_argument;
 } ZProgramGraphQueryRequest;
 
