@@ -6553,24 +6553,6 @@ static bool check_stdlib_mem_get_call_expected(CheckContext *ctx, const Program 
   return true;
 }
 
-static bool check_stdlib_mem_eql_bytes_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
-  if (!check_expr(ctx, program, expr->args.items[0], scope, diag) || !check_expr(ctx, program, expr->args.items[1], scope, diag)) return false;
-  const char *left_type = expr_type(ctx, program, expr->args.items[0], scope);
-  const char *right_type = expr_type(ctx, program, expr->args.items[1], scope);
-  char left_element[128];
-  char right_element[128];
-  if (!span_element_text(left_type, left_element, sizeof(left_element)) || !span_element_text(right_type, right_element, sizeof(right_element))) {
-    return set_diag_detail(diag, 3012, "std.mem.eqlBytes expects Span<T> arguments", expr->line, expr->column, "two Span<T> values", "non-span argument", "pass spans with matching element types");
-  }
-  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], "Span<T>", left_type);
-  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "Span<T>", right_type);
-  if (!types_compatible_in_scope(program, scope, left_element, right_element)) {
-    return set_diag_detail(diag, 3012, "std.mem.eqlBytes span element types must match", expr->line, expr->column, left_element, right_element, "compare spans with the same element type");
-  }
-  set_expr_resolved_type(expr, "Bool");
-  return true;
-}
-
 static bool stdlib_writable_item_element(const Expr *expr, ZDiag *diag, const char *display_name, const char *element_type) {
   if (!type_is_const(element_type)) return true;
   char message[256];
@@ -6657,6 +6639,28 @@ static bool stdlib_require_supported_item_element(const Program *program, const 
   if ((resolved && !strchr(resolved, '|') && strstr("|Bool|bool|u8|u16|usize|i32|u32|i64|u64|", pattern)) || type_is_named_generic(resolved, "ref") || type_is_named_generic(resolved, "mutref")) return true;
   char message[256]; snprintf(message, sizeof(message), "%s item element type is not supported", display_name);
   return set_diag_detail(diag, 3012, message, expr ? expr->line : 0, expr ? expr->column : 0, "Bool, u8, u16, usize, i32, u32, i64, or u64 item storage", element_type ? element_type : "Unknown", "use a supported scalar item type or write a specialized helper for this type");
+}
+
+static bool check_stdlib_mem_eql_bytes_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *callee = resolution && resolution->callee_name ? resolution->callee_name : "std.mem helper";
+  if (!check_expr(ctx, program, expr->args.items[0], scope, diag) || !check_expr(ctx, program, expr->args.items[1], scope, diag)) return false;
+  const char *left_type = expr_type(ctx, program, expr->args.items[0], scope);
+  const char *right_type = expr_type(ctx, program, expr->args.items[1], scope);
+  char left_element[128];
+  char right_element[128];
+  if (!span_element_text(left_type, left_element, sizeof(left_element)) || !span_element_text(right_type, right_element, sizeof(right_element))) {
+    char message[256]; snprintf(message, sizeof(message), "%s expects Span<T> arguments", callee);
+    return set_diag_detail(diag, 3012, message, expr->line, expr->column, "two Span<T> values", "non-span argument", "pass spans with matching element types");
+  }
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], "Span<T>", left_type); record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "Span<T>", right_type);
+  if (!types_compatible_in_scope(program, scope, left_element, right_element)) {
+    char message[256]; snprintf(message, sizeof(message), "%s span element types must match", callee);
+    return set_diag_detail(diag, 3012, message, expr->line, expr->column, left_element, right_element, "use spans with the same element type");
+  }
+  bool scalar_items = resolution && resolution->std_helper && resolution->std_helper->emits_runtime_helper;
+  if (scalar_items && (!stdlib_reject_owned_item_element(program, scope, callee, left_element, expr->args.items[0], diag, "compare", "compare non-owned scalar item spans or write a specialized helper for this type") ||
+      !stdlib_require_supported_item_element(program, callee, left_element, expr->args.items[0], diag))) return false;
+  set_expr_resolved_type(expr, "Bool"); return true;
 }
 
 static bool stdlib_validate_item_write_lifetimes(Scope *scope, const char *target_root, const ValueProvenance *origins, const Expr *site, ZDiag *diag, const char *display_name) {
@@ -6774,6 +6778,28 @@ static bool check_stdlib_mem_contains_call_expected(CheckContext *ctx, const Pro
   return true;
 }
 
+static bool check_stdlib_mem_split_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  const char *callee = resolution && resolution->callee_name ? resolution->callee_name : "std.mem.splitBefore";
+  char element_type[128];
+  if (!stdlib_readable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, callee, element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_reject_owned_item_element(program, scope, callee, element_type, expr->args.items[0], diag, "compare", "split around a non-owned delimiter or move owned values explicitly") ||
+      !stdlib_require_supported_item_element(program, callee, element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, element_type)) return false;
+  const char *needle_actual = expr_type(ctx, program, expr->args.items[1], scope);
+  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], element_type, needle_actual);
+  if (!types_compatible_in_scope(program, scope, element_type, needle_actual)) {
+    return set_diag_detail(diag, 3012, "std.mem split delimiter type must match item element", expr->args.items[1]->line, expr->args.items[1]->column, element_type, needle_actual, "split around a delimiter with the same element type");
+  }
+  set_expr_resolved_type(expr, expected_items);
+  z_call_resolution_set_return_type(resolution, expected_items);
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
 static bool check_stdlib_mem_slice_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
   const char *items_actual = NULL;
   char element_type[128];
@@ -6784,14 +6810,40 @@ static bool check_stdlib_mem_slice_call_expected(CheckContext *ctx, const Progra
   stdlib_span_type_for_element(result_type, sizeof(result_type), element_type, false);
   stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
   record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
-  if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) return false;
-  const char *count_actual = expr_type(ctx, program, expr->args.items[1], scope);
-  record_stdlib_arg_fact(resolution, 1, expr->args.items[1], "usize", count_actual);
-  if (!types_compatible_in_scope(program, scope, "usize", count_actual)) {
-    return set_diag_detail(diag, 3028, "std.mem slice count must be usize", expr->args.items[1]->line, expr->args.items[1]->column, "usize count", count_actual, "pass a usize count");
+  for (size_t i = 1; i < expr->args.len; i++) {
+    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, "usize")) return false;
+    const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
+    record_stdlib_arg_fact(resolution, i, expr->args.items[i], "usize", actual);
+    if (!types_compatible_in_scope(program, scope, "usize", actual)) {
+      return set_diag_detail(diag, 3028, "std.mem span view bounds must be usize", expr->args.items[i]->line, expr->args.items[i]->column, "usize", actual, "pass usize indices and counts");
+    }
   }
   set_expr_resolved_type(expr, result_type);
   z_call_resolution_set_return_type(resolution, result_type);
+  stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_mem_span_usize_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
+  const char *items_actual = NULL;
+  char element_type[128];
+  const char *name = resolution && resolution->callee_name ? resolution->callee_name : "std.mem helper";
+  if (!stdlib_readable_items_arg_element(ctx, program, expr->args.items[0], scope, diag, name, element_type, sizeof(element_type), &items_actual) ||
+      !stdlib_require_supported_item_element(program, name, element_type, expr->args.items[0], diag)) return false;
+  char expected_items[160];
+  stdlib_span_type_for_element(expected_items, sizeof(expected_items), element_type, false);
+  record_stdlib_arg_fact(resolution, 0, expr->args.items[0], expected_items, items_actual);
+  for (size_t i = 1; i < expr->args.len; i++) {
+    if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, "usize")) return false;
+    const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
+    record_stdlib_arg_fact(resolution, i, expr->args.items[i], "usize", actual);
+    if (!types_compatible_in_scope(program, scope, "usize", actual)) {
+      return set_diag_detail(diag, 3028, "std.mem helper bounds must be usize", expr->args.items[i]->line, expr->args.items[i]->column, "usize", actual, "pass usize indices and counts");
+    }
+  }
+  const char *return_type = resolution && resolution->return_type ? resolution->return_type : "usize";
+  set_expr_resolved_type(expr, return_type);
+  z_call_resolution_set_return_type(resolution, return_type);
   stdlib_record_single_type_arg(expr, element_type);
   return true;
 }
@@ -6855,12 +6907,12 @@ static bool stdlib_provenance_sets_overlap(Scope *scope, const ValueProvenance *
   return false;
 }
 
-static bool stdlib_reject_overlapping_collection_append(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *items_type, const char *values_type) {
+static bool stdlib_reject_overlapping_span_source(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, size_t dst_index, const char *dst_type, size_t src_index, const char *src_type, const char *message, const char *actual, const char *help) {
   ValueProvenance dst_origins = {0};
   ValueProvenance src_origins = {0};
-  bool dst_known = span_view_expr_provenance(ctx, program, expr->args.items[0], scope, items_type, &dst_origins) ||
-                   stdlib_direct_place_provenance(scope, expr->args.items[0], &dst_origins);
-  bool src_known = span_view_expr_provenance(ctx, program, expr->args.items[2], scope, values_type, &src_origins);
+  bool dst_known = span_view_expr_provenance(ctx, program, expr->args.items[dst_index], scope, dst_type, &dst_origins) ||
+                   stdlib_direct_place_provenance(scope, expr->args.items[dst_index], &dst_origins);
+  bool src_known = span_view_expr_provenance(ctx, program, expr->args.items[src_index], scope, src_type, &src_origins);
   if (!dst_known || !src_known) {
     value_provenance_free(&dst_origins);
     value_provenance_free(&src_origins);
@@ -6869,11 +6921,15 @@ static bool stdlib_reject_overlapping_collection_append(CheckContext *ctx, const
   if (stdlib_provenance_sets_overlap(scope, &dst_origins, &src_origins)) {
     value_provenance_free(&dst_origins);
     value_provenance_free(&src_origins);
-    return set_diag_detail(diag, 3012, "std.collections.append source must not overlap destination storage", expr->args.items[2]->line, expr->args.items[2]->column, "separate source storage", "overlapping append source", "copy through a separate scratch buffer or append values from distinct storage");
+    return set_diag_detail(diag, 3012, message, expr->args.items[src_index]->line, expr->args.items[src_index]->column, "separate source storage", actual, help);
   }
   value_provenance_free(&dst_origins);
   value_provenance_free(&src_origins);
   return true;
+}
+
+static bool stdlib_reject_overlapping_collection_append(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *items_type, const char *values_type) {
+  return stdlib_reject_overlapping_span_source(ctx, program, expr, scope, diag, 0, items_type, 2, values_type, "std.collections.append source must not overlap destination storage", "overlapping append source", "copy through a separate scratch buffer or append values from distinct storage");
 }
 
 static bool check_stdlib_collections_append_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution) {
@@ -6898,6 +6954,21 @@ static bool check_stdlib_collections_append_call_expected(CheckContext *ctx, con
   set_expr_resolved_type(expr, "usize");
   z_call_resolution_set_return_type(resolution, "usize");
   stdlib_record_single_type_arg(expr, element_type);
+  return true;
+}
+
+static bool check_stdlib_sort_merge_call_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, ZCallResolution *resolution, const char *name) {
+  if (!check_stdlib_table_arg_range_expected(ctx, program, expr, scope, diag, name, 0, true, resolution)) return false;
+  char *dst_type = call_resolution_param_type_text(resolution, 0);
+  char *left_type = call_resolution_param_type_text(resolution, 1);
+  char *right_type = call_resolution_param_type_text(resolution, 2);
+  bool ok = stdlib_reject_overlapping_span_source(ctx, program, expr, scope, diag, 0, dst_type, 1, left_type, "std.sort.mergeSorted source must not overlap destination storage", "overlapping merge source", "merge into a separate destination buffer or copy through scratch storage") &&
+            stdlib_reject_overlapping_span_source(ctx, program, expr, scope, diag, 0, dst_type, 2, right_type, "std.sort.mergeSorted source must not overlap destination storage", "overlapping merge source", "merge into a separate destination buffer or copy through scratch storage");
+  free(dst_type);
+  free(left_type);
+  free(right_type);
+  if (!ok) return false;
+  set_expr_resolved_type(expr, resolution && resolution->return_type ? resolution->return_type : "usize");
   return true;
 }
 
@@ -7816,8 +7887,14 @@ static bool check_stdlib_known_call_expected(CheckContext *ctx, const Program *p
     case Z_STD_HELPER_KIND_MEM_CONTAINS:
     case Z_STD_HELPER_KIND_MEM_IS_EMPTY:
       return check_stdlib_mem_contains_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_MEM_SPLIT:
+      return check_stdlib_mem_split_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_MEM_SLICE:
       return check_stdlib_mem_slice_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_MEM_SPAN_USIZE:
+      return check_stdlib_mem_span_usize_call_expected(ctx, program, expr, scope, diag, resolution);
+    case Z_STD_HELPER_KIND_SORT_MERGE:
+      return check_stdlib_sort_merge_call_expected(ctx, program, expr, scope, diag, resolution, name);
     case Z_STD_HELPER_KIND_COLLECTIONS_PUSH:
       return check_stdlib_collections_push_call_expected(ctx, program, expr, scope, diag, resolution);
     case Z_STD_HELPER_KIND_COLLECTIONS_APPEND:

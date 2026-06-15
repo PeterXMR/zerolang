@@ -956,6 +956,38 @@ const passCheckFixtures = [
 ];
 await mapLimit(passCheckFixtures, checkJobs, (fixture, _index, workerIndex) => checkFixtureParallel(fixture, workerIndex));
 
+const stdSortMergeOverlap = await writeImportFailureFixture(`${outDir}/std-sort-merge-overlap.0`, `pub fn main() -> Void {
+    var values: [5]i32 = [1, 3, 5, 2, 4]
+    let written: usize = std.sort.mergeSortedI32(values, std.mem.prefix(values, 3_usize), std.mem.dropPrefix(values, 3_usize))
+}
+`);
+assert.equal(stdSortMergeOverlap.diagnostics[0].code, "STD003");
+assert.match(stdSortMergeOverlap.diagnostics[0].message, /std\.sort\.mergeSorted source must not overlap destination storage/);
+
+const stdMemStartsWithMismatch = await writeImportFailureFixture(`${outDir}/std-mem-startswith-mismatch.0`, `pub fn main() -> Void {
+    let left_values: [2]i32 = [1, 2]
+    let right_values: [2]u32 = [1_u32, 2_u32]
+    let left: Span<i32> = left_values
+    let right: Span<u32> = right_values
+    let ok: Bool = std.mem.startsWith(left, right)
+}
+`);
+assert.equal(stdMemStartsWithMismatch.diagnostics[0].code, "STD003");
+assert.match(stdMemStartsWithMismatch.diagnostics[0].message, /std\.mem\.startsWith span element types must match/);
+
+const stdMemStartsWithUnsupported = await writeImportFailureFixture(`${outDir}/std-mem-startswith-unsupported.0`, `type Point {
+    x: i32,
+}
+
+pub fn main() -> Void {
+    let points: [1]Point = [Point { x: 1 }]
+    let span: Span<Point> = points
+    let ok: Bool = std.mem.startsWith(span, span)
+}
+`);
+assert.equal(stdMemStartsWithUnsupported.diagnostics[0].code, "STD003");
+assert.match(stdMemStartsWithUnsupported.diagnostics[0].message, /std\.mem\.startsWith item element type is not supported/);
+
 // Fixtures using the gated typed graph MIR constructs fail check with the
 // same BLD004 diagnostics zero build reports for their graph stores.
 const gateBlockedCheckFixtures = [
